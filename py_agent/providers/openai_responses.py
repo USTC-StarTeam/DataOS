@@ -9,6 +9,7 @@ from typing import Any, Callable
 from urllib import error, request
 
 from py_agent.debug_log import DebugLogger
+from py_agent.providers.message_transform import transform_chat_messages
 from py_agent.providers.base import ChatResult, Provider, ProviderError, ToolCall
 
 BASE_URL_ENV = "STARTEAM_BASE_URL"
@@ -68,9 +69,10 @@ class OpenAICompatibleProvider(Provider):
 
     def chat(self, messages: list[dict[str, Any]], model: str, tools: list[dict[str, Any]] | None = None) -> ChatResult:
         url = _build_chat_completions_url(self.base_url)
+        transformed_messages = transform_chat_messages(messages)
         payload = {
             "model": model,
-            "messages": messages,
+            "messages": transformed_messages,
             "stream": False,
         }
         if tools:
@@ -87,7 +89,18 @@ class OpenAICompatibleProvider(Provider):
                 f"request url={url} payload={json.dumps(payload, ensure_ascii=False)} "
                 f"headers={json.dumps(redacted_headers, ensure_ascii=False)}"
             )
-        data = self.transport(url, payload, headers)
+        try:
+            data = self.transport(url, payload, headers)
+        except ProviderError as exc:
+            if _is_tool_role_pairing_error(exc):
+                compat_messages = _compat_messages_without_tool_history(transformed_messages)
+                compat_payload = dict(payload)
+                compat_payload["messages"] = compat_messages
+                if self.debug_logger and self.debug_level == "high":
+                    self.debug_logger.llm("retrying with compatibility message transform (drop historical tool roles)")
+                data = self.transport(url, compat_payload, headers)
+            else:
+                raise
         if self.debug_logger and self.debug_level == "high":
             self.debug_logger.llm(f"response body={json.dumps(data, ensure_ascii=False)}")
 
@@ -152,3 +165,23 @@ def _parse_tool_calls(raw: Any) -> list[ToolCall]:
             call_id = f"toolcall-{idx}-{uuid.uuid4().hex[:8]}"
         parsed.append(ToolCall(id=call_id, name=name, arguments=arguments))
     return parsed
+
+
+def _is_tool_role_pairing_error(exc: ProviderError) -> bool:
+    text = str(exc).lower()
+    return 'messages with role "tool"' in text or ("messages with role" in text and "tool" in text)
+
+
+def _compat_messages_without_tool_history(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "tool":
+            continue
+        if role == "assistant" and msg.get("tool_calls") is not None:
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                out.append({"role": "assistant", "content": content})
+            continue
+        out.append(msg)
+    return out

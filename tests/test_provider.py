@@ -65,3 +65,38 @@ def test_provider_high_debug_logs_request_and_response_with_redacted_auth() -> N
     assert "response body=" in joined
     assert "Bearer ***" in joined
     assert "secret-token" not in joined
+
+
+def test_provider_retries_with_compat_messages_on_tool_role_pairing_error() -> None:
+    seen_payloads: list[dict] = []
+
+    def fake_transport(url: str, payload: dict, headers: dict) -> dict:
+        seen_payloads.append(payload)
+        if len(seen_payloads) == 1:
+            raise ProviderError(
+                'request failed: HTTP 400 body={"error":{"message":"messages with role \\"tool\\" must be a response"}}'
+            )
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    provider = OpenAICompatibleProvider(base_url="https://example.com", api_key="token", transport=fake_transport)
+    result = provider.chat(
+        model="glm-5",
+        tools=[],
+        messages=[
+            {"role": "user", "content": "hello"},
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"id": "t1", "type": "function", "function": {"name": "bash", "arguments": "{\"command\":\"pwd\"}"}}
+                ],
+            },
+            {"role": "tool", "name": "bash", "tool_call_id": "t1", "content": "ok"},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "next"},
+        ],
+    )
+    assert result.text == "ok"
+    assert len(seen_payloads) == 2
+    retry_messages = seen_payloads[1]["messages"]
+    assert all(m.get("role") != "tool" for m in retry_messages)
+    assert not any(m.get("tool_calls") is not None for m in retry_messages if m.get("role") == "assistant")
