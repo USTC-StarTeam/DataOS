@@ -12,7 +12,7 @@ Repository: `https://github.com/USTC-StarTeam/DataOS.git`
 - Development branch: `tjh_MVP`.
 - Merge policy: all production merges to `main` must be via Pull Request.
 - CI must be implemented during development (starting from PR1), not deferred to the end.
-- Development and test execution must run inside a conda environment.
+- Development and test execution must use `uv` environment management.
 
 ## In-Scope
 - CLI entrypoint and argument parsing.
@@ -84,16 +84,16 @@ py-agent/
 ### PR1: Python Skeleton + CLI Args
 Tasks:
 - Create Python package skeleton and `pyproject.toml`.
-- Add `environment.yml` for conda-based setup.
+- Add `uv`-based setup workflow (`uv sync --extra dev`).
 - Implement `main.py`, `cli.py`, `args.py`.
 - Support `--help` and `--version`.
 - Capture CLI baseline and create `compat_baseline.md` (>= 15 checks).
-- Create initial CI workflow (`.github/workflows/ci.yml`) with conda setup + lint + unit test jobs.
+- Create initial CI workflow (`.github/workflows/ci.yml`) with uv setup + lint + unit test jobs.
 Done when:
 - CLI starts and basic flags work without model integration.
 - Code is committed on `tjh_MVP` and PR-ready for `main`.
 - CI workflow runs successfully on `tjh_MVP` pushes and `main` pull requests.
-- Local verification commands run successfully in conda env.
+- Local verification commands run successfully via `uv run`.
 
 ### PR2: OpenAI Provider + Print Mode
 Tasks:
@@ -168,7 +168,7 @@ Done when:
 - Do not merge directly into `main` without PR review.
 
 ## Test Requirements
-- All test/lint commands are executed within the project conda environment.
+- All test/lint commands are executed with `uv run`.
 - Unit test per local tool.
 - Deterministic `edit` tests.
 - Skill parsing/discovery/invocation tests.

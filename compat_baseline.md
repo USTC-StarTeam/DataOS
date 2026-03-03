@@ -14,6 +14,6 @@ This baseline defines the minimum observable behavior for PR1.
 10. CLI executable entrypoint is `py-agent`.
 11. Module entrypoint `python -m py_agent.main --version` works.
 12. `pyproject.toml` declares Python `>=3.11`.
-13. `pytest` can discover tests from `tests/`.
-14. `ruff check .` passes for PR1 code.
+13. `uv run pytest` can discover tests from `tests/`.
+14. `uv run ruff check .` passes for PR1 code.
 15. CI runs on push to `tjh_MVP` and on PR to `main`.
