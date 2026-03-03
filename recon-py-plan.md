@@ -152,6 +152,66 @@ Done when:
 - Code is committed on `tjh_MVP` and PR-ready for `main`.
 - CI includes and passes MCP integration tests.
 
+#### PR5 Detailed MCP Plan
+
+Implementation scope:
+- Support MCP stdio transport first (required), HTTP/SSE transport optional.
+- Register MCP tools into the existing runtime as first-class callable tools.
+- Keep local tools enabled by default; MCP tools are additive.
+
+Configuration design:
+- Add `--mcp-config <path>` CLI option (JSON file).
+- Add `--mcp-server <name>` repeatable flag for allowlist enabling.
+- If no `--mcp-server` is provided, no MCP server is enabled by default.
+- Config schema (minimum):
+  - `servers.<name>.command` (required for stdio)
+  - `servers.<name>.args` (optional)
+  - `servers.<name>.env` (optional)
+  - `servers.<name>.cwd` (optional)
+
+Runtime behavior:
+- Startup:
+  - parse config
+  - start enabled MCP servers
+  - list tools from each server
+  - register tool namespace as `mcp.<server>.<tool>`
+- Execution:
+  - route tool calls by prefix:
+    - `mcp.*` -> MCP client call
+    - others -> local tools
+- Shutdown:
+  - gracefully close MCP transports
+  - enforce timeout and force-kill hung server processes
+
+Error handling:
+- Server startup failure -> structured warning and continue without that server.
+- Tool call failure -> structured `tool error:` response, no process crash.
+- Protocol decode failure -> include server name and tool name in error text.
+
+Security controls:
+- Explicit server allowlist via `--mcp-server`.
+- Do not auto-enable all configured servers.
+- Redact sensitive env values from logs/events.
+
+Test plan (test-first):
+- Unit:
+  - config parse/validation tests
+  - namespace routing tests (`mcp.*` vs local)
+  - server enable/disable logic tests
+- Integration (deterministic, blocking):
+  - mock MCP stdio server: list tools
+  - mock MCP stdio server: invoke tool and return result
+  - mock MCP stdio server: error path propagation
+- Task eval (non-blocking):
+  - one end-to-end prompt using an MCP tool in print mode
+
+Acceptance checklist:
+- `uv run pytest -m "not integration and not task_eval"` passes.
+- `uv run pytest -m integration` includes MCP deterministic tests and passes.
+- `uv run pytest -m task_eval` includes MCP task smoke and reports results.
+- Demo command succeeds:
+  - `uv run python -m py_agent.main -p --mcp-config ./mcp.json --mcp-server demo \"use mcp.demo.echo\"`
+
 ### PR6: Skills
 Tasks:
 - Add/adjust tests first for skill discovery/parsing/invocation behavior.
