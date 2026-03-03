@@ -5,8 +5,8 @@ from pathlib import Path
 from py_agent.session import SessionStore, default_session_path
 
 
-def test_session_store_roundtrip(tmp_path: Path) -> None:
-    path = tmp_path / "s.jsonl"
+def test_session_store_roundtrip(test_workspace: Path) -> None:
+    path = test_workspace / "s.jsonl"
     store = SessionStore(path)
 
     store.append_turn(
@@ -27,7 +27,7 @@ def test_session_store_roundtrip(tmp_path: Path) -> None:
     assert [e["type"] for e in store.load_events()] == ["user", "assistant", "user", "assistant"]
 
 
-def test_default_session_path_is_under_dot_py_agent(tmp_path: Path) -> None:
-    p = default_session_path(str(tmp_path))
+def test_default_session_path_is_under_dot_py_agent(test_workspace: Path) -> None:
+    p = default_session_path(str(test_workspace))
     assert ".py-agent" in str(p)
     assert p.name == "default.jsonl"
