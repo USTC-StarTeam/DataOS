@@ -8,6 +8,7 @@ import sys
 
 from .args import parse_args
 from .config import VERSION
+from .mcp.registry import McpRegistry, McpRegistryError
 from .modes.print_mode import run_print_mode
 from .providers import DEFAULT_MODEL, OpenAICompatibleProvider
 from .providers.base import ProviderError
@@ -24,6 +25,9 @@ def run(argv: list[str] | None = None) -> int:
         if not args.messages:
             print("error: missing prompt for --print mode", file=sys.stderr)
             return 2
+        if args.mcp_servers and not args.mcp_config:
+            print("error: --mcp-server requires --mcp-config", file=sys.stderr)
+            return 2
 
         session_store = _resolve_session_store(
             cwd=os.getcwd(),
@@ -34,7 +38,16 @@ def run(argv: list[str] | None = None) -> int:
 
         prompt = " ".join(args.messages).strip()
         model = args.model or DEFAULT_MODEL
+        mcp_registry: McpRegistry | None = None
         try:
+            extra_tools = {}
+            if args.mcp_config:
+                config_path = Path(args.mcp_config)
+                if not config_path.is_absolute():
+                    config_path = Path(os.getcwd()) / config_path
+                mcp_registry = McpRegistry(config_path=config_path.resolve(), enabled_servers=args.mcp_servers)
+                mcp_registry.start()
+                extra_tools.update(mcp_registry.build_tools())
             provider = OpenAICompatibleProvider()
             result = run_print_mode(
                 provider=provider,
@@ -43,10 +56,14 @@ def run(argv: list[str] | None = None) -> int:
                 mode=args.mode,
                 cwd=os.getcwd(),
                 initial_messages=initial_messages,
+                extra_tools=extra_tools,
             )
-        except ProviderError as exc:
+        except (ProviderError, McpRegistryError) as exc:
             print(f"provider error: {exc}", file=sys.stderr)
             return 1
+        finally:
+            if mcp_registry is not None:
+                mcp_registry.close()
 
         if session_store:
             session_store.append_turn(messages=result.turn_messages, events=result.events)
