@@ -23,6 +23,9 @@ py-agent = "py_agent.main:main"
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+  "integration: tests that require external API access",
+]
 
 [tool.ruff]
 line-length = 100
