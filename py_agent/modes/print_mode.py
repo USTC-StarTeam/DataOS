@@ -8,6 +8,7 @@ from typing import Any
 
 from py_agent.providers.base import Provider
 from py_agent.runtime import run_agent_loop
+from py_agent.skills import apply_skill_invocations, build_skills_system_prompt, discover_skills
 from py_agent.tools import Tool, create_local_tools
 
 
@@ -31,12 +32,16 @@ def run_print_mode(
     tools = create_local_tools(cwd=cwd)
     if extra_tools:
         tools.update(extra_tools)
+    skills = discover_skills(cwd)
+    resolved_prompt = apply_skill_invocations(prompt, skills)
+    system_prompt = build_skills_system_prompt(skills)
     completion = run_agent_loop(
         provider=provider,
         model=model,
-        prompt=prompt,
+        prompt=resolved_prompt,
         tools=tools,
         initial_messages=initial_messages,
+        system_prompt=system_prompt or None,
     )
     if mode == "text":
         return PrintModeResult(
