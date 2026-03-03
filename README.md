@@ -2,19 +2,18 @@
 
 ## Python Agent (PR1 Skeleton)
 
-### Conda Setup
+### uv Setup
 
 ```bash
-conda env update -n dataos-agent -f environment.yml
-conda activate dataos-agent
+uv sync --extra dev
 ```
 
 ### Run
 
 ```bash
-python -m py_agent.main --help
-python -m py_agent.main --version
-python -m py_agent.main -p --mode text --model glm-5 "hello"
+uv run python -m py_agent.main --help
+uv run python -m py_agent.main --version
+uv run python -m py_agent.main -p --mode text --model glm-5 "hello"
 ```
 
 Set provider env vars before print mode:
@@ -27,6 +26,6 @@ export STAETEAM_API_KEY="your-api-key"
 ### Validate
 
 ```bash
-ruff check .
-pytest
+uv run ruff check .
+uv run pytest
 ```
