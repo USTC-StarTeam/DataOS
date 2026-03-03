@@ -29,7 +29,7 @@ jobs:
         run: uv run ruff check .
 
       - name: Unit tests
-        run: uv run pytest -m "not integration"
+        run: uv run pytest -m "not integration and not task_eval"
 
   integration:
     runs-on: ubuntu-latest
@@ -59,3 +59,33 @@ jobs:
 
       - name: Integration tests
         run: uv run pytest -m integration
+
+  task_eval:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    env:
+      STARTEAM_BASE_URL: ${{ secrets.STARTEAM_BASE_URL }}
+      STAETEAM_API_KEY: ${{ secrets.STAETEAM_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra dev
+
+      - name: Validate task-eval secrets
+        run: |
+          test -n "${STARTEAM_BASE_URL}" || (echo "Missing STARTEAM_BASE_URL secret" && exit 1)
+          test -n "${STAETEAM_API_KEY}" || (echo "Missing STAETEAM_API_KEY secret" && exit 1)
+
+      - name: Task evaluations (non-blocking)
+        run: uv run pytest -m task_eval
