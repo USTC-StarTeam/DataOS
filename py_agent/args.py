@@ -17,6 +17,8 @@ class CliArgs:
     no_session: bool
     session: str | None
     continue_session: bool
+    mcp_config: str | None
+    mcp_servers: list[str]
     messages: list[str]
 
 
@@ -38,6 +40,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-session", action="store_true", help="Disable session persistence")
     parser.add_argument("--session", default=None, help="Session JSONL file path")
     parser.add_argument("--continue", dest="continue_session", action="store_true", help="Continue previous session")
+    parser.add_argument("--mcp-config", default=None, help="MCP config JSON path")
+    parser.add_argument(
+        "--mcp-server",
+        action="append",
+        dest="mcp_servers",
+        default=[],
+        help="Enable MCP server by name (repeatable)",
+    )
     parser.add_argument("messages", nargs="*", help="Prompt text")
     return parser
 
@@ -52,5 +62,7 @@ def parse_args(argv: list[str]) -> CliArgs:
         no_session=bool(ns.no_session),
         session=ns.session,
         continue_session=bool(ns.continue_session),
+        mcp_config=ns.mcp_config,
+        mcp_servers=list(ns.mcp_servers),
         messages=list(ns.messages),
     )
