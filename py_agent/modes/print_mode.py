@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 
 from py_agent.providers.base import Provider
+from py_agent.runtime import run_agent_loop
+from py_agent.tools import create_local_tools
 
 
 @dataclass(frozen=True)
@@ -14,8 +16,9 @@ class PrintModeResult:
     output: str
 
 
-def run_print_mode(provider: Provider, prompt: str, model: str, mode: str) -> PrintModeResult:
-    completion = provider.complete(prompt=prompt, model=model)
+def run_print_mode(provider: Provider, prompt: str, model: str, mode: str, cwd: str = ".") -> PrintModeResult:
+    tools = create_local_tools(cwd=cwd)
+    completion = run_agent_loop(provider=provider, model=model, prompt=prompt, tools=tools)
     if mode == "text":
         return PrintModeResult(model=completion.model, output=completion.text)
 

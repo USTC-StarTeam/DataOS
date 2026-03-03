@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 from .args import parse_args
@@ -26,7 +27,7 @@ def run(argv: list[str] | None = None) -> int:
         model = args.model or DEFAULT_MODEL
         try:
             provider = OpenAICompatibleProvider()
-            result = run_print_mode(provider=provider, prompt=prompt, model=model, mode=args.mode)
+            result = run_print_mode(provider=provider, prompt=prompt, model=model, mode=args.mode, cwd=os.getcwd())
         except ProviderError as exc:
             print(f"provider error: {exc}", file=sys.stderr)
             return 1

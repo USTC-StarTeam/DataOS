@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from py_agent.modes.print_mode import run_print_mode
-from py_agent.providers.base import CompletionResult, Provider
+from py_agent.providers.base import ChatResult, Provider
 
 
 class DummyProvider(Provider):
-    def complete(self, prompt: str, model: str) -> CompletionResult:
-        assert prompt == "hello"
+    def chat(self, messages: list[dict[str, Any]], model: str, tools=None) -> ChatResult:
+        assert messages[0]["content"] == "hello"
         assert model == "glm-5"
-        return CompletionResult(model=model, text="world")
+        return ChatResult(model=model, text="world", tool_calls=[])
 
 
 def test_print_mode_text_output() -> None:
