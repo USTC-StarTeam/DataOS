@@ -9,6 +9,7 @@ Repository: `https://github.com/USTC-StarTeam/DataOS.git`
 - Scope remains CLI-only.
 - MCP and skills must be usable in print/script mode.
 - Deliver in runnable increments; each phase must be executable.
+- Test-first enforcement: for every task/PR, tests must be added or updated before implementation is considered complete.
 - Development branch: `tjh_MVP`.
 - Merge policy: all production merges to `main` must be via Pull Request.
 - CI must be implemented during development (starting from PR1), not deferred to the end.
@@ -83,6 +84,7 @@ py-agent/
 
 ### PR1: Python Skeleton + CLI Args
 Tasks:
+- Add/adjust tests first for CLI baseline behavior.
 - Create Python package skeleton and `pyproject.toml`.
 - Add `uv`-based setup workflow (`uv sync --extra dev`).
 - Implement `main.py`, `cli.py`, `args.py`.
@@ -97,6 +99,7 @@ Done when:
 
 ### PR2: OpenAI Provider + Print Mode
 Tasks:
+- Add/adjust tests first for provider behavior, output modes, and env wiring.
 - Implement OpenAI provider adapter in `providers/openai_responses.py`.
 - Implement `-p/--print` in `modes/print_mode.py`.
 - Support `--mode text|json` outputs.
@@ -114,6 +117,7 @@ Done when:
 
 ### PR3: Local Tools (read/write/edit/bash)
 Tasks:
+- Add/adjust tests first for tool behavior, runtime loop behavior, and failure compatibility paths.
 - Implement tool abstraction and local tool registry.
 - Implement `read`, `write`, `edit`, `bash`.
 - Add tool input validation and structured error output.
@@ -126,6 +130,7 @@ Done when:
 
 ### PR4: Session Persistence
 Tasks:
+- Add/adjust tests first for session persistence and resume paths.
 - Implement JSONL session store and loader.
 - Add `--no-session`, `--session`, `--continue`.
 - Persist and restore core event/message history.
@@ -137,6 +142,7 @@ Done when:
 
 ### PR5: Skills
 Tasks:
+- Add/adjust tests first for skill discovery/parsing/invocation behavior.
 - Implement `SKILL.md` discovery and parsing.
 - Implement `/skill:name` expansion.
 - Inject available skills metadata into system prompt.
@@ -148,6 +154,7 @@ Done when:
 
 ### PR6: MCP Integration
 Tasks:
+- Add/adjust tests first for MCP listing/invocation/error handling behavior.
 - Implement MCP client and MCP tool registry.
 - Merge MCP and local tools into unified dispatch path.
 - Add per-run/server config and explicit enablement controls.
@@ -169,6 +176,9 @@ Done when:
 
 ## Test Requirements
 - All test/lint commands are executed with `uv run`.
+- Every task must have explicit test coverage mapping:
+  - requirement -> test file -> test case.
+- No task is complete if the related tests are missing.
 - Unit test per local tool.
 - Deterministic `edit` tests.
 - Skill parsing/discovery/invocation tests.
