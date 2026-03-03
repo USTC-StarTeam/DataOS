@@ -15,6 +15,8 @@ uv run python -m py_agent.main --help
 uv run python -m py_agent.main --version
 uv run python -m py_agent.main -p --mode text --model glm-5 "hello"
 uv run python -m py_agent.main -p --mode json --model glm-5 "hello"
+uv run python -m py_agent.main -p --continue "continue with prior context"
+uv run python -m py_agent.main -p --session ./my-session.jsonl "store session here"
 ```
 
 Set provider env vars before print mode:
@@ -27,6 +29,7 @@ export STAETEAM_API_KEY="your-api-key"
 ### Current Capabilities
 
 - CLI entrypoint and args (`--help`, `--version`, `-p/--print`, `--mode text|json`, `--model`)
+- Session persistence flags (`--no-session`, `--session <path>`, `--continue`)
 - OpenAI-compatible provider (tested with `glm-5`)
 - Local tools: `read`, `write`, `edit`, `bash`
 - Runtime loop: model -> local tool calls -> model (with gateway compatibility fallback)
@@ -50,3 +53,9 @@ Test layers:
   deterministic API connectivity and basic program integration (blocking in CI)
 - `task_eval`:
   model-capability task evaluations (non-blocking in CI, used as observability signals)
+
+Test workspace policy:
+
+- File-producing tests use a fixed workspace root: `tests/.tmp/`
+- Each test case gets its own subdirectory under `tests/.tmp`
+- Test subdirectories are deleted after each test run

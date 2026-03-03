@@ -16,6 +16,8 @@ MAX_TOOL_LOOP_STEPS = 8
 class RuntimeResult:
     model: str
     text: str
+    turn_messages: list[dict[str, Any]]
+    events: list[dict[str, Any]]
 
 
 def build_tool_schemas(tools: dict[str, Any]) -> list[dict[str, Any]]:
@@ -34,8 +36,18 @@ def build_tool_schemas(tools: dict[str, Any]) -> list[dict[str, Any]]:
     return schemas
 
 
-def run_agent_loop(provider: Provider, model: str, prompt: str, tools: dict[str, Any]) -> RuntimeResult:
-    messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+def run_agent_loop(
+    provider: Provider,
+    model: str,
+    prompt: str,
+    tools: dict[str, Any],
+    initial_messages: list[dict[str, Any]] | None = None,
+) -> RuntimeResult:
+    messages: list[dict[str, Any]] = list(initial_messages or [])
+    events: list[dict[str, Any]] = []
+    start_index = len(messages)
+    messages.append({"role": "user", "content": prompt})
+    events.append({"type": "user", "content": prompt})
     tool_schemas = build_tool_schemas(tools)
     latest_tool_outputs: list[str] = []
 
@@ -47,15 +59,34 @@ def run_agent_loop(provider: Provider, model: str, prompt: str, tools: dict[str,
             # Fall back to returning tool execution output if tools already ran.
             exc_text = str(exc).lower()
             if latest_tool_outputs and "messages with role" in exc_text and "tool" in exc_text:
-                return RuntimeResult(model=model, text="\n".join(latest_tool_outputs))
+                text = "\n".join(latest_tool_outputs)
+                messages.append({"role": "assistant", "content": text})
+                events.append({"type": "assistant", "content": text, "fallback": True})
+                return RuntimeResult(model=model, text=text, turn_messages=messages[start_index:], events=events)
             raise
         if not response.tool_calls:
-            return RuntimeResult(model=response.model, text=response.text)
+            messages.append({"role": "assistant", "content": response.text})
+            events.append({"type": "assistant", "content": response.text})
+            return RuntimeResult(
+                model=response.model,
+                text=response.text,
+                turn_messages=messages[start_index:],
+                events=events,
+            )
 
         if response.assistant_message is not None:
             messages.append(response.assistant_message)
         else:
             messages.append(_assistant_message_for_tool_calls(response.text, response.tool_calls))
+        for call in response.tool_calls:
+            events.append(
+                {
+                    "type": "tool_call",
+                    "tool": call.name,
+                    "tool_call_id": call.id,
+                    "arguments": call.arguments,
+                }
+            )
         for call in response.tool_calls:
             output = _execute_tool_call(call, tools)
             latest_tool_outputs.append(output)
@@ -63,6 +94,14 @@ def run_agent_loop(provider: Provider, model: str, prompt: str, tools: dict[str,
                 {
                     "role": "tool",
                     "name": call.name,
+                    "tool_call_id": call.id,
+                    "content": output,
+                }
+            )
+            events.append(
+                {
+                    "type": "tool_result",
+                    "tool": call.name,
                     "tool_call_id": call.id,
                     "content": output,
                 }
