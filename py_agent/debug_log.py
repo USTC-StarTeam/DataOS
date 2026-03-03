@@ -47,7 +47,7 @@ class DebugLogger:
 
 
 def default_debug_log_path(cwd: str) -> Path:
-    return Path(cwd).resolve() / ".py-agent" / "logs" / "debug.log"
+    return Path(cwd).resolve() / ".py-agent" / "logs" / "debug.json"
 
 
 def resolve_debug_log_path(cwd: str, log_path_arg: str | None) -> Path:

@@ -22,6 +22,7 @@ uv run python -m py_agent.main --help
 uv run python -m py_agent.main --version
 uv run python -m py_agent.main -p --mode text --model glm-5 "hello"
 uv run python -m py_agent.main -p --mode json --model glm-5 "hello"
+uv run python -m py_agent.main --mode tui --model glm-5
 uv run python -m py_agent.main --debug low --version
 uv run python -m py_agent.main --debug high --log-path ./logs/agent-debug.log --version
 ```
@@ -45,6 +46,9 @@ uv run python -m py_agent.main -p --session ./my-session.jsonl --continue "next 
 
 # disable session persistence
 uv run python -m py_agent.main -p --no-session "one-shot"
+
+# TUI mode + continue
+uv run python -m py_agent.main --mode tui --continue
 ```
 
 ### 4.1) Debug Logging
@@ -52,7 +56,7 @@ uv run python -m py_agent.main -p --no-session "one-shot"
 - Enable with `--debug`
 - `--debug low`: only runtime events (`EVENT` lines)
 - `--debug high`: full logs (flow + errors + LLM request/response with redacted auth)
-- Default log path: `./.py-agent/logs/debug.log`
+- Default log path: `./.py-agent/logs/debug.json`
 - Custom path: `--log-path <file>` (must be used with `--debug`)
 - Log format: JSON Lines (one JSON object per line)
 
@@ -62,6 +66,7 @@ Run with MCP enabled:
 
 ```bash
 uv run python -m py_agent.main -p --mcp-config ./mcp.json --mcp-server demo "use mcp tools"
+uv run python -m py_agent.main --mode tui --mcp-config ./mcp.json --mcp-server demo
 ```
 
 `mcp.json` example:
@@ -89,6 +94,10 @@ uv run python -m py_agent.main -p "/skill:writer draft release notes"
 Skill discovery paths:
 - `skills/**/SKILL.md`
 - `.codex/skills/**/SKILL.md`
+
+TUI tips:
+- Exit with `/exit` or `/quit`
+- `Ctrl+C` / `Ctrl+D` exits gracefully
 
 ### Current Capabilities
 
