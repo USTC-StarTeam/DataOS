@@ -52,7 +52,7 @@ class OpenAICompatibleProvider(Provider):
             raise ProviderError(f"missing environment variable: {API_KEY_ENV}")
 
     def complete(self, prompt: str, model: str) -> CompletionResult:
-        url = f"{self.base_url}/v1/chat/completions"
+        url = _build_chat_completions_url(self.base_url)
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
@@ -73,6 +73,13 @@ class OpenAICompatibleProvider(Provider):
         if not text:
             raise ProviderError("empty response content")
         return CompletionResult(model=model, text=text)
+
+
+def _build_chat_completions_url(base_url: str) -> str:
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/v1"):
+        return f"{normalized}/chat/completions"
+    return f"{normalized}/v1/chat/completions"
 
 
 def _flatten_message_content(content: Any) -> str:
