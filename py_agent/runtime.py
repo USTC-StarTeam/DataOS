@@ -42,10 +42,14 @@ def run_agent_loop(
     prompt: str,
     tools: dict[str, Any],
     initial_messages: list[dict[str, Any]] | None = None,
+    system_prompt: str | None = None,
 ) -> RuntimeResult:
     messages: list[dict[str, Any]] = list(initial_messages or [])
     events: list[dict[str, Any]] = []
     start_index = len(messages)
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+        events.append({"type": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
     events.append({"type": "user", "content": prompt})
     tool_schemas = build_tool_schemas(tools)
