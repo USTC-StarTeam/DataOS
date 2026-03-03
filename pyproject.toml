@@ -25,6 +25,7 @@ addopts = "-q"
 testpaths = ["tests"]
 markers = [
   "integration: tests that require external API access",
+  "task_eval: model-capability task evaluations (non-blocking in CI)",
 ]
 
 [tool.ruff]
