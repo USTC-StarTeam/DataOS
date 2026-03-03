@@ -2,33 +2,58 @@
 
 ## Python Agent (MVP In Progress)
 
-### uv Setup
+### 1) Setup (uv)
 
 ```bash
 uv sync --extra dev
 ```
 
-### Run
-
-```bash
-uv run python -m py_agent.main --help
-uv run python -m py_agent.main --version
-uv run python -m py_agent.main -p --mode text --model glm-5 "hello"
-uv run python -m py_agent.main -p --mode json --model glm-5 "hello"
-uv run python -m py_agent.main -p --continue "continue with prior context"
-uv run python -m py_agent.main -p --session ./my-session.jsonl "store session here"
-uv run python -m py_agent.main -p --mcp-config ./mcp.json --mcp-server demo "use mcp tools"
-uv run python -m py_agent.main -p --mode text " /skill:writer draft release notes "
-```
-
-Set provider env vars before print mode:
+### 2) Provider Environment
 
 ```bash
 export STARTEAM_BASE_URL="https://your-openai-compatible-endpoint"
 export STAETEAM_API_KEY="your-api-key"
 ```
 
-MCP config example (`mcp.json`):
+### 3) Basic CLI Usage
+
+```bash
+uv run python -m py_agent.main --help
+uv run python -m py_agent.main --version
+uv run python -m py_agent.main -p --mode text --model glm-5 "hello"
+uv run python -m py_agent.main -p --mode json --model glm-5 "hello"
+```
+
+### 4) Session Persistence
+
+Default session file:
+- `./.py-agent/sessions/default.jsonl`
+
+Examples:
+
+```bash
+# continue default session
+uv run python -m py_agent.main -p --continue "continue with prior context"
+
+# use custom session file
+uv run python -m py_agent.main -p --session ./my-session.jsonl "store session here"
+
+# continue custom session
+uv run python -m py_agent.main -p --session ./my-session.jsonl --continue "next message"
+
+# disable session persistence
+uv run python -m py_agent.main -p --no-session "one-shot"
+```
+
+### 5) MCP Usage
+
+Run with MCP enabled:
+
+```bash
+uv run python -m py_agent.main -p --mcp-config ./mcp.json --mcp-server demo "use mcp tools"
+```
+
+`mcp.json` example:
 
 ```json
 {
@@ -42,6 +67,18 @@ MCP config example (`mcp.json`):
 }
 ```
 
+### 6) Skills Usage
+
+Prompt with skill invocation token:
+
+```bash
+uv run python -m py_agent.main -p "/skill:writer draft release notes"
+```
+
+Skill discovery paths:
+- `skills/**/SKILL.md`
+- `.codex/skills/**/SKILL.md`
+
 ### Current Capabilities
 
 - CLI entrypoint and args (`--help`, `--version`, `-p/--print`, `--mode text|json`, `--model`)
@@ -54,32 +91,26 @@ MCP config example (`mcp.json`):
 
 ### Validation
 
-Run all checks:
+Common commands:
 
 ```bash
 uv run ruff check .
-uv run pytest -m "not integration and not task_eval"
+uv run pytest -m "not integration and not task_eval and not mcp_external"
 uv run pytest -m integration
 uv run pytest -m task_eval
-uv run pytest -m mcp_external
+uv run pytest tests/test_integration_mcp_external.py -m mcp_external -q
 ```
 
 Test layers:
 
-- `not integration and not task_eval`:
+- `not integration and not task_eval and not mcp_external`:
   deterministic unit tests (blocking)
 - `integration`:
   deterministic API connectivity and basic program integration (blocking in CI)
 - `task_eval`:
   model-capability task evaluations (non-blocking in CI, used as observability signals)
 - `mcp_external`:
-  manual third-party MCP connectivity tests (not run in CI by default)
-
-`mcp_external` is fixed to use `@modelcontextprotocol/server-everything` via `npx`:
-
-```bash
-uv run pytest tests/test_integration_mcp_external.py -m mcp_external -q
-```
+  manual third-party MCP connectivity test (fixed to `@modelcontextprotocol/server-everything`, not run in CI by default)
 
 Test workspace policy:
 
