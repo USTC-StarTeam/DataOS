@@ -18,6 +18,7 @@ uv run python -m py_agent.main -p --mode json --model glm-5 "hello"
 uv run python -m py_agent.main -p --continue "continue with prior context"
 uv run python -m py_agent.main -p --session ./my-session.jsonl "store session here"
 uv run python -m py_agent.main -p --mcp-config ./mcp.json --mcp-server demo "use mcp tools"
+uv run python -m py_agent.main -p --mode text " /skill:writer draft release notes "
 ```
 
 Set provider env vars before print mode:
@@ -49,6 +50,7 @@ MCP config example (`mcp.json`):
 - Local tools: `read`, `write`, `edit`, `bash`
 - Runtime loop: model -> local tool calls -> model (with gateway compatibility fallback)
 - MCP integration: stdio client, namespaced tools (`mcp.<server>.<tool>`), explicit server allowlist (`--mcp-server`)
+- Skills: discover `SKILL.md` from `skills/` and `.codex/skills/`, invoke via `/skill:<name>`, and inject skill catalog into system prompt
 
 ### Validation
 
