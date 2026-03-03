@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,4 +32,31 @@ jobs:
 
       - name: Unit tests
         shell: bash -el {0}
-        run: pytest
+        run: pytest -m "not integration"
+
+  integration:
+    if: ${{ secrets.STARTEAM_BASE_URL != '' && secrets.STAETEAM_API_KEY != '' }}
+    runs-on: ubuntu-latest
+    env:
+      STARTEAM_BASE_URL: ${{ secrets.STARTEAM_BASE_URL }}
+      STAETEAM_API_KEY: ${{ secrets.STAETEAM_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: "3.11"
+          environment-file: environment.yml
+          activate-environment: dataos-agent
+          auto-activate-base: false
+
+      - name: Install dependencies
+        shell: bash -el {0}
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Integration tests
+        shell: bash -el {0}
+        run: pytest -m integration
