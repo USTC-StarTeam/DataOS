@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-p", "--print", dest="print_mode", action="store_true", help="Run one-shot print mode")
     parser.add_argument(
         "--mode",
-        choices=["text", "json"],
+        choices=["text", "json", "tui"],
         default="text",
         help="Output mode",
     )
