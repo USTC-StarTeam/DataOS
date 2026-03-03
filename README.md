@@ -59,6 +59,7 @@ uv run ruff check .
 uv run pytest -m "not integration and not task_eval"
 uv run pytest -m integration
 uv run pytest -m task_eval
+uv run pytest -m mcp_external
 ```
 
 Test layers:
@@ -69,6 +70,21 @@ Test layers:
   deterministic API connectivity and basic program integration (blocking in CI)
 - `task_eval`:
   model-capability task evaluations (non-blocking in CI, used as observability signals)
+- `mcp_external`:
+  manual third-party MCP connectivity tests (not run in CI by default)
+
+For `mcp_external`, set env vars first:
+
+```bash
+export MCP_TEST_SERVER_COMMAND="node"
+export MCP_TEST_SERVER_ARGS_JSON='["/abs/path/to/your-mcp-server.js"]'
+export MCP_TEST_TOOL_NAME="echo"
+export MCP_TEST_TOOL_ARGUMENTS_JSON='{"text":"hello"}'
+# optional:
+# export MCP_TEST_SERVER_CWD="/abs/path/to/server/workdir"
+# export MCP_TEST_SERVER_NAME="external"
+# export MCP_TEST_EXPECT_SUBSTRING="hello"
+```
 
 Test workspace policy:
 
