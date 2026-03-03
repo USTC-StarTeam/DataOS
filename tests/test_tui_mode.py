@@ -45,3 +45,4 @@ def test_format_event_lines_renders_tool_events() -> None:
     lines = format_event_lines(events)
     assert lines[0] == "[tool_call] read id=t1 args={'path': 'a.txt'}"
     assert lines[1] == "[tool_result] read id=t1 content=hello"
+

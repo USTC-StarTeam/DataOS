@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from typing import Any, Callable
 
 from py_agent.providers.base import Provider, ProviderError
@@ -36,9 +39,12 @@ def run_tui_mode(
     session_store: SessionStore | None = None,
     initial_messages: list[dict[str, Any]] | None = None,
     extra_tools: dict[str, Tool] | None = None,
-    input_func: InputFunc = input,
+    input_func: InputFunc | None = None,
     output_func: OutputFunc = print,
 ) -> int:
+    if input_func is None:
+        input_func = _build_default_input()
+
     tools = create_local_tools(cwd=cwd)
     if extra_tools:
         tools.update(extra_tools)
@@ -86,3 +92,46 @@ def run_tui_mode(
         conversation_messages.extend(result.turn_messages)
         if session_store:
             session_store.append_turn(messages=result.turn_messages, events=result.events)
+
+
+def _default_input(prompt: str) -> str:
+    # Avoid Python readline/libedit edge cases with CJK input editing.
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    line = sys.stdin.readline()
+    if line == "":
+        raise EOFError
+    return line.rstrip("\n")
+
+
+def _build_default_input() -> InputFunc:
+    # Prefer prompt_toolkit for robust CJK/IME line editing behavior.
+    try:
+        from prompt_toolkit import PromptSession
+    except Exception:
+        _prepare_terminal_for_utf8_input()
+        return _default_input
+
+    session = PromptSession()
+
+    def _pt_input(prompt: str) -> str:
+        return session.prompt(prompt)
+
+    return _pt_input
+
+
+def _prepare_terminal_for_utf8_input() -> None:
+    # Best effort: on macOS/Linux, ensure terminal erases UTF-8 chars correctly.
+    if os.name == "nt":
+        return
+    if not sys.stdin.isatty():
+        return
+    try:
+        subprocess.run(
+            ["stty", "iutf8"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass

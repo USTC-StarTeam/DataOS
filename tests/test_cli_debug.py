@@ -10,7 +10,7 @@ def test_debug_log_uses_default_path(test_workspace: Path, monkeypatch) -> None:
     monkeypatch.chdir(test_workspace)
     rc = run(["--debug", "high", "--version"])
     assert rc == 0
-    log_path = test_workspace / ".py-agent" / "logs" / "debug.log"
+    log_path = test_workspace / ".py-agent" / "logs" / "debug.json"
     assert log_path.exists()
     lines = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert lines
@@ -40,7 +40,7 @@ def test_debug_low_creates_log_file_without_info_lines(test_workspace: Path, mon
     monkeypatch.chdir(test_workspace)
     rc = run(["--debug", "--version"])
     assert rc == 0
-    log_path = test_workspace / ".py-agent" / "logs" / "debug.log"
+    log_path = test_workspace / ".py-agent" / "logs" / "debug.json"
     assert log_path.exists()
     content = log_path.read_text(encoding="utf-8").strip()
     # low level and --version produce no runtime events, so file stays empty.
