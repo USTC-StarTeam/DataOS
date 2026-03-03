@@ -17,6 +17,7 @@ uv run python -m py_agent.main -p --mode text --model glm-5 "hello"
 uv run python -m py_agent.main -p --mode json --model glm-5 "hello"
 uv run python -m py_agent.main -p --continue "continue with prior context"
 uv run python -m py_agent.main -p --session ./my-session.jsonl "store session here"
+uv run python -m py_agent.main -p --mcp-config ./mcp.json --mcp-server demo "use mcp tools"
 ```
 
 Set provider env vars before print mode:
@@ -26,6 +27,20 @@ export STARTEAM_BASE_URL="https://your-openai-compatible-endpoint"
 export STAETEAM_API_KEY="your-api-key"
 ```
 
+MCP config example (`mcp.json`):
+
+```json
+{
+  "servers": {
+    "demo": {
+      "command": "python",
+      "args": ["tests/fixtures/mcp/mock_server.py"],
+      "cwd": "."
+    }
+  }
+}
+```
+
 ### Current Capabilities
 
 - CLI entrypoint and args (`--help`, `--version`, `-p/--print`, `--mode text|json`, `--model`)
@@ -33,6 +48,7 @@ export STAETEAM_API_KEY="your-api-key"
 - OpenAI-compatible provider (tested with `glm-5`)
 - Local tools: `read`, `write`, `edit`, `bash`
 - Runtime loop: model -> local tool calls -> model (with gateway compatibility fallback)
+- MCP integration: stdio client, namespaced tools (`mcp.<server>.<tool>`), explicit server allowlist (`--mcp-server`)
 
 ### Validation
 
