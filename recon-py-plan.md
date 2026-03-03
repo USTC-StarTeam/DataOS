@@ -179,6 +179,9 @@ Done when:
 - Every task must have explicit test coverage mapping:
   - requirement -> test file -> test case.
 - No task is complete if the related tests are missing.
+- CI test tiers:
+  - Blocking: lint + deterministic unit tests + deterministic integration connectivity tests.
+  - Non-blocking: model-capability task evaluations (`task_eval`) used for quality observation.
 - Unit test per local tool.
 - Deterministic `edit` tests.
 - Skill parsing/discovery/invocation tests.

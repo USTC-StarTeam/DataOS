@@ -33,7 +33,7 @@ def _run_agent_task(cwd: Path, prompt: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.integration
+@pytest.mark.task_eval
 def test_create_file_task_end_to_end(tmp_path: Path) -> None:
     _require_env()
     target = tmp_path / "agent_task.txt"
@@ -47,7 +47,7 @@ def test_create_file_task_end_to_end(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8") == "hello world"
 
 
-@pytest.mark.integration
+@pytest.mark.task_eval
 def test_create_markdown_file_task(tmp_path: Path) -> None:
     _require_env()
     target = tmp_path / "report.md"
@@ -60,7 +60,7 @@ def test_create_markdown_file_task(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8").strip() == "# Report\nstatus: ok"
 
 
-@pytest.mark.integration
+@pytest.mark.task_eval
 def test_bash_append_content_task(tmp_path: Path) -> None:
     _require_env()
     target = tmp_path / "append.txt"
@@ -74,7 +74,7 @@ def test_bash_append_content_task(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8") == "line1\nline2\n"
 
 
-@pytest.mark.integration
+@pytest.mark.task_eval
 def test_read_file_task_returns_exact_content(tmp_path: Path) -> None:
     _require_env()
     src = tmp_path / "source.txt"
@@ -87,7 +87,7 @@ def test_read_file_task_returns_exact_content(tmp_path: Path) -> None:
     assert result.stdout.strip() == "copy-target-123"
 
 
-@pytest.mark.integration
+@pytest.mark.task_eval
 def test_bash_tool_creates_file_task(tmp_path: Path) -> None:
     _require_env()
     target = tmp_path / "bash_out.txt"
