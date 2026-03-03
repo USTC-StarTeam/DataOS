@@ -37,18 +37,32 @@ def build_tool_schemas(tools: dict[str, Any]) -> list[dict[str, Any]]:
 def run_agent_loop(provider: Provider, model: str, prompt: str, tools: dict[str, Any]) -> RuntimeResult:
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
     tool_schemas = build_tool_schemas(tools)
+    latest_tool_outputs: list[str] = []
 
     for _ in range(MAX_TOOL_LOOP_STEPS):
-        response = provider.chat(messages=messages, model=model, tools=tool_schemas)
+        try:
+            response = provider.chat(messages=messages, model=model, tools=tool_schemas)
+        except ProviderError as exc:
+            # Some OpenAI-compatible gateways reject round-trip tool messages.
+            # Fall back to returning tool execution output if tools already ran.
+            exc_text = str(exc).lower()
+            if latest_tool_outputs and "messages with role" in exc_text and "tool" in exc_text:
+                return RuntimeResult(model=model, text="\n".join(latest_tool_outputs))
+            raise
         if not response.tool_calls:
             return RuntimeResult(model=response.model, text=response.text)
 
-        messages.append(_assistant_message_for_tool_calls(response.text, response.tool_calls))
+        if response.assistant_message is not None:
+            messages.append(response.assistant_message)
+        else:
+            messages.append(_assistant_message_for_tool_calls(response.text, response.tool_calls))
         for call in response.tool_calls:
             output = _execute_tool_call(call, tools)
+            latest_tool_outputs.append(output)
             messages.append(
                 {
                     "role": "tool",
+                    "name": call.name,
                     "tool_call_id": call.id,
                     "content": output,
                 }
@@ -58,9 +72,8 @@ def run_agent_loop(provider: Provider, model: str, prompt: str, tools: dict[str,
 
 
 def _assistant_message_for_tool_calls(text: str, tool_calls: list[ToolCall]) -> dict[str, Any]:
-    return {
+    message: dict[str, Any] = {
         "role": "assistant",
-        "content": text or "",
         "tool_calls": [
             {
                 "id": call.id,
@@ -73,6 +86,9 @@ def _assistant_message_for_tool_calls(text: str, tool_calls: list[ToolCall]) -> 
             for call in tool_calls
         ],
     }
+    # Some OpenAI-compatible gateways require null/omitted content when assistant emits tool_calls.
+    message["content"] = text if text else None
+    return message
 
 
 def _execute_tool_call(call: ToolCall, tools: dict[str, Any]) -> str:
