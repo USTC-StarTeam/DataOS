@@ -140,19 +140,7 @@ Done when:
 - Code is committed on `tjh_MVP` and PR-ready for `main`.
 - CI includes and passes session tests.
 
-### PR5: Skills
-Tasks:
-- Add/adjust tests first for skill discovery/parsing/invocation behavior.
-- Implement `SKILL.md` discovery and parsing.
-- Implement `/skill:name` expansion.
-- Inject available skills metadata into system prompt.
-- Add CI coverage for skills discovery/invocation tests.
-Done when:
-- Skills are discoverable and affect runtime behavior.
-- Code is committed on `tjh_MVP` and PR-ready for `main`.
-- CI includes and passes skills tests.
-
-### PR6: MCP Integration
+### PR5: MCP Integration
 Tasks:
 - Add/adjust tests first for MCP listing/invocation/error handling behavior.
 - Implement MCP client and MCP tool registry.
@@ -164,6 +152,18 @@ Done when:
 - Code is committed on `tjh_MVP` and PR-ready for `main`.
 - CI includes and passes MCP integration tests.
 
+### PR6: Skills
+Tasks:
+- Add/adjust tests first for skill discovery/parsing/invocation behavior.
+- Implement `SKILL.md` discovery and parsing.
+- Implement `/skill:name` expansion.
+- Inject available skills metadata into system prompt.
+- Add CI coverage for skills discovery/invocation tests.
+Done when:
+- Skills are discoverable and affect runtime behavior.
+- Code is committed on `tjh_MVP` and PR-ready for `main`.
+- CI includes and passes skills tests.
+
 ## Git Workflow
 - Remote repository: `https://github.com/USTC-StarTeam/DataOS.git`.
 - Active development branch: `tjh_MVP`.
@@ -171,7 +171,7 @@ Done when:
 - For merging to mainline, open Pull Requests with:
   - base branch: `main`
   - compare branch: `tjh_MVP` (or a short-lived feature branch created from `tjh_MVP`).
-- Recommended PR sequence: PR1 -> PR2 -> PR3 -> PR4 -> PR5 -> PR6.
+- Recommended PR sequence: PR1 -> PR2 -> PR3 -> PR4 -> PR5(MCP) -> PR6(Skills).
 - Do not merge directly into `main` without PR review.
 
 ## Test Requirements
@@ -182,6 +182,10 @@ Done when:
 - CI test tiers:
   - Blocking: lint + deterministic unit tests + deterministic integration connectivity tests.
   - Non-blocking: model-capability task evaluations (`task_eval`) used for quality observation.
+- Test file artifacts policy:
+  - Use fixed test workspace root `tests/.tmp`.
+  - Create per-test subdirectories under `tests/.tmp`.
+  - Delete per-test subdirectories after each test finishes.
 - Unit test per local tool.
 - Deterministic `edit` tests.
 - Skill parsing/discovery/invocation tests.
