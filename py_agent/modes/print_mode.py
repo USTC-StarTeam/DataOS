@@ -8,7 +8,7 @@ from typing import Any
 
 from py_agent.providers.base import Provider
 from py_agent.runtime import run_agent_loop
-from py_agent.tools import create_local_tools
+from py_agent.tools import Tool, create_local_tools
 
 
 @dataclass(frozen=True)
@@ -26,8 +26,11 @@ def run_print_mode(
     mode: str,
     cwd: str = ".",
     initial_messages: list[dict[str, Any]] | None = None,
+    extra_tools: dict[str, Tool] | None = None,
 ) -> PrintModeResult:
     tools = create_local_tools(cwd=cwd)
+    if extra_tools:
+        tools.update(extra_tools)
     completion = run_agent_loop(
         provider=provider,
         model=model,
