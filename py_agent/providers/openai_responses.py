@@ -8,6 +8,7 @@ import uuid
 from typing import Any, Callable
 from urllib import error, request
 
+from py_agent.debug_log import DebugLogger
 from py_agent.providers.base import ChatResult, Provider, ProviderError, ToolCall
 
 BASE_URL_ENV = "STARTEAM_BASE_URL"
@@ -51,10 +52,14 @@ class OpenAICompatibleProvider(Provider):
         base_url: str | None = None,
         api_key: str | None = None,
         transport: Transport | None = None,
+        debug_logger: DebugLogger | None = None,
+        debug_level: str | None = None,
     ) -> None:
         self.base_url = (base_url or os.getenv(BASE_URL_ENV, "")).rstrip("/")
         self.api_key = api_key or os.getenv(API_KEY_ENV, "")
         self.transport = transport or _default_transport
+        self.debug_logger = debug_logger
+        self.debug_level = debug_level
 
         if not self.base_url:
             raise ProviderError(f"missing environment variable: {BASE_URL_ENV}")
@@ -75,7 +80,16 @@ class OpenAICompatibleProvider(Provider):
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
+        if self.debug_logger and self.debug_level == "high":
+            redacted_headers = dict(headers)
+            redacted_headers["Authorization"] = "Bearer ***"
+            self.debug_logger.llm(
+                f"request url={url} payload={json.dumps(payload, ensure_ascii=False)} "
+                f"headers={json.dumps(redacted_headers, ensure_ascii=False)}"
+            )
         data = self.transport(url, payload, headers)
+        if self.debug_logger and self.debug_level == "high":
+            self.debug_logger.llm(f"response body={json.dumps(data, ensure_ascii=False)}")
 
         try:
             message = data["choices"][0]["message"]

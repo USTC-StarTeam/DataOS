@@ -22,6 +22,8 @@ uv run python -m py_agent.main --help
 uv run python -m py_agent.main --version
 uv run python -m py_agent.main -p --mode text --model glm-5 "hello"
 uv run python -m py_agent.main -p --mode json --model glm-5 "hello"
+uv run python -m py_agent.main --debug low --version
+uv run python -m py_agent.main --debug high --log-path ./logs/agent-debug.log --version
 ```
 
 ### 4) Session Persistence
@@ -44,6 +46,14 @@ uv run python -m py_agent.main -p --session ./my-session.jsonl --continue "next 
 # disable session persistence
 uv run python -m py_agent.main -p --no-session "one-shot"
 ```
+
+### 4.1) Debug Logging
+
+- Enable with `--debug`
+- `--debug low`: only runtime events (`EVENT` lines)
+- `--debug high`: full logs (flow + errors + LLM request/response with redacted auth)
+- Default log path: `./.py-agent/logs/debug.log`
+- Custom path: `--log-path <file>` (must be used with `--debug`)
 
 ### 5) MCP Usage
 
