@@ -9,8 +9,8 @@ import pytest
 
 @pytest.mark.integration
 def test_glm5_print_mode_with_env() -> None:
-    if not os.getenv("STARTEAM_BASE_URL") or not os.getenv("STAETEAM_API_KEY"):
-        pytest.skip("integration env vars not set")
+    assert os.getenv("STARTEAM_BASE_URL"), "STARTEAM_BASE_URL must be set for integration tests"
+    assert os.getenv("STAETEAM_API_KEY"), "STAETEAM_API_KEY must be set for integration tests"
 
     result = subprocess.run(
         [
