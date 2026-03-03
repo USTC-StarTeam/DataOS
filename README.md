@@ -73,17 +73,10 @@ Test layers:
 - `mcp_external`:
   manual third-party MCP connectivity tests (not run in CI by default)
 
-For `mcp_external`, set env vars first:
+`mcp_external` is fixed to use `@modelcontextprotocol/server-everything` via `npx`:
 
 ```bash
-export MCP_TEST_SERVER_COMMAND="node"
-export MCP_TEST_SERVER_ARGS_JSON='["/abs/path/to/your-mcp-server.js"]'
-export MCP_TEST_TOOL_NAME="echo"
-export MCP_TEST_TOOL_ARGUMENTS_JSON='{"text":"hello"}'
-# optional:
-# export MCP_TEST_SERVER_CWD="/abs/path/to/server/workdir"
-# export MCP_TEST_SERVER_NAME="external"
-# export MCP_TEST_EXPECT_SUBSTRING="hello"
+uv run pytest tests/test_integration_mcp_external.py -m mcp_external -q
 ```
 
 Test workspace policy:
