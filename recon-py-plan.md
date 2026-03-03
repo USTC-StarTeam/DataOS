@@ -182,6 +182,10 @@ Done when:
 - CI test tiers:
   - Blocking: lint + deterministic unit tests + deterministic integration connectivity tests.
   - Non-blocking: model-capability task evaluations (`task_eval`) used for quality observation.
+- Test file artifacts policy:
+  - Use fixed test workspace root `tests/.tmp`.
+  - Create per-test subdirectories under `tests/.tmp`.
+  - Delete per-test subdirectories after each test finishes.
 - Unit test per local tool.
 - Deterministic `edit` tests.
 - Skill parsing/discovery/invocation tests.

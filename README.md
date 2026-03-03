@@ -53,3 +53,9 @@ Test layers:
   deterministic API connectivity and basic program integration (blocking in CI)
 - `task_eval`:
   model-capability task evaluations (non-blocking in CI, used as observability signals)
+
+Test workspace policy:
+
+- File-producing tests use a fixed workspace root: `tests/.tmp/`
+- Each test case gets its own subdirectory under `tests/.tmp`
+- Test subdirectories are deleted after each test run
