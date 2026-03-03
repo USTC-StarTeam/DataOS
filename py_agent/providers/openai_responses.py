@@ -6,7 +6,7 @@ import json
 import os
 import uuid
 from typing import Any, Callable
-from urllib import request
+from urllib import error, request
 
 from py_agent.providers.base import ChatResult, Provider, ProviderError, ToolCall
 
@@ -27,6 +27,15 @@ def _default_transport(url: str, payload: dict[str, Any], headers: dict[str, str
     try:
         with request.urlopen(req, timeout=60) as resp:
             body = resp.read().decode("utf-8")
+    except error.HTTPError as exc:
+        details = ""
+        try:
+            details = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            details = ""
+        payload_preview = json.dumps(payload, ensure_ascii=False)[:4000]
+        suffix = f" body={details}" if details else ""
+        raise ProviderError(f"request failed: HTTP {exc.code}{suffix} payload={payload_preview}") from exc
     except Exception as exc:  # pragma: no cover - exercised via integration tests
         raise ProviderError(f"request failed: {exc}") from exc
 
@@ -74,10 +83,14 @@ class OpenAICompatibleProvider(Provider):
             raise ProviderError("unexpected response format") from exc
 
         text = _flatten_message_content(message.get("content"))
-        tool_calls = _parse_tool_calls(message.get("tool_calls"))
+        tool_calls_raw = message.get("tool_calls")
+        tool_calls = _parse_tool_calls(tool_calls_raw)
         if not text and not tool_calls:
             raise ProviderError("empty response content")
-        return ChatResult(model=model, text=text, tool_calls=tool_calls)
+        assistant_message = {"role": "assistant", "tool_calls": tool_calls_raw}
+        if not tool_calls_raw:
+            assistant_message["content"] = message.get("content")
+        return ChatResult(model=model, text=text, tool_calls=tool_calls, assistant_message=assistant_message)
 
 
 def _build_chat_completions_url(base_url: str) -> str:

@@ -24,6 +24,7 @@ class ChatResult:
     model: str
     text: str
     tool_calls: list[ToolCall]
+    assistant_message: dict[str, Any] | None = None
 
 
 class ProviderError(RuntimeError):
