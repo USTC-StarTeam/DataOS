@@ -24,3 +24,9 @@ def test_help_flag_outputs_usage() -> None:
     assert result.returncode == 0
     assert "usage:" in result.stdout.lower()
     assert "--version" in result.stdout
+
+
+def test_print_mode_without_prompt_fails() -> None:
+    result = run_cmd("-p")
+    assert result.returncode == 2
+    assert "missing prompt" in result.stderr.lower()
