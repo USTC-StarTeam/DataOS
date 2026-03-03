@@ -203,6 +203,12 @@ After each PR, output:
 4. known gaps.
 5. CI updates (jobs added/changed and latest run status).
 
+## CI/Test Separation Policy
+- CI pass/fail is decided only by blocking checks (lint, deterministic unit tests, deterministic integration).
+- Task-oriented model tests are treated as observability signals, not merge gates.
+- `task_eval` failures must be reported and tracked, but do not block merge by default.
+- If task_eval shows sustained regressions, create follow-up issues/PRs to recover quality.
+
 ## Final Completion Criteria
 Complete only if all are true:
 - Python CLI-only core is operational.
