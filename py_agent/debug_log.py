@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -19,25 +20,29 @@ class DebugLogger:
 
     def info(self, message: str) -> None:
         if self.level == "high":
-            self._write("INFO", message)
+            self._write("INFO", {"message": message})
 
     def error(self, message: str) -> None:
         if self.level == "high":
-            self._write("ERROR", message)
+            self._write("ERROR", {"message": message})
 
     def event(self, obj: dict) -> None:
-        self._write("EVENT", json.dumps(obj, ensure_ascii=False))
+        self._write("EVENT", {"event": obj})
 
     def llm(self, message: str) -> None:
         if self.level == "high":
-            self._write("LLM", message)
+            self._write("LLM", {"message": message})
 
     def close(self) -> None:
         self._fp.close()
 
-    def _write(self, level: str, message: str) -> None:
-        ts = datetime.now(timezone.utc).isoformat()
-        self._fp.write(f"{ts} [{level}] {message}\n")
+    def _write(self, level: str, payload: dict[str, Any]) -> None:
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": level,
+            **payload,
+        }
+        self._fp.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._fp.flush()
 
 
