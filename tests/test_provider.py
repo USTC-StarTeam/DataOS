@@ -40,3 +40,28 @@ def test_provider_uses_single_v1_path_when_base_url_has_v1() -> None:
     )
     provider.complete(prompt="hi", model="glm-5")
     assert seen["url"] == "https://example.com/v1/chat/completions"
+
+
+def test_provider_high_debug_logs_request_and_response_with_redacted_auth() -> None:
+    logs: list[str] = []
+
+    class StubLogger:
+        def llm(self, message: str) -> None:
+            logs.append(message)
+
+    def fake_transport(url: str, payload: dict, headers: dict) -> dict:
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    provider = OpenAICompatibleProvider(
+        base_url="https://example.com",
+        api_key="secret-token",
+        transport=fake_transport,
+        debug_logger=StubLogger(),  # type: ignore[arg-type]
+        debug_level="high",
+    )
+    provider.complete(prompt="hi", model="glm-5")
+    joined = "\n".join(logs)
+    assert "request url=https://example.com/v1/chat/completions" in joined
+    assert "response body=" in joined
+    assert "Bearer ***" in joined
+    assert "secret-token" not in joined
