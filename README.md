@@ -59,6 +59,7 @@ uv run python -m py_agent.main --mode tui --continue
 - Default log path: `./.py-agent/logs/debug.json`
 - Custom path: `--log-path <file>` (must be used with `--debug`)
 - Log format: JSON Lines (one JSON object per line)
+- Log timestamp timezone: Asia/Shanghai (UTC+08:00)
 
 ### 5) MCP Usage
 

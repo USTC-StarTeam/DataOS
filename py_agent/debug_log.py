@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
+
+
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 
 
 @dataclass
@@ -38,7 +42,7 @@ class DebugLogger:
 
     def _write(self, level: str, payload: dict[str, Any]) -> None:
         record = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(BEIJING_TZ).isoformat(),
             "level": level,
             **payload,
         }
