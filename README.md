@@ -1,5 +1,16 @@
 # DataOS
 
+## Agentic DataOS Docs
+
+SFT 数据闭环 MVP 设计文档位于 `doc/dataos/`：
+
+- `doc/dataos/README.md`
+- `doc/dataos/t0-baseline-contract.md`
+- `doc/dataos/sft-dataos-mvp-requirements.md`
+- `doc/dataos/sft-dataos-mvp-design.md`
+- `doc/dataos/sft-dataos-mvp-task-breakdown.md`
+- `doc/dataos/tasks/`
+
 ## Python Agent (MVP In Progress)
 
 ### 1) Setup (uv)

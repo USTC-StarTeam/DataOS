@@ -22,6 +22,9 @@ dev = [
 [project.scripts]
 py-agent = "py_agent.main:main"
 
+[tool.setuptools.packages.find]
+include = ["py_agent*", "dataos*"]
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
