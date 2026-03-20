@@ -3,14 +3,17 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "py-agent"
+name = "dataos"
 version = "0.1.0"
-description = "Minimal Python coding agent (PR1 skeleton)"
+description = "DataOS Python package skeleton"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "USTC-StarTeam" }]
 dependencies = [
+  "datasets>=2.19.0",
+  "pyarrow>=15.0.0",
   "prompt_toolkit>=3.0.43",
+  "pyclean>=3.5.0",
 ]
 
 [project.optional-dependencies]
@@ -19,11 +22,8 @@ dev = [
   "ruff>=0.6.0",
 ]
 
-[project.scripts]
-py-agent = "py_agent.main:main"
-
 [tool.setuptools.packages.find]
-include = ["py_agent*", "dataos*"]
+include = ["dataos*"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
