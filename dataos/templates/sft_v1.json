@@ -1,0 +1,33 @@
+{
+  "task_id": "sft-v1",
+  "name": "SFT Baseline",
+  "goal": "Run a single-round SFT-oriented data pipeline using Hugging Face datasets artifacts.",
+  "input_description": "Input is an existing Hugging Face Dataset or DatasetDict save_to_disk directory.",
+  "output_description": "Produce cleaned and optionally expanded datasets, a stub model artifact, a stub eval artifact, and an experiment report.",
+  "constraints": {
+    "dataset_format": "hf_datasets",
+    "llm_role": [
+      "plan",
+      "review"
+    ],
+    "execution_mode": "fixed_runtime"
+  },
+  "budget": {
+    "max_experiments": 1,
+    "notes": "V0.1 only runs one experiment round."
+  },
+  "max_rounds": 1,
+  "pipeline_hint": [
+    "clean_data",
+    "synthesize_data",
+    "train_llamafactory",
+    "eval_model"
+  ],
+  "train_config": {
+    "mode": "stub"
+  },
+  "eval_config": {
+    "mode": "stub",
+    "score": 0.5
+  }
+}
