@@ -13,8 +13,8 @@ from dataos.core.registry import OperatorRegistry
 from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
 from dataos.core.task import TaskTemplate
+from dataos.llm.claude_agent_sdk import ClaudeAgentSDKClient
 from dataos.llm.client import LLMClient
-from dataos.llm.openai_compatible import OpenAICompatibleClient
 from dataos.operators.clean_data import CleanDataOperator
 from dataos.operators.eval_model import EvalModelOperator
 from dataos.operators.synthesize_data import SynthesizeDataOperator
@@ -113,12 +113,17 @@ def _materialize_initial_dataset(dataset_path: str | Path, sandbox: Sandbox) -> 
     return artifact
 
 
-def _build_client_from_env() -> OpenAICompatibleClient:
-    base_url = os.environ.get("DATAOS_LLM_BASE_URL")
-    api_key = os.environ.get("DATAOS_LLM_API_KEY")
-    model = os.environ.get("DATAOS_LLM_MODEL")
-    if not base_url or not api_key or not model:
+def _build_client_from_env() -> LLMClient:
+    starteam_api_key = os.environ.get("STARTEAM_API_KEY")
+    starteam_base_url = os.environ.get("STARTEAM_BASE_URL")
+    if not starteam_api_key or not starteam_base_url:
         raise ValueError(
-            "Missing LLM environment variables. Expected DATAOS_LLM_BASE_URL, DATAOS_LLM_API_KEY, DATAOS_LLM_MODEL."
+            "Missing Claude Agent SDK environment variables. "
+            "Expected STARTEAM_API_KEY and STARTEAM_BASE_URL, with optional STARTEAM_MODEL "
+            "and DATAOS_CLAUDE_CLI_PATH."
         )
-    return OpenAICompatibleClient(base_url=base_url, api_key=api_key, model=model)
+    return ClaudeAgentSDKClient(
+        api_key=starteam_api_key,
+        base_url=starteam_base_url,
+        model=os.environ.get("STARTEAM_MODEL", "glm-5"),
+    )
