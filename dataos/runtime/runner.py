@@ -13,12 +13,12 @@ from dataos.core.registry import OperatorRegistry
 from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
 from dataos.core.task import TaskTemplate
+from dataos.eval import run_eval_stage
 from dataos.llm.claude_agent_sdk import ClaudeAgentSDKClient
 from dataos.llm.client import LLMClient
 from dataos.operators.clean_data import CleanDataOperator
-from dataos.operators.eval_model import EvalModelOperator
 from dataos.operators.synthesize_data import SynthesizeDataOperator
-from dataos.operators.train_llamafactory import TrainLlamaFactoryOperator
+from dataos.train import run_train_stage
 
 
 @dataclass(slots=True)
@@ -37,8 +37,6 @@ def build_default_registry() -> OperatorRegistry:
     registry = OperatorRegistry()
     registry.register(CleanDataOperator())
     registry.register(SynthesizeDataOperator())
-    registry.register(TrainLlamaFactoryOperator())
-    registry.register(EvalModelOperator())
     return registry
 
 
@@ -68,7 +66,14 @@ def run_task(
 
     experiment = Experiment(exp_id=exp_id, task=task, sandbox=sandbox)
     experiment.add_artifact(initial_artifact)
-    agent.run_experiment(task=task, experiment=experiment, initial_artifacts=[initial_artifact], history_summaries=history_summaries)
+    agent.run_experiment(
+        task=task,
+        experiment=experiment,
+        initial_artifacts=[initial_artifact],
+        history_summaries=history_summaries,
+    )
+    _run_training_stage(task=task, experiment=experiment)
+    _run_eval_stage(task=task, experiment=experiment)
     experiment_artifact = experiment.finalize()
     review = agent.review(task, experiment)
     archived_experiment = store.save(experiment_artifact)
@@ -111,6 +116,71 @@ def _materialize_initial_dataset(dataset_path: str | Path, sandbox: Sandbox) -> 
     )
     artifact.refresh_metadata_from_disk()
     return artifact
+
+
+def _run_training_stage(task: TaskTemplate, experiment: Experiment) -> None:
+    _run_runtime_stage(
+        experiment=experiment,
+        step_name="train_llamafactory",
+        params=dict(task.train_config),
+        runner=lambda artifacts: run_train_stage(
+            artifacts,
+            sandbox=experiment.sandbox,
+            task=task,
+            experiment=experiment,
+        ),
+    )
+
+
+def _run_eval_stage(task: TaskTemplate, experiment: Experiment) -> None:
+    _run_runtime_stage(
+        experiment=experiment,
+        step_name="eval_model",
+        params=dict(task.eval_config),
+        runner=lambda artifacts: run_eval_stage(
+            artifacts,
+            sandbox=experiment.sandbox,
+            task=task,
+            experiment=experiment,
+        ),
+    )
+
+
+def _run_runtime_stage(
+    experiment: Experiment,
+    step_name: str,
+    params: dict[str, Any],
+    runner,
+) -> None:
+    input_artifact_ids = [artifact.artifact_id for artifact in experiment.artifacts]
+    try:
+        result = runner(list(experiment.artifacts))
+        output_artifacts = result if isinstance(result, list) else [result]
+        output_ids: list[str] = []
+        for artifact in output_artifacts:
+            artifact.save_meta()
+            experiment.add_artifact(artifact)
+            output_ids.append(artifact.artifact_id)
+        experiment.record_step(
+            operator_name=step_name,
+            input_artifact_ids=input_artifact_ids,
+            output_artifact_ids=output_ids,
+            params=params,
+            status="completed",
+            step_type="runtime",
+        )
+    except Exception as exc:
+        experiment.record_step(
+            operator_name=step_name,
+            input_artifact_ids=input_artifact_ids,
+            output_artifact_ids=[],
+            params=params,
+            status="failed",
+            error=str(exc),
+            step_type="runtime",
+        )
+        experiment.fail(exc)
+        raise
 
 
 def _build_client_from_env() -> LLMClient:

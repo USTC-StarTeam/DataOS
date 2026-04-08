@@ -39,17 +39,22 @@ class Experiment:
         params: dict[str, Any],
         status: str,
         error: str | None = None,
+        step_type: str = "operator",
     ) -> None:
-        self.steps.append(
-            {
-                "operator_name": operator_name,
-                "input_artifact_ids": input_artifact_ids,
-                "output_artifact_ids": output_artifact_ids,
-                "params": params,
-                "status": status,
-                "error": error,
-            }
-        )
+        record = {
+            "step_type": step_type,
+            "step_name": operator_name,
+            "input_artifact_ids": input_artifact_ids,
+            "output_artifact_ids": output_artifact_ids,
+            "params": params,
+            "status": status,
+            "error": error,
+        }
+        if step_type == "operator":
+            record["operator_name"] = operator_name
+        else:
+            record["runtime_name"] = operator_name
+        self.steps.append(record)
 
     def finalize(self) -> ExperimentArtifact:
         self.status = "completed" if self.status != "failed" else self.status

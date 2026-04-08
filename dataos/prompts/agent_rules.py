@@ -9,7 +9,7 @@ REVIEW_REQUIRED_FIELDS = ["summary", "issues", "next_hypothesis", "recommended_c
 PLAN_RULES = [
     "Only choose operators that appear in the provided registry.",
     f"Return valid JSON only, with no prose outside JSON, and no more than {PLAN_MAX_STEPS} steps.",
-    "The final two steps must be train_llamafactory followed by eval_model.",
+    "Only plan data operators. Training and evaluation run automatically as fixed runtime stages after the operator plan.",
     "Do not invent new operators.",
     "Do not ask to modify code, execute shell commands, or generate a new operator.",
     "Treat all datasets as Hugging Face datasets artifacts, never JSONL.",
@@ -108,12 +108,6 @@ def validate_plan_payload(
         if not isinstance(params, dict):
             raise ValueError("Plan step params must be an object")
         normalized_steps.append({"operator_name": operator_name, "params": params})
-    if len(normalized_steps) < 2:
-        raise ValueError("Plan must include train and eval steps at the end")
-    if normalized_steps[-2]["operator_name"] != "train_llamafactory":
-        raise ValueError("Penultimate step must be train_llamafactory")
-    if normalized_steps[-1]["operator_name"] != "eval_model":
-        raise ValueError("Final step must be eval_model")
     return {
         "steps": normalized_steps,
         "reasoning_summary": str(payload["reasoning_summary"]),

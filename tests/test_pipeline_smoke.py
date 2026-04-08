@@ -34,9 +34,9 @@ def test_run_task_smoke(tmp_path):
         "constraints": {"dataset_format": "hf_datasets"},
         "budget": {"max_experiments": 1},
         "max_rounds": 1,
-        "pipeline_hint": ["clean_data", "synthesize_data", "train_llamafactory", "eval_model"],
+        "pipeline_hint": ["clean_data", "synthesize_data"],
         "train_config": {"mode": "stub"},
-        "eval_config": {"mode": "stub", "score": 0.5},
+        "eval_config": {"provider": "stub", "provider_config": {"score": 0.5}},
     }
     llm = FakeLLMClient(
         [
@@ -44,11 +44,9 @@ def test_run_task_smoke(tmp_path):
                 "steps": [
                     {"operator_name": "clean_data", "params": {}},
                     {"operator_name": "synthesize_data", "params": {"augment_ratio": 0.5}},
-                    {"operator_name": "train_llamafactory", "params": {"mode": "stub"}},
-                    {"operator_name": "eval_model", "params": {"mode": "stub", "score": 0.8}},
                 ],
                 "reasoning_summary": "Run the standard pipeline.",
-                "expected_gain": "Produce a complete artifact chain.",
+                "expected_gain": "Produce cleaned data before the fixed runtime tools run.",
             },
             {
                 "summary": "The run completed.",

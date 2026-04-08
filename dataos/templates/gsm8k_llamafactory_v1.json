@@ -1,0 +1,46 @@
+{
+  "task_id": "gsm8k-llamafactory-v1",
+  "name": "GSM8K LLaMA-Factory Baseline",
+  "goal": "Train a LoRA adapter on GSM8K-style instruction data and evaluate on the held-out test split.",
+  "input_description": "Input is a Hugging Face DatasetDict save_to_disk directory with train/test splits and instruction/response columns.",
+  "output_description": "Produce a trained model artifact, a GSM8K exact-match eval artifact, and experiment reports.",
+  "constraints": {
+    "dataset_format": "hf_datasets",
+    "llm_role": [
+      "plan",
+      "review"
+    ],
+    "execution_mode": "fixed_runtime"
+  },
+  "budget": {
+    "max_experiments": 1
+  },
+  "max_rounds": 1,
+  "pipeline_hint": [
+    "clean_data"
+  ],
+  "train_config": {
+    "mode": "llamafactory",
+    "model_name_or_path": "Qwen/Qwen2.5-0.5B-Instruct",
+    "template": "qwen",
+    "finetuning_type": "lora",
+    "extra_args": {
+      "bf16": true,
+      "cutoff_len": 512,
+      "gradient_accumulation_steps": 8,
+      "learning_rate": 0.0001,
+      "logging_steps": 10,
+      "num_train_epochs": 1.0,
+      "per_device_train_batch_size": 1,
+      "save_steps": 200,
+      "val_size": 0.05
+    }
+  },
+  "eval_config": {
+    "provider": "native",
+    "task": {"name": "gsm8k"},
+    "data": {"split": "test"},
+    "adapter": {"name": "transformers"},
+    "request": {"type": "generate_until", "batch_size": 8, "max_new_tokens": 256}
+  }
+}

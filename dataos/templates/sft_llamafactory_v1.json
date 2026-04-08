@@ -1,0 +1,44 @@
+{
+  "task_id": "sft-llamafactory-v1",
+  "name": "SFT LLaMA-Factory Baseline",
+  "goal": "Run a single-round SFT pipeline and train a LoRA adapter with LLaMA-Factory.",
+  "input_description": "Input is an existing Hugging Face Dataset or DatasetDict save_to_disk directory.",
+  "output_description": "Produce cleaned and optionally expanded datasets, a trained model artifact, a stub eval artifact, and an experiment report.",
+  "constraints": {
+    "dataset_format": "hf_datasets",
+    "llm_role": [
+      "plan",
+      "review"
+    ],
+    "execution_mode": "fixed_runtime"
+  },
+  "budget": {
+    "max_experiments": 1,
+    "notes": "V0.1 only runs one experiment round."
+  },
+  "max_rounds": 1,
+  "pipeline_hint": [
+    "clean_data",
+    "synthesize_data"
+  ],
+  "train_config": {
+    "mode": "llamafactory",
+    "model_name_or_path": "Qwen/Qwen2.5-0.5B-Instruct",
+    "template": "qwen",
+    "finetuning_type": "lora",
+    "extra_args": {
+      "cutoff_len": 512,
+      "gradient_accumulation_steps": 8,
+      "learning_rate": 0.0001,
+      "logging_steps": 1,
+      "max_samples": 128,
+      "num_train_epochs": 1.0,
+      "per_device_train_batch_size": 1,
+      "save_steps": 20
+    }
+  },
+  "eval_config": {
+    "provider": "stub",
+    "provider_config": {"score": 0.5}
+  }
+}

@@ -19,15 +19,13 @@
   "max_rounds": 1,
   "pipeline_hint": [
     "clean_data",
-    "synthesize_data",
-    "train_llamafactory",
-    "eval_model"
+    "synthesize_data"
   ],
   "train_config": {
     "mode": "stub"
   },
   "eval_config": {
-    "mode": "stub",
-    "score": 0.5
+    "provider": "stub",
+    "provider_config": {"score": 0.5}
   }
 }

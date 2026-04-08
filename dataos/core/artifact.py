@@ -203,6 +203,13 @@ class ModelArtifact(Artifact):
             "path": str(self.path),
             "mode": self.meta.get("mode"),
             "source_dataset_id": self.meta.get("source_dataset_id"),
+            "base_model": self.meta.get("base_model"),
+            "template": self.meta.get("template"),
+            "finetuning_type": self.meta.get("finetuning_type"),
+            "train_split": self.meta.get("train_split"),
+            "eval_split": self.meta.get("eval_split"),
+            "selected_rows": self.meta.get("selected_rows"),
+            "log_path": self.meta.get("log_path"),
         }
 
 

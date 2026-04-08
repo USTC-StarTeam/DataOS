@@ -64,7 +64,7 @@ class LLMPlanningAgent:
             self.last_plan_payload = {
                 "steps": [step.to_record() for step in fallback],
                 "reasoning_summary": f"Fallback plan used because LLM output was invalid: {exc}",
-                "expected_gain": "Run the default clean → synthesize → train → eval pipeline safely.",
+                "expected_gain": "Run the default data-operator pipeline safely before fixed runtime stages.",
             }
             return fallback
 
@@ -145,11 +145,9 @@ class LLMPlanningAgent:
         preferred = [
             "clean_data",
             "synthesize_data",
-            "train_llamafactory",
-            "eval_model",
         ]
         available = {operator.name for operator in self.registry.list()}
         steps = [PlanStep(name, {}) for name in preferred if name in available]
-        if len(steps) < 2 or steps[-2].operator_name != "train_llamafactory" or steps[-1].operator_name != "eval_model":
-            raise ValueError("Registry does not contain the required fallback operators")
+        if not steps:
+            raise ValueError("Registry does not contain any fallback data operators")
         return steps
