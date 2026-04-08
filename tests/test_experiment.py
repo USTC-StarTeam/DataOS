@@ -34,9 +34,9 @@ def _task() -> TaskTemplate:
             "constraints": {"dataset_format": "hf_datasets"},
             "budget": {"max_experiments": 1},
             "max_rounds": 1,
-            "pipeline_hint": ["clean_data", "synthesize_data", "train_llamafactory", "eval_model"],
+            "pipeline_hint": ["clean_data", "synthesize_data"],
             "train_config": {"mode": "stub"},
-            "eval_config": {"mode": "stub"},
+            "eval_config": {"provider": "stub"},
         }
     )
 
@@ -78,7 +78,7 @@ def test_experiment_finalize_writes_report_and_artifact(tmp_path):
 
 def test_agent_falls_back_when_plan_json_is_invalid():
     registry = OperatorRegistry()
-    for operator_name in ["clean_data", "synthesize_data", "train_llamafactory", "eval_model"]:
+    for operator_name in ["clean_data", "synthesize_data"]:
         registry._operators[operator_name] = type("Op", (), {"name": operator_name, "describe": lambda self, name=operator_name: {"name": name, "description": name}})()
     agent = LLMPlanningAgent(llm_client=FakeLLMClient({"steps": [{"operator_name": "not_registered", "params": {}}]}), registry=registry)
 
@@ -89,9 +89,4 @@ def test_agent_falls_back_when_plan_json_is_invalid():
         operator_descriptions=registry.describe_all(),
     )
 
-    assert [step.operator_name for step in steps] == [
-        "clean_data",
-        "synthesize_data",
-        "train_llamafactory",
-        "eval_model",
-    ]
+    assert [step.operator_name for step in steps] == ["clean_data", "synthesize_data"]
