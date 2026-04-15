@@ -67,6 +67,11 @@ def _toxicity_detection_task():
     return ToxicityDetectionTask()
 
 
+def _climaqa_task():
+    from dataos.eval.tasks.climaqa import ClimaQATask
+    return ClimaQATask()
+
+
 def _transformers_adapter():
     from dataos.eval.adapters.transformers import TransformersAdapter
     return TransformersAdapter()
@@ -81,5 +86,6 @@ register_provider("native", _native_provider)
 register_provider("stub", _stub_provider)
 register_task("gsm8k", _gsm8k_task)
 register_task("toxicity_detection", _toxicity_detection_task)
+register_task("climaqa", _climaqa_task)
 register_adapter("transformers", _transformers_adapter)
 register_adapter("openai_compatible", _openai_compatible_adapter)
