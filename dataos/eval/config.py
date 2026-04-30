@@ -117,7 +117,10 @@ def _resolve_data_config(value: Any) -> EvalDataConfig:
         max_samples = int(max_samples)
         if max_samples <= 0:
             raise ValueError("eval_config.data.max_samples must be > 0 when provided")
-    return EvalDataConfig(split=split, max_samples=max_samples)
+    path = payload.get("path")
+    if path is not None:
+        path = str(path)
+    return EvalDataConfig(split=split, max_samples=max_samples, path=path)
 
 
 def _resolve_adapter_config(value: Any) -> EvalAdapterConfig | None:

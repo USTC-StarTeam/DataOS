@@ -14,6 +14,7 @@ class EvalTaskConfig:
 class EvalDataConfig:
     split: str | None = None
     max_samples: int | None = None
+    path: str | None = None
 
 
 @dataclass(slots=True)
