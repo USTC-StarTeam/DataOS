@@ -1,0 +1,4 @@
+interface:
+  display_name: "Debug DataOS Run"
+  short_description: "Diagnose failing or confusing DataOS runs"
+  default_prompt: "Use $debug-dataos-run to inspect a failing or confusing DataOS run from its sandbox, logs, report, and artifacts."
