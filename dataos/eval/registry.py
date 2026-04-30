@@ -92,6 +92,11 @@ def _livecodebench_task():
     return LiveCodeBenchTask()
 
 
+def _ifeval_task():
+    from dataos.eval.tasks.ifeval import IFEvalTask
+    return IFEvalTask()
+
+
 def _transformers_adapter():
     from dataos.eval.adapters.transformers import TransformersAdapter
     return TransformersAdapter()
@@ -111,5 +116,6 @@ register_task("toxicity_detection", _toxicity_detection_task)
 register_task("climaqa", _climaqa_task)
 register_task("openfindata", _openfindata_task)
 register_task("livecodebench", _livecodebench_task)
+register_task("ifeval", _ifeval_task)
 register_adapter("transformers", _transformers_adapter)
 register_adapter("openai_compatible", _openai_compatible_adapter)

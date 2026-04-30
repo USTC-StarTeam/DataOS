@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from dataos.core.artifact import Artifact, DatasetArtifact, ModelArtifact
+from pathlib import Path
+
+from dataos.core.artifact import Artifact, DatasetArtifact, ModelArtifact, make_artifact_id
 from dataos.core.sandbox import Sandbox
 from dataos.eval.config import resolve_eval_config
 from dataos.eval.providers.base import EvalRunContext
@@ -14,8 +16,11 @@ from dataos.eval.types import EvalRunOutput
 def run_eval_stage(inputs: list[Artifact], sandbox: Sandbox, **kwargs) -> list[Artifact]:
     task = kwargs.get("task")
     model_artifact = _find_latest_model(inputs)
-    dataset_artifact = _find_latest_dataset(inputs)
     config = resolve_eval_config(getattr(task, "eval_config", {}), kwargs)
+    if config.data.path:
+        dataset_artifact = _materialize_eval_dataset_from_path(config.data.path)
+    else:
+        dataset_artifact = _find_latest_dataset(inputs)
     provider = get_eval_provider(config.provider)
     output = provider.run(
         EvalRunContext(
@@ -100,6 +105,23 @@ def run_eval_stage(inputs: list[Artifact], sandbox: Sandbox, **kwargs) -> list[A
 
     sandbox.log("eval_model", _build_log_message(model_artifact, dataset_artifact, eval_artifact, output))
     return artifacts
+
+
+def _materialize_eval_dataset_from_path(path: str) -> DatasetArtifact:
+    source = Path(path)
+    if not source.exists() or not source.is_dir():
+        raise ValueError(
+            f"eval_config.data.path is not a Hugging Face save_to_disk directory: {source}"
+        )
+    artifact = DatasetArtifact(
+        artifact_id=make_artifact_id("dataset"),
+        name=f"eval-dataset-{source.name}",
+        path=source,
+        parent_ids=[],
+        producer="eval_config.data.path",
+    )
+    artifact.refresh_metadata_from_disk()
+    return artifact
 
 
 def _find_latest_model(inputs: list[Artifact]) -> ModelArtifact:

@@ -1,0 +1,10 @@
+{
+  "source": "hf_hub",
+  "repo_id": "google/IFEval",
+  "split": "train",
+  "name": "ifeval",
+  "cache_dir": "/home/hcgu/data/hf-home",
+  "keep_columns": ["key", "prompt", "instruction_id_list", "kwargs"],
+  "required_columns": ["prompt", "instruction_id_list"],
+  "output_path": "/home/hcgu/data/DataOS-smoke/ifeval-dataset"
+}

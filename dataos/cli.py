@@ -48,6 +48,9 @@ from dataos.research.store import ResearchStore
 
 
 def main(argv: list[str] | None = None) -> int:
+    from dataos._env import load_dotenv
+
+    load_dotenv()
     parser = _build_parser()
     args = parser.parse_args(argv)
     result = args.func(args)
@@ -61,6 +64,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.set_defaults(func=lambda args: parser.print_help())
     subparsers = parser.add_subparsers(dest="command")
     _add_project_commands(subparsers)
+    _add_data_commands(subparsers)
     _add_task_commands(subparsers)
     _add_resource_commands(subparsers)
     _add_candidate_commands(subparsers)
@@ -114,6 +118,21 @@ def _add_project_commands(subparsers) -> None:
     set_status.add_argument("--status", required=True, choices=sorted(PROJECT_STATUSES))
     set_status.add_argument("--actor", default="human")
     set_status.set_defaults(func=_cmd_project_set_status)
+
+
+def _add_data_commands(subparsers) -> None:
+    data = subparsers.add_parser("data", help="Materialize and inspect DataOS dataset artifacts")
+    data_sub = data.add_subparsers(dest="data_command")
+
+    import_cmd = data_sub.add_parser("import", help="Run the import_dataset operator from a JSON spec")
+    _add_workspace_arg(import_cmd)
+    import_cmd.add_argument("--spec", required=True, help="Path to JSON spec or inline JSON object")
+    import_cmd.add_argument(
+        "--sandbox",
+        default=None,
+        help="Optional sandbox dir (defaults to <workspace>/data-import)",
+    )
+    import_cmd.set_defaults(func=_cmd_data_import)
 
 
 def _add_task_commands(subparsers) -> None:
@@ -594,6 +613,24 @@ def _cmd_agent_daemon_run(args) -> None:
     )
     daemon.run_forever()
     return None
+
+
+def _cmd_data_import(args) -> dict[str, Any]:
+    from dataos.core.sandbox import Sandbox
+    from dataos.operators.import_dataset import ImportDatasetOperator
+
+    spec = _load_json_arg(args.spec)
+    sandbox_dir = (
+        Path(args.sandbox)
+        if args.sandbox
+        else Path(args.workspace) / "data-import"
+    )
+    sandbox = Sandbox(sandbox_dir)
+    sandbox.prepare()
+    operator = ImportDatasetOperator()
+    artifact = operator.run([], sandbox, **spec)
+    artifact.save_meta()
+    return artifact.summary()
 
 
 def _cmd_event_list(args) -> list[dict[str, Any]]:

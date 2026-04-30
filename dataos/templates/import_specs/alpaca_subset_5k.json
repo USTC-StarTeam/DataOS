@@ -1,0 +1,12 @@
+{
+  "source": "parquet",
+  "path": "/home/hcgu/data/alpaca/data/train-00000-of-00001-a09b74b3ef9c3b56.parquet",
+  "name": "alpaca-subset-5k",
+  "rename": {"output": "response"},
+  "keep_columns": ["instruction", "input", "response"],
+  "required_columns": ["instruction", "response"],
+  "train_test_split": {"test_size": 0.02, "seed": 42},
+  "max_train_samples": 5000,
+  "max_test_samples": 100,
+  "output_path": "/home/hcgu/data/DataOS-smoke/alpaca-subset-5k"
+}
