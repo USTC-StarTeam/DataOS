@@ -16,7 +16,7 @@ from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
 from dataos.core.task import TaskTemplate
 from dataos.llm.client import LLMClient
-from dataos.llm.starteam import StarteamLLMClient
+from dataos.llm.openai_compat import OpenAICompatLLMClient
 from dataos.runtime.runner import run_task
 
 __all__ = [
@@ -33,8 +33,8 @@ __all__ = [
     "OperatorRegistry",
     "PlanStep",
     "ResultArtifact",
+    "OpenAICompatLLMClient",
     "Sandbox",
-    "StarteamLLMClient",
     "TaskTemplate",
     "run_task",
 ]
