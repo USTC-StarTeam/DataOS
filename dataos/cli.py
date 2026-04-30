@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from dataos.core.task import TaskTemplate
-from dataos.llm.starteam import StarteamLLMClient
+from dataos.llm.openai_compat import (
+    DASHSCOPE_BASE_URL,
+    DEFAULT_MODEL,
+    OpenAICompatLLMClient,
+)
 from dataos.research.agent import DataOSAgent
 from dataos.research.api import (
     accept_proposal,
@@ -617,18 +621,23 @@ def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def _build_llm_client_from_env() -> StarteamLLMClient:
-    api_key = os.environ.get("STARTEAM_API_KEY")
-    base_url = os.environ.get("STARTEAM_BASE_URL")
-    if not api_key or not base_url:
+def _build_llm_client_from_env() -> OpenAICompatLLMClient:
+    api_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("STARTEAM_API_KEY")
+    if not api_key:
         raise ValueError(
-            "Missing STARTEAM_API_KEY or STARTEAM_BASE_URL for DataOS Agent CLI commands"
+            "Missing DASHSCOPE_API_KEY (or legacy STARTEAM_API_KEY) for DataOS Agent CLI commands"
         )
-    return StarteamLLMClient(
-        api_key=api_key,
-        base_url=base_url,
-        model=os.environ.get("STARTEAM_MODEL", "glm-5"),
+    base_url = (
+        os.environ.get("DASHSCOPE_BASE_URL")
+        or os.environ.get("STARTEAM_BASE_URL")
+        or DASHSCOPE_BASE_URL
     )
+    model = (
+        os.environ.get("DASHSCOPE_MODEL")
+        or os.environ.get("STARTEAM_MODEL")
+        or DEFAULT_MODEL
+    )
+    return OpenAICompatLLMClient(api_key=api_key, base_url=base_url, model=model)
 
 
 if __name__ == "__main__":  # pragma: no cover

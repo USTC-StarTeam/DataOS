@@ -10,6 +10,10 @@ import httpx
 from dataos.llm.client import LLMClient
 
 
+DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DEFAULT_MODEL = "deepseek-v4-flash"
+
+
 def _extract_json_object(text: str) -> dict[str, Any]:
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
@@ -18,16 +22,17 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 
 @dataclass(slots=True)
-class StarteamLLMClient(LLMClient):
+class OpenAICompatLLMClient(LLMClient):
     """Direct HTTP client for an OpenAI-compatible chat completions endpoint.
 
-    Calls ``{base_url}/chat/completions`` with a Bearer token and returns the
-    parsed JSON object embedded in the assistant message.
+    Defaults target Alibaba Cloud DashScope's compatible-mode endpoint
+    (Bailian); set ``base_url`` to point at any other OpenAI-compatible
+    backend.
     """
 
     api_key: str
-    base_url: str
-    model: str = "glm-5"
+    base_url: str = DASHSCOPE_BASE_URL
+    model: str = DEFAULT_MODEL
     timeout: float = 120.0
 
     def generate_json(
