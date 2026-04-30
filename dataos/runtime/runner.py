@@ -14,8 +14,8 @@ from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
 from dataos.core.task import TaskTemplate
 from dataos.eval import run_eval_stage
-from dataos.llm.claude_agent_sdk import ClaudeAgentSDKClient
 from dataos.llm.client import LLMClient
+from dataos.llm.starteam import StarteamLLMClient
 from dataos.operators.clean_data import CleanDataOperator
 from dataos.operators.synthesize_data import SynthesizeDataOperator
 from dataos.train import run_train_stage
@@ -188,11 +188,10 @@ def _build_client_from_env() -> LLMClient:
     starteam_base_url = os.environ.get("STARTEAM_BASE_URL")
     if not starteam_api_key or not starteam_base_url:
         raise ValueError(
-            "Missing Claude Agent SDK environment variables. "
-            "Expected STARTEAM_API_KEY and STARTEAM_BASE_URL, with optional STARTEAM_MODEL "
-            "and DATAOS_CLAUDE_CLI_PATH."
+            "Missing LLM API environment variables. "
+            "Expected STARTEAM_API_KEY and STARTEAM_BASE_URL, with optional STARTEAM_MODEL."
         )
-    return ClaudeAgentSDKClient(
+    return StarteamLLMClient(
         api_key=starteam_api_key,
         base_url=starteam_base_url,
         model=os.environ.get("STARTEAM_MODEL", "glm-5"),

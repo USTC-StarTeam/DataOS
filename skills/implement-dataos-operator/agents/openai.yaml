@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement DataOS Operator"
+  short_description: "Add or modify a DataOS operator safely"
+  default_prompt: "Use $implement-dataos-operator to add or modify a DataOS operator and wire it into the runtime correctly."

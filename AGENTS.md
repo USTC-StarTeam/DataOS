@@ -150,9 +150,9 @@ The LLM client is for structured plan/review generation. Runtime execution is st
 
 If no custom client is passed, `run_task()` expects:
 
-- `DATAOS_LLM_BASE_URL`
-- `DATAOS_LLM_API_KEY`
-- `DATAOS_LLM_MODEL`
+- `STARTEAM_BASE_URL`
+- `STARTEAM_API_KEY`
+- optional `STARTEAM_MODEL`
 
 Keep this separation intact. Avoid pushing execution semantics into prompts when local runtime code should own them.
 
@@ -236,3 +236,14 @@ Do not claim external integrations work unless you actually ran the relevant mar
 - Sandbox definition: `dataos/core/sandbox.py`
 - Task schema: `dataos/core/task.py`
 - Smoke test: `tests/test_pipeline_smoke.py`
+
+## Repo Skills
+
+Repo-local project skills live under `skills/`. Read the matching skill before answering or
+implementing recurring repository-specific tasks:
+
+- `skills/use-dataos/SKILL.md`
+- `skills/implement-dataos-operator/SKILL.md`
+- `skills/add-dataos-eval-task/SKILL.md`
+- `skills/write-dataos-task-template/SKILL.md`
+- `skills/debug-dataos-run/SKILL.md`

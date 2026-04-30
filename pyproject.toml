@@ -10,14 +10,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "USTC-StarTeam" }]
 dependencies = [
-  "claude-agent-sdk==0.1.49",
   "datasets>=2.19.0",
   "httpx>=0.28,<0.29",
   "pyarrow>=15.0.0",
   "prompt_toolkit>=3.0.43",
   "pyclean>=3.5.0",
-  "starlette>=0.52,<0.53",
-  "uvicorn>=0.42,<0.43",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +25,9 @@ dev = [
 train = [
   "llamafactory[metrics]>=0.9.4,<0.10",
 ]
+
+[project.scripts]
+dataos = "dataos.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["dataos*"]
