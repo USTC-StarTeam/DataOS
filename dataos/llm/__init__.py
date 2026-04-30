@@ -1,6 +1,6 @@
 """LLM client abstractions."""
 
-from dataos.llm.claude_agent_sdk import ClaudeAgentSDKClient
 from dataos.llm.client import LLMClient
+from dataos.llm.starteam import StarteamLLMClient
 
-__all__ = ["ClaudeAgentSDKClient", "LLMClient"]
+__all__ = ["LLMClient", "StarteamLLMClient"]

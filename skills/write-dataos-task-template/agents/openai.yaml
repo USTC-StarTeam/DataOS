@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write DataOS Task Template"
+  short_description: "Draft valid DataOS task template JSON"
+  default_prompt: "Use $write-dataos-task-template to draft or revise a DataOS task template JSON that matches the current runtime contract."

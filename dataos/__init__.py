@@ -15,12 +15,11 @@ from dataos.core.registry import OperatorRegistry
 from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
 from dataos.core.task import TaskTemplate
-from dataos.llm.claude_agent_sdk import ClaudeAgentSDKClient
 from dataos.llm.client import LLMClient
+from dataos.llm.starteam import StarteamLLMClient
 from dataos.runtime.runner import run_task
 
 __all__ = [
-    "ClaudeAgentSDKClient",
     "Artifact",
     "DatasetArtifact",
     "EvalArtifact",
@@ -35,6 +34,7 @@ __all__ = [
     "PlanStep",
     "ResultArtifact",
     "Sandbox",
+    "StarteamLLMClient",
     "TaskTemplate",
     "run_task",
 ]

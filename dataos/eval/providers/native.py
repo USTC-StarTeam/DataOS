@@ -22,6 +22,9 @@ class NativeEvalProvider:
             raise ValueError("EvalConfig.request is required when provider='native'")
 
         task = get_eval_task(context.config.task.name)
+        set_runtime_context = getattr(task, "set_runtime_context", None)
+        if callable(set_runtime_context):
+            set_runtime_context(context)
         request_type = context.config.request.type
         if request_type not in task.supported_request_types:
             supported = ", ".join(sorted(task.supported_request_types))

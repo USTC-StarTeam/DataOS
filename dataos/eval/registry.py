@@ -62,6 +62,16 @@ def _gsm8k_task():
     return GSM8KTask()
 
 
+def _aime2025_task():
+    from dataos.eval.tasks.aime2025 import AIME2025Task
+    return AIME2025Task()
+
+
+def _physics_task():
+    from dataos.eval.tasks.physics import PhysicsTask
+    return PhysicsTask()
+
+
 def _toxicity_detection_task():
     from dataos.eval.tasks.toxicity_detection import ToxicityDetectionTask
     return ToxicityDetectionTask()
@@ -70,6 +80,16 @@ def _toxicity_detection_task():
 def _climaqa_task():
     from dataos.eval.tasks.climaqa import ClimaQATask
     return ClimaQATask()
+
+
+def _openfindata_task():
+    from dataos.eval.tasks.openfindata import OpenFinDataTask
+    return OpenFinDataTask()
+
+
+def _livecodebench_task():
+    from dataos.eval.tasks.livecodebench import LiveCodeBenchTask
+    return LiveCodeBenchTask()
 
 
 def _transformers_adapter():
@@ -85,7 +105,11 @@ def _openai_compatible_adapter():
 register_provider("native", _native_provider)
 register_provider("stub", _stub_provider)
 register_task("gsm8k", _gsm8k_task)
+register_task("aime2025", _aime2025_task)
+register_task("physics", _physics_task)
 register_task("toxicity_detection", _toxicity_detection_task)
 register_task("climaqa", _climaqa_task)
+register_task("openfindata", _openfindata_task)
+register_task("livecodebench", _livecodebench_task)
 register_adapter("transformers", _transformers_adapter)
 register_adapter("openai_compatible", _openai_compatible_adapter)
