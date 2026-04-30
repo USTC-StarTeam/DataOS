@@ -15,7 +15,11 @@ from dataos.core.store import LocalArtifactStore
 from dataos.core.task import TaskTemplate
 from dataos.eval import run_eval_stage
 from dataos.llm.client import LLMClient
-from dataos.llm.starteam import StarteamLLMClient
+from dataos.llm.openai_compat import (
+    DASHSCOPE_BASE_URL,
+    DEFAULT_MODEL,
+    OpenAICompatLLMClient,
+)
 from dataos.operators.clean_data import CleanDataOperator
 from dataos.operators.synthesize_data import SynthesizeDataOperator
 from dataos.train import run_train_stage
@@ -184,15 +188,21 @@ def _run_runtime_stage(
 
 
 def _build_client_from_env() -> LLMClient:
-    starteam_api_key = os.environ.get("STARTEAM_API_KEY")
-    starteam_base_url = os.environ.get("STARTEAM_BASE_URL")
-    if not starteam_api_key or not starteam_base_url:
+    api_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("STARTEAM_API_KEY")
+    if not api_key:
         raise ValueError(
-            "Missing LLM API environment variables. "
-            "Expected STARTEAM_API_KEY and STARTEAM_BASE_URL, with optional STARTEAM_MODEL."
+            "Missing LLM API key. "
+            "Set DASHSCOPE_API_KEY (or legacy STARTEAM_API_KEY); "
+            "optional DASHSCOPE_BASE_URL / DASHSCOPE_MODEL override the defaults."
         )
-    return StarteamLLMClient(
-        api_key=starteam_api_key,
-        base_url=starteam_base_url,
-        model=os.environ.get("STARTEAM_MODEL", "glm-5"),
+    base_url = (
+        os.environ.get("DASHSCOPE_BASE_URL")
+        or os.environ.get("STARTEAM_BASE_URL")
+        or DASHSCOPE_BASE_URL
     )
+    model = (
+        os.environ.get("DASHSCOPE_MODEL")
+        or os.environ.get("STARTEAM_MODEL")
+        or DEFAULT_MODEL
+    )
+    return OpenAICompatLLMClient(api_key=api_key, base_url=base_url, model=model)
