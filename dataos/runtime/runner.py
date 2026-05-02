@@ -21,6 +21,9 @@ from dataos.llm.openai_compat import (
     OpenAICompatLLMClient,
 )
 from dataos.operators.clean_data import CleanDataOperator
+from dataos.operators.dedup import DedupOperator
+from dataos.operators.format_convert import FormatConvertOperator
+from dataos.operators.sample import SampleOperator
 from dataos.operators.synthesize_data import SynthesizeDataOperator
 from dataos.train import run_train_stage
 
@@ -40,6 +43,9 @@ class RunTaskResult:
 def build_default_registry() -> OperatorRegistry:
     registry = OperatorRegistry()
     registry.register(CleanDataOperator())
+    registry.register(DedupOperator())
+    registry.register(FormatConvertOperator())
+    registry.register(SampleOperator())
     registry.register(SynthesizeDataOperator())
     return registry
 
