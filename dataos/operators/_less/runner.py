@@ -20,12 +20,11 @@ from dataos.operators._less.cache import (
 )
 from dataos.operators._less.commands import (
     grad_command,
-    matching_command,
-    rank_command,
+    select_command,
     warmup_command,
 )
 from dataos.operators._less.config import LessConfig
-from dataos.operators._less.io import export_jsonl
+from dataos.operators._less.io import export_jsonl  # noqa: F401  (kept for future generic uses)
 
 STAGE_NAMES = ("warmup", "train_grads", "val_grads", "select")
 
@@ -108,11 +107,16 @@ def run_less_pipeline(
       3. val_grads    — projected Adam gradients per warmup checkpoint × target
       4. select       — cosine matching → top-k indices (always recomputed)
     """
-    if shutil.which("python") is None:
-        raise RuntimeError("less: 'python' executable not found on PATH")
     repo_path = Path(config.less_repo_path).expanduser()
     if not repo_path.exists():
         raise ValueError(f"less: less_repo_path does not exist: {repo_path}")
+    if shutil.which("python3") is None:
+        raise RuntimeError("less: 'python3' executable not found on PATH")
+    if shutil.which("torchrun") is None:
+        raise RuntimeError(
+            "less: 'torchrun' not found on PATH (required for warmup); "
+            "install torch in the active environment"
+        )
 
     cache_root = resolve_cache_root(sandbox.root, config)
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -121,8 +125,8 @@ def run_less_pipeline(
     work_dir.mkdir(parents=True, exist_ok=True)
     pool_jsonl = work_dir / "pool.jsonl"
     target_jsonl = work_dir / "target.jsonl"
-    export_jsonl(pool_dataset, pool_jsonl)
-    export_jsonl(target_dataset, target_jsonl)
+    _export_for_less(pool_dataset, pool_jsonl)
+    _export_for_less(target_dataset, target_jsonl)
 
     keys = {
         "warmup": warmup_key(pool_artifact_id, config),
@@ -167,6 +171,7 @@ def run_less_pipeline(
         )
 
     checkpoints = [Path(p) for p in warmup_entry.read_meta()["checkpoints"]]
+    _ensure_less_compatible_optimizer(checkpoints, config.base_model)
 
     # ── Stage 2: train data gradients ────────────────────────────────────────
     tg_entry = make_cache_entry(cache_root, "train_grads", keys["train_grads"])
@@ -177,7 +182,7 @@ def run_less_pipeline(
         tg_dir = tg_entry.reserve()
         _run_grads_per_checkpoint(
             config=config,
-            gradient_type="sgd",
+            gradient_type="adam",
             train_files=pool_jsonl,
             checkpoints=checkpoints,
             output_root=tg_dir,
@@ -211,7 +216,7 @@ def run_less_pipeline(
         vg_dir = vg_entry.reserve()
         _run_grads_per_checkpoint(
             config=config,
-            gradient_type="adam",
+            gradient_type="sgd",
             train_files=target_jsonl,
             checkpoints=checkpoints,
             output_root=vg_dir,
@@ -236,37 +241,28 @@ def run_less_pipeline(
             )
         )
 
-    # ── Stage 4: matching + ranking (always runs) ────────────────────────────
+    # ── Stage 4: cosine matching + top-k (always runs) ───────────────────────
     select_dir = work_dir / "select"
     select_dir.mkdir(parents=True, exist_ok=True)
     select_log = sandbox.logs_dir / "less_select.log"
-    scores_path = select_dir / "scores.pt"
     indices_path = select_dir / "selected_indices.json"
     keep = _resolve_keep_count(config, pool_dataset.num_rows)
 
     _run(
-        matching_command(
-            train_grads_dir=tg_entry.path,
-            val_grads_dir=vg_entry.path,
-            output_path=scores_path,
+        select_command(
+            config,
+            train_grads_root=tg_entry.path,
+            val_grads_root=vg_entry.path,
+            keep=keep,
+            indices_path=indices_path,
         ),
         cwd=repo_path,
         log_path=select_log,
         header=True,
     )
-    if not scores_path.exists():
-        raise RuntimeError(
-            f"less: matching did not produce {scores_path} (see {select_log})"
-        )
-
-    _run(
-        rank_command(scores_path, keep, indices_path),
-        cwd=repo_path,
-        log_path=select_log,
-    )
     if not indices_path.exists():
         raise RuntimeError(
-            f"less: ranking did not produce {indices_path} (see {select_log})"
+            f"less: select stage did not produce {indices_path} (see {select_log})"
         )
 
     raw_indices = json.loads(indices_path.read_text(encoding="utf-8"))
@@ -303,6 +299,115 @@ def _resolve_keep_count(config: LessConfig, pool_size: int) -> int:
     fraction = config.top_fraction if config.top_fraction is not None else 0.0
     keep = max(1, int(round(pool_size * fraction)))
     return min(keep, pool_size)
+
+
+def _ensure_less_compatible_optimizer(checkpoints: list[Path], base_model: str) -> None:
+    """Rewrite each checkpoint's optimizer state into the format LESS expects.
+
+    Bridges two upstream changes between LESS (pinned to ``transformers==4.36.2``)
+    and the modern stack we run on:
+
+    1. Filename: transformers now saves ``optimizer.pt``; LESS's
+       ``data_selection/get_info.py`` does ``torch.load(<ckpt>/optimizer.bin)``.
+    2. Schema: modern PyTorch's ``optimizer.state_dict()['state']`` is keyed
+       by integer parameter position, but LESS's ``prepare_optimizer_state``
+       indexes it by parameter name (``optimizer_state[name]['exp_avg']``).
+       That works only if the dict is name-keyed.
+
+    We instantiate the PEFT adapter at each checkpoint to read the trainable
+    parameter names in ``named_parameters()`` order, zip them with the
+    optimizer's per-group parameter ids, and save a name-keyed dict under
+    ``optimizer.bin`` next to the original ``optimizer.pt``. Idempotent.
+    """
+    pending: list[Path] = []
+    for ckpt in checkpoints:
+        modern = ckpt / "optimizer.pt"
+        legacy = ckpt / "optimizer.bin"
+        if not modern.exists():
+            continue
+        if legacy.exists() and not legacy.is_symlink() and legacy.stat().st_size > 1024:
+            continue
+        if legacy.is_symlink():
+            legacy.unlink()
+        pending.append(ckpt)
+    if not pending:
+        return
+
+    # Heavy imports deferred until we actually need to load the model.
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM
+
+    base_loaded = None
+    try:
+        for ckpt in pending:
+            legacy = ckpt / "optimizer.bin"
+            modern = ckpt / "optimizer.pt"
+
+            state = torch.load(str(modern), map_location="cpu", weights_only=False)
+            int_state = state.get("state", {})
+            ids: list[int] = []
+            for group in state.get("param_groups", []):
+                ids.extend(group.get("params", []))
+
+            if base_loaded is None:
+                base_loaded = AutoModelForCausalLM.from_pretrained(
+                    base_model, torch_dtype="auto"
+                )
+            model = PeftModel.from_pretrained(base_loaded, str(ckpt))
+            # Mirror LESS's get_info.load_model: mark LoRA params trainable so
+            # `named_parameters()` filtered by requires_grad matches the names
+            # the optimizer was constructed with.
+            for n, p in model.named_parameters():
+                if "lora" in n.lower():
+                    p.requires_grad = True
+            names = [n for n, p in model.named_parameters() if p.requires_grad]
+
+            if len(names) != len(ids):
+                raise RuntimeError(
+                    f"less: optimizer state has {len(ids)} params but model has "
+                    f"{len(names)} trainable params at {ckpt}"
+                )
+            name_keyed = {
+                name: int_state[pid] for name, pid in zip(names, ids) if pid in int_state
+            }
+            torch.save(
+                {"state": name_keyed, "param_groups": state.get("param_groups", [])},
+                str(legacy),
+            )
+            # Drop the adapter overlay so the next checkpoint starts from the base.
+            base_loaded = model.unload() if hasattr(model, "unload") else base_loaded
+    finally:
+        del base_loaded
+
+
+def _export_for_less(dataset: "Dataset", target: Path) -> None:
+    """Dump rows in the schema LESS's loader expects.
+
+    LESS's ``get_training_dataset.py`` requires either ``prompt``/``completion``
+    or a chat-format ``messages`` column. DataOS's canonical schema is
+    ``instruction``/``response`` (+ optional ``input``/``system``), so we emit
+    a ``messages`` column on the fly. Optional ``system`` becomes the leading
+    system turn; ``input`` is concatenated into the user content. This keeps
+    the LESS-specific massaging local to the operator rather than polluting
+    the generic ``io.export_jsonl`` helper.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8") as f:
+        columns = set(dataset.column_names)
+        for row in dataset:
+            user_content = str(row.get("instruction", "") or "")
+            extra = row.get("input") if "input" in columns else None
+            if extra:
+                user_content = f"{user_content}\n\n{extra}".strip()
+            messages = []
+            if "system" in columns and row.get("system"):
+                messages.append({"role": "system", "content": str(row["system"])})
+            messages.append({"role": "user", "content": user_content})
+            messages.append(
+                {"role": "assistant", "content": str(row.get("response", "") or "")}
+            )
+            f.write(json.dumps({"messages": messages}, ensure_ascii=False) + "\n")
 
 
 def _hit(entry: CacheEntry, stage: str) -> StageResult:
