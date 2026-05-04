@@ -84,15 +84,69 @@ class TestResolver:
         assert "gsm8k" in tasks
         assert plan[0].task in {"gsm8k", "bbh_cot_zeroshot_logical_deduction_three_objects"}
 
-    def test_only_runnable_excludes_multiple_choice(self):
+    def test_only_runnable_keeps_multiple_choice_for_transformers_string(self):
+        """Default adapter='transformers' is conservatively recognized as
+        logprob-capable, so multiple_choice tasks (mmlu) are kept."""
         intent = EvalIntent(raw_goal="general knowledge", topics=("knowledge",))
-        plan = resolve_tasks(intent, only_runnable=True)
+        plan = resolve_tasks(intent, only_runnable=True, adapter="transformers")
+        assert any(item.task == "mmlu" for item in plan), [i.task for i in plan]
+
+    def test_only_runnable_excludes_multiple_choice_for_unknown_string_adapter(self):
+        """Adapter strings other than 'transformers' are conservatively
+        treated as generate-only — multiple_choice tasks must be filtered."""
+        intent = EvalIntent(raw_goal="general knowledge", topics=("knowledge",))
+        plan = resolve_tasks(intent, only_runnable=True, adapter="openai_compatible")
         assert all(item.task != "mmlu" for item in plan), [i.task for i in plan]
+
+    def test_only_runnable_excludes_multiple_choice_for_live_generate_only_adapter(self):
+        """Live adapter without score_continuations -> multiple_choice filtered."""
+
+        class _GenerateOnly:
+            name = "live_generate_only"
+
+            def generate_until(self, model_artifact, requests, config):
+                return []
+
+        intent = EvalIntent(raw_goal="general knowledge", topics=("knowledge",))
+        plan = resolve_tasks(intent, only_runnable=True, adapter=_GenerateOnly())
+        assert all(item.task != "mmlu" for item in plan), [i.task for i in plan]
+
+    def test_only_runnable_keeps_multiple_choice_for_live_scoring_adapter(self):
+        """Live adapter implementing score_continuations -> multiple_choice kept."""
+
+        class _ScoringAdapter:
+            name = "live_scoring"
+
+            def score_continuations(self, model_artifact, pairs, config):
+                return [(0.0, True) for _ in pairs]
+
+        intent = EvalIntent(raw_goal="general knowledge", topics=("knowledge",))
+        plan = resolve_tasks(intent, only_runnable=True, adapter=_ScoringAdapter())
+        assert any(item.task == "mmlu" for item in plan), [i.task for i in plan]
 
     def test_runnable_false_includes_multiple_choice(self):
         intent = EvalIntent(raw_goal="general knowledge", topics=("knowledge",))
-        plan = resolve_tasks(intent, only_runnable=False)
+        plan = resolve_tasks(intent, only_runnable=False, adapter="openai_compatible")
         assert any(item.task == "mmlu" for item in plan)
+
+    def test_resolver_logs_filtered_capability_drops(self, caplog):
+        """Master's observability requirement: when capability-driven filtering
+        happens, log one line naming the dropped tasks and the adapter."""
+        intent = EvalIntent(raw_goal="general knowledge", topics=("knowledge",))
+        with caplog.at_level("INFO", logger="dataos.eval.planner"):
+            resolve_tasks(intent, only_runnable=True, adapter="openai_compatible")
+        records = [r for r in caplog.records if r.name == "dataos.eval.planner"]
+        assert records, "expected an INFO log from dataos.eval.planner"
+        message = records[0].getMessage()
+        assert "openai_compatible" in message
+        assert "score_continuations" in message
+        assert "mmlu" in message
+
+    def test_resolver_does_not_log_when_no_drops(self, caplog):
+        intent = EvalIntent(raw_goal="math", topics=("math",))
+        with caplog.at_level("INFO", logger="dataos.eval.planner"):
+            resolve_tasks(intent, only_runnable=True, adapter="transformers")
+        assert not [r for r in caplog.records if r.name == "dataos.eval.planner"]
 
     def test_unsafe_code_required_for_humaneval(self):
         intent_no = EvalIntent(raw_goal="code", topics=("code",), allow_unsafe_code=False)
