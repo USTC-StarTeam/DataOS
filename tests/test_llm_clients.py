@@ -36,7 +36,7 @@ def test_openai_compat_client_extracts_json(monkeypatch: pytest.MonkeyPatch) -> 
                     {
                         "message": {
                             "content": (
-                                'preface {"steps": [{"operator_name": "clean_data", '
+                                'preface {"steps": [{"operator_name": "dedup", '
                                 '"params": {}}]} trailer'
                             )
                         }
@@ -52,7 +52,7 @@ def test_openai_compat_client_extracts_json(monkeypatch: pytest.MonkeyPatch) -> 
     )
     payload = client.generate_json("system text", "user text")
 
-    assert payload == {"steps": [{"operator_name": "clean_data", "params": {}}]}
+    assert payload == {"steps": [{"operator_name": "dedup", "params": {}}]}
     assert captured["url"] == "https://example.com/chat/completions"
     assert captured["auth"] == "Bearer k"
     assert "Return exactly one JSON object" in str(captured["body"])

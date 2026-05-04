@@ -32,7 +32,7 @@ def build_plan_system_prompt(max_steps: int = PLAN_MAX_STEPS) -> str:
         f"{joined_rules}\n"
         "Output schema:\n"
         '{\n'
-        '  "steps": [{"operator_name": "clean_data", "params": {}}],\n'
+        '  "steps": [{"operator_name": "dedup", "params": {"keys": ["instruction"]}}],\n'
         '  "reasoning_summary": "short string",\n'
         '  "expected_gain": "short string"\n'
         '}'

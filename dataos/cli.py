@@ -617,7 +617,7 @@ def _cmd_agent_daemon_run(args) -> None:
 
 def _cmd_data_import(args) -> dict[str, Any]:
     from dataos.core.sandbox import Sandbox
-    from dataos.operators.import_dataset import ImportDatasetOperator
+    from dataos.operators import build_default_registry
 
     spec = _load_json_arg(args.spec)
     sandbox_dir = (
@@ -627,7 +627,7 @@ def _cmd_data_import(args) -> dict[str, Any]:
     )
     sandbox = Sandbox(sandbox_dir)
     sandbox.prepare()
-    operator = ImportDatasetOperator()
+    operator = build_default_registry().get("import_dataset")
     artifact = operator.run([], sandbox, **spec)
     artifact.save_meta()
     return artifact.summary()

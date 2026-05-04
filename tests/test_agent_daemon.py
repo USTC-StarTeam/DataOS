@@ -84,7 +84,7 @@ def _task_template() -> dict[str, object]:
         "constraints": {"dataset_format": "hf_datasets"},
         "budget": {"max_experiments": 2},
         "max_rounds": 1,
-        "pipeline_hint": ["clean_data"],
+        "pipeline_hint": ["dedup"],
         "train_config": {"mode": "stub"},
         "eval_config": {"provider": "stub", "provider_config": {"score": 0.5}},
     }
