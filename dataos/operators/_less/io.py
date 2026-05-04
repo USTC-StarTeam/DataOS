@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from datasets import Dataset, DatasetDict
 
 from dataos.core.artifact import Artifact, DatasetArtifact
@@ -38,6 +41,17 @@ def check_required_columns(dataset_obj: Dataset | DatasetDict, role: str) -> Non
             f"less: {role} dataset is missing required columns: "
             f"{', '.join(missing)} (have: {', '.join(flat.column_names)})"
         )
+
+
+def export_jsonl(dataset: Dataset, target: Path) -> int:
+    """Write a flat Dataset to JSONL; return the number of rows written."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with target.open("w", encoding="utf-8") as f:
+        for row in dataset:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            count += 1
+    return count
 
 
 def build_selected_dataset(
