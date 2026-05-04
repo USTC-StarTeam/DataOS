@@ -5,12 +5,14 @@ from dataos.core.registry import OperatorRegistry
 from dataos.operators.dedup import DedupOperator
 from dataos.operators.format_convert import FormatConvertOperator
 from dataos.operators.import_dataset import ImportDatasetOperator
+from dataos.operators.less import LessSelectOperator
 from dataos.operators.sample import SampleOperator
 
 __all__ = [
     "DedupOperator",
     "FormatConvertOperator",
     "ImportDatasetOperator",
+    "LessSelectOperator",
     "SampleOperator",
     "builtin_operators",
     "build_default_registry",
@@ -24,6 +26,7 @@ def builtin_operators() -> list[Operator]:
         DedupOperator(),
         FormatConvertOperator(),
         ImportDatasetOperator(),
+        LessSelectOperator(),
         SampleOperator(),
     ]
 
