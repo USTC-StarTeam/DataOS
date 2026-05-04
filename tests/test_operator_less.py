@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from pathlib import Path
 
 import pytest
 from datasets import Dataset, DatasetDict
@@ -363,12 +365,12 @@ def test_less_invalid_mode_rejected(tmp_path):
         )
 
 
-def test_less_real_mode_not_yet_implemented(tmp_path):
+def test_less_real_mode_missing_repo_dir_rejected(tmp_path):
     pool, target = _make_pair(tmp_path)
     sandbox = Sandbox(tmp_path / "sandbox")
     sandbox.prepare()
 
-    with pytest.raises(NotImplementedError, match="commit 2"):
+    with pytest.raises(ValueError, match="less_repo_path does not exist"):
         LessSelectOperator().run(
             [target, pool],
             sandbox,
@@ -376,7 +378,269 @@ def test_less_real_mode_not_yet_implemented(tmp_path):
             base_model="m",
             top_k=5,
             mode="less",
-            less_repo_path="/some/path",
+            less_repo_path=str(tmp_path / "no-such-repo"),
+        )
+
+
+# ── Real-mode subprocess tests (commit 2) ───────────────────────────────────
+
+
+def _arg(args: list[str], flag: str) -> str:
+    for index, value in enumerate(args):
+        if value == flag and index + 1 < len(args):
+            return args[index + 1]
+    raise AssertionError(f"flag {flag!r} not found in {args}")
+
+
+def _make_fake_run(num_checkpoints: int = 2):
+    """Build a subprocess.run replacement that fakes each LESS stage's outputs."""
+
+    calls: list[list[str]] = []
+
+    def fake_run(args, cwd, stdout, stderr, check):
+        del cwd, stderr, check
+        calls.append(list(args))
+        cmd = " ".join(args)
+        stdout.write(f"FAKE: {cmd}\n")
+        stdout.flush()
+        if "less.train.train" in cmd:
+            output_dir = Path(_arg(args, "--output_dir"))
+            output_dir.mkdir(parents=True, exist_ok=True)
+            for epoch in range(1, num_checkpoints + 1):
+                ckpt = output_dir / f"checkpoint-{epoch}"
+                ckpt.mkdir(parents=True, exist_ok=True)
+                (ckpt / "adapter_config.json").write_text("{}", encoding="utf-8")
+        elif "less.data_selection.get_info" in cmd:
+            output_path = Path(_arg(args, "--output_path"))
+            output_path.mkdir(parents=True, exist_ok=True)
+            (output_path / "grads.bin").write_text("fake-grads", encoding="utf-8")
+        elif "less.data_selection.matching" in cmd:
+            output_path = Path(_arg(args, "--output_path"))
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                json.dumps([1.0 / (i + 1) for i in range(20)]), encoding="utf-8"
+            )
+        elif args[:2] == ["python", "-c"]:
+            # args = ["python", "-c", SCRIPT, scores_path, keep, indices_path]
+            keep = int(args[4])
+            indices_path = Path(args[5])
+            indices_path.parent.mkdir(parents=True, exist_ok=True)
+            indices_path.write_text(json.dumps(sorted(range(keep))), encoding="utf-8")
+        return subprocess.CompletedProcess(args, 0)
+
+    return fake_run, calls
+
+
+def _patch_runtime(monkeypatch, fake_run):
+    monkeypatch.setattr(
+        "dataos.operators._less.runner.subprocess.run", fake_run
+    )
+    monkeypatch.setattr(
+        "dataos.operators._less.runner.shutil.which", lambda _: "/usr/bin/python"
+    )
+
+
+def test_less_real_mode_runs_full_pipeline(tmp_path, monkeypatch):
+    pool, target = _make_pair(tmp_path)
+    repo = tmp_path / "less_repo"
+    repo.mkdir()
+    cache = tmp_path / "less_cache"
+    sandbox = Sandbox(tmp_path / "sandbox")
+    sandbox.prepare()
+
+    fake_run, calls = _make_fake_run(num_checkpoints=2)
+    _patch_runtime(monkeypatch, fake_run)
+
+    artifact = LessSelectOperator().run(
+        [target, pool],
+        sandbox,
+        target_artifact_id=target.artifact_id,
+        base_model="Qwen/Qwen2.5-0.5B-Instruct",
+        top_k=5,
+        mode="less",
+        less_repo_path=str(repo),
+        cache_dir=str(cache),
+    )
+
+    assert artifact.load().num_rows == 5
+    assert artifact.parent_ids == [pool.artifact_id, target.artifact_id]
+    assert artifact.meta["less_mode"] == "less"
+    assert artifact.meta["less_cache_root"] == str(cache)
+
+    stages = {stage["name"]: stage for stage in artifact.meta["less_stages"]}
+    assert stages["warmup"]["cache_status"] == "miss"
+    assert stages["train_grads"]["cache_status"] == "miss"
+    assert stages["val_grads"]["cache_status"] == "miss"
+    assert stages["select"]["cache_status"] == "miss"
+
+    invocations = [" ".join(call) for call in calls]
+    # 1 warmup + 2 train_grads (per ckpt) + 2 val_grads + 1 matching + 1 rank = 7
+    assert len(invocations) == 7
+    assert sum("less.train.train" in inv for inv in invocations) == 1
+    assert sum("less.data_selection.get_info" in inv for inv in invocations) == 4
+    assert sum("less.data_selection.matching" in inv for inv in invocations) == 1
+    assert sum(call[:2] == ["python", "-c"] for call in calls) == 1
+
+    assert (cache / "warmup").exists()
+    assert (cache / "train_grads").exists()
+    assert (cache / "val_grads").exists()
+    assert (sandbox.logs_dir / "less_warmup.log").exists()
+    assert (sandbox.logs_dir / "less_select.log").exists()
+
+
+def test_less_real_mode_reuses_cache_across_targets(tmp_path, monkeypatch):
+    pool = _build_artifact(tmp_path, "pool", _pool())
+    target_a = _build_artifact(tmp_path, "target_a", _target())
+    target_b = _build_artifact(tmp_path, "target_b", _target())
+    repo = tmp_path / "less_repo"
+    repo.mkdir()
+    cache = tmp_path / "less_cache"
+
+    fake_run, calls = _make_fake_run(num_checkpoints=2)
+    _patch_runtime(monkeypatch, fake_run)
+
+    sandbox_a = Sandbox(tmp_path / "sandbox_a")
+    sandbox_a.prepare()
+    LessSelectOperator().run(
+        [target_a, pool],
+        sandbox_a,
+        target_artifact_id=target_a.artifact_id,
+        base_model="m",
+        top_k=5,
+        mode="less",
+        less_repo_path=str(repo),
+        cache_dir=str(cache),
+    )
+    first_call_count = len(calls)
+
+    sandbox_b = Sandbox(tmp_path / "sandbox_b")
+    sandbox_b.prepare()
+    artifact_b = LessSelectOperator().run(
+        [target_b, pool],
+        sandbox_b,
+        target_artifact_id=target_b.artifact_id,
+        base_model="m",
+        top_k=5,
+        mode="less",
+        less_repo_path=str(repo),
+        cache_dir=str(cache),
+    )
+    second_run_calls = calls[first_call_count:]
+
+    stages = {stage["name"]: stage for stage in artifact_b.meta["less_stages"]}
+    assert stages["warmup"]["cache_status"] == "hit"
+    assert stages["train_grads"]["cache_status"] == "hit"
+    assert stages["val_grads"]["cache_status"] == "miss"
+    assert stages["select"]["cache_status"] == "miss"
+
+    invocations = [" ".join(call) for call in second_run_calls]
+    assert sum("less.train.train" in inv for inv in invocations) == 0
+    # Only target gradients (2 ckpts) + matching + rank = 4 calls in the 2nd run
+    assert len(invocations) == 4
+    assert sum("less.data_selection.get_info" in inv for inv in invocations) == 2
+    assert all("--gradient_type adam" in inv for inv in invocations if "get_info" in inv)
+
+
+def test_less_real_mode_force_recompute_bypasses_cache(tmp_path, monkeypatch):
+    pool, target = _make_pair(tmp_path)
+    repo = tmp_path / "less_repo"
+    repo.mkdir()
+    cache = tmp_path / "less_cache"
+
+    fake_run, calls = _make_fake_run(num_checkpoints=2)
+    _patch_runtime(monkeypatch, fake_run)
+
+    sandbox_a = Sandbox(tmp_path / "sandbox_a")
+    sandbox_a.prepare()
+    LessSelectOperator().run(
+        [target, pool],
+        sandbox_a,
+        target_artifact_id=target.artifact_id,
+        base_model="m",
+        top_k=5,
+        mode="less",
+        less_repo_path=str(repo),
+        cache_dir=str(cache),
+    )
+
+    first_count = len(calls)
+    sandbox_b = Sandbox(tmp_path / "sandbox_b")
+    sandbox_b.prepare()
+    artifact = LessSelectOperator().run(
+        [target, pool],
+        sandbox_b,
+        target_artifact_id=target.artifact_id,
+        base_model="m",
+        top_k=5,
+        mode="less",
+        less_repo_path=str(repo),
+        cache_dir=str(cache),
+        force_recompute=True,
+    )
+    second_run_calls = len(calls) - first_count
+
+    assert second_run_calls == first_count
+    assert all(
+        stage["cache_status"] == "miss"
+        for stage in artifact.meta["less_stages"]
+    )
+
+
+def test_less_real_mode_subprocess_failure_surfaces_log(tmp_path, monkeypatch):
+    pool, target = _make_pair(tmp_path)
+    repo = tmp_path / "less_repo"
+    repo.mkdir()
+    sandbox = Sandbox(tmp_path / "sandbox")
+    sandbox.prepare()
+
+    def fake_run(args, cwd, stdout, stderr, check):
+        del cwd, stderr, check
+        stdout.write("FAKE failure\n")
+        stdout.flush()
+        return subprocess.CompletedProcess(args, returncode=42)
+
+    _patch_runtime(monkeypatch, fake_run)
+
+    with pytest.raises(RuntimeError, match="exit code 42"):
+        LessSelectOperator().run(
+            [target, pool],
+            sandbox,
+            target_artifact_id=target.artifact_id,
+            base_model="m",
+            top_k=5,
+            mode="less",
+            less_repo_path=str(repo),
+            cache_dir=str(tmp_path / "cache"),
+        )
+    assert (sandbox.logs_dir / "less_warmup.log").exists()
+
+
+def test_less_real_mode_warmup_must_produce_checkpoints(tmp_path, monkeypatch):
+    pool, target = _make_pair(tmp_path)
+    repo = tmp_path / "less_repo"
+    repo.mkdir()
+    sandbox = Sandbox(tmp_path / "sandbox")
+    sandbox.prepare()
+
+    def fake_run(args, cwd, stdout, stderr, check):
+        del cwd, stderr, check
+        stdout.write("FAKE: warmup that produces nothing\n")
+        stdout.flush()
+        # Intentionally don't create any checkpoint dirs.
+        return subprocess.CompletedProcess(args, 0)
+
+    _patch_runtime(monkeypatch, fake_run)
+
+    with pytest.raises(RuntimeError, match="warmup produced no checkpoint"):
+        LessSelectOperator().run(
+            [target, pool],
+            sandbox,
+            target_artifact_id=target.artifact_id,
+            base_model="m",
+            top_k=5,
+            mode="less",
+            less_repo_path=str(repo),
+            cache_dir=str(tmp_path / "cache"),
         )
 
 

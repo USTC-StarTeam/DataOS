@@ -1,13 +1,31 @@
 from __future__ import annotations
 
+import json
 import random
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from datasets import Dataset
 
 from dataos.core.sandbox import Sandbox
+from dataos.operators._less.cache import (
+    CacheEntry,
+    make_cache_entry,
+    resolve_cache_root,
+    train_grads_key,
+    val_grads_key,
+    warmup_key,
+)
+from dataos.operators._less.commands import (
+    grad_command,
+    matching_command,
+    rank_command,
+    warmup_command,
+)
 from dataos.operators._less.config import LessConfig
+from dataos.operators._less.io import export_jsonl
 
 STAGE_NAMES = ("warmup", "train_grads", "val_grads", "select")
 
@@ -26,6 +44,9 @@ class PipelineResult:
     selected_indices: list[int]
     stages: list[StageResult]
     cache_root: Path | None
+
+
+# ── Stub mode ────────────────────────────────────────────────────────────────
 
 
 def run_stub_pipeline(
@@ -68,6 +89,9 @@ def run_stub_pipeline(
     return PipelineResult(selected_indices=selected, stages=stages, cache_root=None)
 
 
+# ── Real mode ────────────────────────────────────────────────────────────────
+
+
 def run_less_pipeline(
     config: LessConfig,
     pool_artifact_id: str,
@@ -76,10 +100,199 @@ def run_less_pipeline(
     target_dataset: Dataset,
     sandbox: Sandbox,
 ) -> PipelineResult:
-    """Real LESS pipeline orchestration via subprocess (lands in commit 2)."""
-    raise NotImplementedError(
-        "less: mode='less' real pipeline lands in commit 2; use mode='stub' for CI."
+    """Real LESS pipeline: 4 stages via subprocess, content-addressed cache.
+
+    Stages (each with cache key + cache hit short-circuit, except select):
+      1. warmup       — LoRA training on the candidate pool
+      2. train_grads  — projected SGD gradients per warmup checkpoint × pool
+      3. val_grads    — projected Adam gradients per warmup checkpoint × target
+      4. select       — cosine matching → top-k indices (always recomputed)
+    """
+    if shutil.which("python") is None:
+        raise RuntimeError("less: 'python' executable not found on PATH")
+    repo_path = Path(config.less_repo_path).expanduser()
+    if not repo_path.exists():
+        raise ValueError(f"less: less_repo_path does not exist: {repo_path}")
+
+    cache_root = resolve_cache_root(sandbox.root, config)
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    work_dir = sandbox.tmp_dir / "less"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    pool_jsonl = work_dir / "pool.jsonl"
+    target_jsonl = work_dir / "target.jsonl"
+    export_jsonl(pool_dataset, pool_jsonl)
+    export_jsonl(target_dataset, target_jsonl)
+
+    keys = {
+        "warmup": warmup_key(pool_artifact_id, config),
+    }
+    keys["train_grads"] = train_grads_key(keys["warmup"], config)
+    keys["val_grads"] = val_grads_key(keys["warmup"], target_artifact_id, config)
+
+    stages: list[StageResult] = []
+
+    # ── Stage 1: warmup ──────────────────────────────────────────────────────
+    warmup_entry = make_cache_entry(cache_root, "warmup", keys["warmup"])
+    warmup_log = sandbox.logs_dir / "less_warmup.log"
+    if not config.force_recompute and warmup_entry.hit():
+        stages.append(_hit(warmup_entry, "warmup"))
+    else:
+        warmup_dir = warmup_entry.reserve()
+        _run(
+            warmup_command(config, pool_jsonl, warmup_dir),
+            cwd=repo_path,
+            log_path=warmup_log,
+            header=True,
+        )
+        ckpts = sorted(
+            p for p in warmup_dir.iterdir() if p.is_dir() and p.name.startswith("checkpoint-")
+        )
+        if not ckpts:
+            raise RuntimeError(
+                f"less: warmup produced no checkpoint-* directories in {warmup_dir} "
+                f"(see {warmup_log})"
+            )
+        warmup_entry.write_meta(
+            {"checkpoints": [str(p) for p in ckpts], "log_path": str(warmup_log)}
+        )
+        stages.append(
+            StageResult(
+                name="warmup",
+                cache_status="miss",
+                cache_key=keys["warmup"],
+                cache_path=str(warmup_dir),
+                log_path=str(warmup_log),
+            )
+        )
+
+    checkpoints = [Path(p) for p in warmup_entry.read_meta()["checkpoints"]]
+
+    # ── Stage 2: train data gradients ────────────────────────────────────────
+    tg_entry = make_cache_entry(cache_root, "train_grads", keys["train_grads"])
+    tg_log = sandbox.logs_dir / "less_train_grads.log"
+    if not config.force_recompute and tg_entry.hit():
+        stages.append(_hit(tg_entry, "train_grads"))
+    else:
+        tg_dir = tg_entry.reserve()
+        _run_grads_per_checkpoint(
+            config=config,
+            gradient_type="sgd",
+            train_files=pool_jsonl,
+            checkpoints=checkpoints,
+            output_root=tg_dir,
+            cwd=repo_path,
+            log_path=tg_log,
+            stage_label="train_grads",
+        )
+        tg_entry.write_meta(
+            {
+                "grads_dir": str(tg_dir),
+                "checkpoints": [str(p) for p in checkpoints],
+                "log_path": str(tg_log),
+            }
+        )
+        stages.append(
+            StageResult(
+                name="train_grads",
+                cache_status="miss",
+                cache_key=keys["train_grads"],
+                cache_path=str(tg_dir),
+                log_path=str(tg_log),
+            )
+        )
+
+    # ── Stage 3: validation (target) gradients ───────────────────────────────
+    vg_entry = make_cache_entry(cache_root, "val_grads", keys["val_grads"])
+    vg_log = sandbox.logs_dir / "less_val_grads.log"
+    if not config.force_recompute and vg_entry.hit():
+        stages.append(_hit(vg_entry, "val_grads"))
+    else:
+        vg_dir = vg_entry.reserve()
+        _run_grads_per_checkpoint(
+            config=config,
+            gradient_type="adam",
+            train_files=target_jsonl,
+            checkpoints=checkpoints,
+            output_root=vg_dir,
+            cwd=repo_path,
+            log_path=vg_log,
+            stage_label="val_grads",
+        )
+        vg_entry.write_meta(
+            {
+                "grads_dir": str(vg_dir),
+                "checkpoints": [str(p) for p in checkpoints],
+                "log_path": str(vg_log),
+            }
+        )
+        stages.append(
+            StageResult(
+                name="val_grads",
+                cache_status="miss",
+                cache_key=keys["val_grads"],
+                cache_path=str(vg_dir),
+                log_path=str(vg_log),
+            )
+        )
+
+    # ── Stage 4: matching + ranking (always runs) ────────────────────────────
+    select_dir = work_dir / "select"
+    select_dir.mkdir(parents=True, exist_ok=True)
+    select_log = sandbox.logs_dir / "less_select.log"
+    scores_path = select_dir / "scores.pt"
+    indices_path = select_dir / "selected_indices.json"
+    keep = _resolve_keep_count(config, pool_dataset.num_rows)
+
+    _run(
+        matching_command(
+            train_grads_dir=tg_entry.path,
+            val_grads_dir=vg_entry.path,
+            output_path=scores_path,
+        ),
+        cwd=repo_path,
+        log_path=select_log,
+        header=True,
     )
+    if not scores_path.exists():
+        raise RuntimeError(
+            f"less: matching did not produce {scores_path} (see {select_log})"
+        )
+
+    _run(
+        rank_command(scores_path, keep, indices_path),
+        cwd=repo_path,
+        log_path=select_log,
+    )
+    if not indices_path.exists():
+        raise RuntimeError(
+            f"less: ranking did not produce {indices_path} (see {select_log})"
+        )
+
+    raw_indices = json.loads(indices_path.read_text(encoding="utf-8"))
+    if not isinstance(raw_indices, list) or not all(isinstance(item, int) for item in raw_indices):
+        raise RuntimeError(
+            f"less: selected_indices.json must be a list of ints (got {type(raw_indices).__name__})"
+        )
+
+    stages.append(
+        StageResult(
+            name="select",
+            cache_status="miss",
+            cache_key=None,
+            cache_path=str(select_dir),
+            log_path=str(select_log),
+        )
+    )
+
+    return PipelineResult(
+        selected_indices=raw_indices,
+        stages=stages,
+        cache_root=cache_root,
+    )
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 
 def _resolve_keep_count(config: LessConfig, pool_size: int) -> int:
@@ -90,3 +303,67 @@ def _resolve_keep_count(config: LessConfig, pool_size: int) -> int:
     fraction = config.top_fraction if config.top_fraction is not None else 0.0
     keep = max(1, int(round(pool_size * fraction)))
     return min(keep, pool_size)
+
+
+def _hit(entry: CacheEntry, stage: str) -> StageResult:
+    meta = entry.read_meta()
+    return StageResult(
+        name=stage,
+        cache_status="hit",
+        cache_key=entry.key,
+        cache_path=str(entry.path),
+        log_path=meta.get("log_path"),
+    )
+
+
+def _run_grads_per_checkpoint(
+    *,
+    config: LessConfig,
+    gradient_type: str,
+    train_files: Path,
+    checkpoints: list[Path],
+    output_root: Path,
+    cwd: Path,
+    log_path: Path,
+    stage_label: str,
+) -> None:
+    for index, ckpt in enumerate(checkpoints):
+        per_ckpt_dir = output_root / ckpt.name
+        per_ckpt_dir.mkdir(parents=True, exist_ok=True)
+        _run(
+            grad_command(
+                config,
+                gradient_type=gradient_type,
+                train_files=train_files,
+                model_path=ckpt,
+                output_path=per_ckpt_dir,
+            ),
+            cwd=cwd,
+            log_path=log_path,
+            header=(index == 0),
+        )
+        if not any(per_ckpt_dir.iterdir()):
+            raise RuntimeError(
+                f"less: {stage_label} for {ckpt.name} produced no output files in "
+                f"{per_ckpt_dir} (see {log_path})"
+            )
+
+
+def _run(args: list[str], cwd: Path, log_path: Path, header: bool = False) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    mode = "w" if header else "a"
+    with log_path.open(mode, encoding="utf-8") as log_file:
+        log_file.write("COMMAND: " + " ".join(args) + "\n\n")
+        log_file.flush()
+        completed = subprocess.run(
+            args,
+            cwd=str(cwd),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"less: subprocess failed with exit code {completed.returncode} "
+            f"(command={' '.join(args)}, see {log_path})"
+        )
