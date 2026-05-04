@@ -25,6 +25,14 @@ dev = [
 train = [
   "llamafactory[metrics]>=0.9.4,<0.10",
 ]
+eval = [
+  "lm-eval>=0.4.9",
+  "transformers>=4.45,<5.0",
+  "accelerate>=0.34",
+  "langdetect",
+  "immutabledict",
+  "nltk",
+]
 
 [project.scripts]
 dataos = "dataos.cli:main"
@@ -39,6 +47,7 @@ markers = [
   "integration: tests that require external API access",
   "task_eval: model-capability task evaluations (non-blocking in CI)",
   "mcp_external: external third-party MCP connectivity tests (manual run)",
+  "gpu: tests that require a CUDA device (CI runs with -m 'not gpu')",
 ]
 
 [tool.ruff]
