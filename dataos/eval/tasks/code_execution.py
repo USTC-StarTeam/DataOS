@@ -527,7 +527,7 @@ def _parse_json_if_possible(value: str) -> Any | None:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-    return None
+        return None
 
 
 def _functional_assertion_code(raw_test: dict[str, Any], *, entry_point: str | None) -> str:
