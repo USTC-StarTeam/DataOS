@@ -9,7 +9,6 @@ import os
 from dataos.core.agent import LLMPlanningAgent
 from dataos.core.artifact import DatasetArtifact, ExperimentArtifact, make_artifact_id
 from dataos.core.experiment import Experiment
-from dataos.core.registry import OperatorRegistry
 from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
 from dataos.core.task import TaskTemplate
@@ -20,11 +19,7 @@ from dataos.llm.openai_compat import (
     DEFAULT_MODEL,
     OpenAICompatLLMClient,
 )
-from dataos.operators.clean_data import CleanDataOperator
-from dataos.operators.dedup import DedupOperator
-from dataos.operators.format_convert import FormatConvertOperator
-from dataos.operators.sample import SampleOperator
-from dataos.operators.synthesize_data import SynthesizeDataOperator
+from dataos.operators import build_default_registry
 from dataos.train import run_train_stage
 
 
@@ -38,16 +33,6 @@ class RunTaskResult:
     initial_artifact: DatasetArtifact
     store: LocalArtifactStore
     agent: LLMPlanningAgent
-
-
-def build_default_registry() -> OperatorRegistry:
-    registry = OperatorRegistry()
-    registry.register(CleanDataOperator())
-    registry.register(DedupOperator())
-    registry.register(FormatConvertOperator())
-    registry.register(SampleOperator())
-    registry.register(SynthesizeDataOperator())
-    return registry
 
 
 def run_task(

@@ -17,7 +17,7 @@
   },
   "max_rounds": 1,
   "pipeline_hint": [
-    "clean_data"
+    "dedup"
   ],
   "train_config": {
     "mode": "llamafactory",

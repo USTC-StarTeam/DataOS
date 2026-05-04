@@ -18,8 +18,8 @@
   },
   "max_rounds": 1,
   "pipeline_hint": [
-    "clean_data",
-    "synthesize_data"
+    "dedup",
+    "sample"
   ],
   "train_config": {
     "mode": "stub"
