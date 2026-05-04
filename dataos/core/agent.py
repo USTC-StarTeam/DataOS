@@ -142,12 +142,7 @@ class LLMPlanningAgent:
         return normalized
 
     def _fallback_plan(self) -> list[PlanStep]:
-        preferred = [
-            "clean_data",
-            "synthesize_data",
-        ]
-        available = {operator.name for operator in self.registry.list()}
-        steps = [PlanStep(name, {}) for name in preferred if name in available]
-        if not steps:
+        available = list(self.registry.list())
+        if not available:
             raise ValueError("Registry does not contain any fallback data operators")
-        return steps
+        return [PlanStep(available[0].name, {})]

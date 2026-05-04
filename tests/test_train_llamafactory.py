@@ -24,7 +24,7 @@ def _task(train_config: dict) -> TaskTemplate:
             "constraints": {"dataset_format": "hf_datasets"},
             "budget": {"max_experiments": 1},
             "max_rounds": 1,
-            "pipeline_hint": ["clean_data", "synthesize_data"],
+            "pipeline_hint": ["dedup", "sample"],
             "train_config": train_config,
             "eval_config": {"provider": "stub"},
         }

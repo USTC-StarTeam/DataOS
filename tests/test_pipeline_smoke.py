@@ -34,7 +34,7 @@ def test_run_task_smoke(tmp_path):
         "constraints": {"dataset_format": "hf_datasets"},
         "budget": {"max_experiments": 1},
         "max_rounds": 1,
-        "pipeline_hint": ["clean_data", "synthesize_data"],
+        "pipeline_hint": ["dedup", "sample"],
         "train_config": {"mode": "stub"},
         "eval_config": {"provider": "stub", "provider_config": {"score": 0.5}},
     }
@@ -42,17 +42,17 @@ def test_run_task_smoke(tmp_path):
         [
             {
                 "steps": [
-                    {"operator_name": "clean_data", "params": {}},
-                    {"operator_name": "synthesize_data", "params": {"augment_ratio": 0.5}},
+                    {"operator_name": "dedup", "params": {"keys": ["instruction"]}},
+                    {"operator_name": "sample", "params": {"max_train": 10}},
                 ],
                 "reasoning_summary": "Run the standard pipeline.",
-                "expected_gain": "Produce cleaned data before the fixed runtime tools run.",
+                "expected_gain": "Produce deduped, capped data before the fixed runtime tools run.",
             },
             {
                 "summary": "The run completed.",
                 "issues": [],
-                "next_hypothesis": "Try a larger augmentation ratio next round.",
-                "recommended_changes": ["Increase synthesize_data augment_ratio if quality remains stable."],
+                "next_hypothesis": "Try a different sample cap next round.",
+                "recommended_changes": ["Adjust sample max_train if quality remains stable."],
             },
         ]
     )
