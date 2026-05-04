@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from lm_eval.api.model import LM
 
 from dataos.core.artifact import ModelArtifact
+from dataos.eval.adapters.base import EvalLoglikelihoodAdapter
 from dataos.eval.types import EvalAdapterConfig, EvalConfig, EvalRequest, EvalRequestConfig
 
 if TYPE_CHECKING:
@@ -81,11 +82,33 @@ class DataOSLM(LM):
         tokenizer = self._tokenizer()
         return getattr(tokenizer, "chat_template", "") or ""
 
+    def supports_loglikelihood(self) -> bool:
+        """True iff the underlying adapter implements ``score_continuations``."""
+        return isinstance(self._adapter, EvalLoglikelihoodAdapter)
+
     def loglikelihood(self, requests):  # noqa: D401 - lm-eval API
-        raise NotImplementedError(
-            "DataOSLM only implements generate_until. "
-            "Use a generate-style task variant or implement loglikelihood on the adapter."
+        if not isinstance(self._adapter, EvalLoglikelihoodAdapter):
+            raise NotImplementedError(
+                f"adapter {self._adapter.name!r} does not implement score_continuations; "
+                "use a generate-style task variant or pick an adapter with logprob support."
+            )
+        if not requests:
+            return []
+        pairs: list[tuple[str, str]] = []
+        for instance in requests:
+            args = instance.args
+            if len(args) < 2:
+                raise ValueError(
+                    "loglikelihood Instance.args must be (context, continuation); "
+                    f"got {len(args)} arg(s)"
+                )
+            pairs.append((str(args[0]), str(args[1])))
+        adapter_config = dict(self._adapter_config)
+        config = EvalConfig(
+            provider="lm_eval",
+            adapter=EvalAdapterConfig(name=self._adapter.name, config=adapter_config),
         )
+        return list(self._adapter.score_continuations(self._model, pairs, config))
 
     def loglikelihood_rolling(self, requests):
         raise NotImplementedError(
