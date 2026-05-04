@@ -414,16 +414,10 @@ def _make_fake_run(num_checkpoints: int = 2):
             output_path = Path(_arg(args, "--output_path"))
             output_path.mkdir(parents=True, exist_ok=True)
             (output_path / "grads.bin").write_text("fake-grads", encoding="utf-8")
-        elif "less.data_selection.matching" in cmd:
-            output_path = Path(_arg(args, "--output_path"))
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(
-                json.dumps([1.0 / (i + 1) for i in range(20)]), encoding="utf-8"
-            )
-        elif args[:2] == ["python", "-c"]:
-            # args = ["python", "-c", SCRIPT, scores_path, keep, indices_path]
-            keep = int(args[4])
-            indices_path = Path(args[5])
+        elif args[:2] == ["python3", "-c"]:
+            # select script: args = ["python3", "-c", SCRIPT, train_root, val_root, proj_dim, keep, indices_path]
+            keep = int(args[6])
+            indices_path = Path(args[7])
             indices_path.parent.mkdir(parents=True, exist_ok=True)
             indices_path.write_text(json.dumps(sorted(range(keep))), encoding="utf-8")
         return subprocess.CompletedProcess(args, 0)
@@ -436,7 +430,7 @@ def _patch_runtime(monkeypatch, fake_run):
         "dataos.operators._less.runner.subprocess.run", fake_run
     )
     monkeypatch.setattr(
-        "dataos.operators._less.runner.shutil.which", lambda _: "/usr/bin/python"
+        "dataos.operators._less.runner.shutil.which", lambda _: "/usr/bin/fake"
     )
 
 
@@ -474,12 +468,11 @@ def test_less_real_mode_runs_full_pipeline(tmp_path, monkeypatch):
     assert stages["select"]["cache_status"] == "miss"
 
     invocations = [" ".join(call) for call in calls]
-    # 1 warmup + 2 train_grads (per ckpt) + 2 val_grads + 1 matching + 1 rank = 7
-    assert len(invocations) == 7
+    # 1 warmup + 2 train_grads (per ckpt) + 2 val_grads (per ckpt) + 1 select = 6
+    assert len(invocations) == 6
     assert sum("less.train.train" in inv for inv in invocations) == 1
     assert sum("less.data_selection.get_info" in inv for inv in invocations) == 4
-    assert sum("less.data_selection.matching" in inv for inv in invocations) == 1
-    assert sum(call[:2] == ["python", "-c"] for call in calls) == 1
+    assert sum(call[:2] == ["python3", "-c"] for call in calls) == 1
 
     assert (cache / "warmup").exists()
     assert (cache / "train_grads").exists()
@@ -535,10 +528,12 @@ def test_less_real_mode_reuses_cache_across_targets(tmp_path, monkeypatch):
 
     invocations = [" ".join(call) for call in second_run_calls]
     assert sum("less.train.train" in inv for inv in invocations) == 0
-    # Only target gradients (2 ckpts) + matching + rank = 4 calls in the 2nd run
-    assert len(invocations) == 4
+    # Only target gradients (2 ckpts) + select = 3 calls in the 2nd run
+    assert len(invocations) == 3
     assert sum("less.data_selection.get_info" in inv for inv in invocations) == 2
-    assert all("--gradient_type adam" in inv for inv in invocations if "get_info" in inv)
+    assert all(
+        "--gradient_type sgd" in inv for inv in invocations if "get_info" in inv
+    )
 
 
 def test_less_real_mode_force_recompute_bypasses_cache(tmp_path, monkeypatch):
