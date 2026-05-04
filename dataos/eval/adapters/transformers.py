@@ -11,6 +11,38 @@ from dataos.eval.types import EvalConfig, EvalRequest, ModelResponse
 class TransformersAdapter:
     name = "transformers"
 
+    def score_continuations(
+        self,
+        model_artifact: ModelArtifact,
+        pairs: list[tuple[str, str]],
+        config: EvalConfig,
+    ) -> list[tuple[float, bool]]:
+        if not pairs:
+            return []
+        model, tokenizer, torch = _load_generation_assets(model_artifact, config)
+        device = _model_device(model)
+        results: list[tuple[float, bool]] = []
+        max_length = _model_max_length(model, tokenizer)
+        try:
+            for context, continuation in pairs:
+                results.append(
+                    _score_one_pair(
+                        model=model,
+                        tokenizer=tokenizer,
+                        torch=torch,
+                        device=device,
+                        context=context,
+                        continuation=continuation,
+                        max_length=max_length,
+                    )
+                )
+        finally:
+            if hasattr(model, "cpu"):
+                model.cpu()
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        return results
+
     def generate_until(
         self,
         model_artifact: ModelArtifact,
@@ -138,6 +170,80 @@ def _render_chat_prompt(tokenizer: Any, prompt: str, config: EvalConfig) -> str:
                 **template_kwargs,
             )
     return prompt
+
+
+def _model_max_length(model: Any, tokenizer: Any) -> int:
+    config = getattr(model, "config", None)
+    candidates = [
+        getattr(config, "max_position_embeddings", None) if config is not None else None,
+        getattr(tokenizer, "model_max_length", None),
+    ]
+    for value in candidates:
+        if isinstance(value, int) and 0 < value < 10**7:
+            return int(value)
+    return 4096
+
+
+def _score_one_pair(
+    *,
+    model: Any,
+    tokenizer: Any,
+    torch: Any,
+    device: Any,
+    context: str,
+    continuation: str,
+    max_length: int,
+) -> tuple[float, bool]:
+    """Score one (context, continuation) pair via a single forward pass.
+
+    Tokenizes context with special tokens and continuation without, so the
+    boundary token is always the first continuation token (matching how
+    lm-eval's ``_encode_pair`` aligns logits to targets). Truncates the
+    context from the left if (ctx + cont) would exceed the model's max
+    position; never truncates the continuation.
+    """
+    cont_ids: list[int] = tokenizer(
+        continuation, add_special_tokens=False
+    )["input_ids"]
+    if not cont_ids:
+        return 0.0, True
+
+    ctx_ids: list[int] = tokenizer(context, add_special_tokens=True)["input_ids"]
+    if not ctx_ids:
+        eos = tokenizer.eos_token_id
+        bos = getattr(tokenizer, "bos_token_id", None)
+        prefix = bos if isinstance(bos, int) else eos
+        ctx_ids = [prefix] if isinstance(prefix, int) else []
+
+    cont_len = len(cont_ids)
+    available_ctx = max(1, max_length - cont_len)
+    if len(ctx_ids) > available_ctx:
+        ctx_ids = ctx_ids[-available_ctx:]
+
+    ctx_len = len(ctx_ids)
+    if ctx_len == 0:
+        # Pathological: nothing to condition on; can't score the first token.
+        return 0.0, False
+
+    input_ids = torch.tensor([ctx_ids + cont_ids], device=device)
+    attention_mask = torch.ones_like(input_ids)
+    with torch.inference_mode():
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+
+    logits = outputs.logits[0]  # [seq_len, vocab]
+    # logits at position i predict token i+1; continuation tokens occupy
+    # positions [ctx_len, ctx_len + cont_len), so we need logits at
+    # positions [ctx_len - 1, ctx_len + cont_len - 1).
+    cont_logits = logits[ctx_len - 1 : ctx_len - 1 + cont_len, :]
+    cont_target = torch.tensor(cont_ids, device=device, dtype=torch.long)
+
+    log_probs = torch.log_softmax(cont_logits.float(), dim=-1)
+    token_logprobs = log_probs.gather(-1, cont_target.unsqueeze(-1)).squeeze(-1)
+    total_logprob = float(token_logprobs.sum().item())
+
+    greedy_tokens = cont_logits.argmax(dim=-1)
+    is_greedy = bool((greedy_tokens == cont_target).all().item())
+    return total_logprob, is_greedy
 
 
 def _model_device(model: Any):
