@@ -93,7 +93,9 @@ def test_bridge_runs_gsm8k_with_fake_adapter(tmp_path):
     assert "resps" in sample or "filtered_resps" in sample
 
 
-def test_bridge_loglikelihood_raises():
+def test_bridge_loglikelihood_raises_for_generate_only_adapter():
+    """Generate-only adapter should make DataOSLM.loglikelihood raise with a
+    clear message; loglikelihood_rolling is unsupported for any adapter."""
     from dataos.eval.backend import DataOSLM
 
     sandbox_dir = "/tmp/dataos-eval-smoke-not-used"
@@ -105,7 +107,72 @@ def test_bridge_loglikelihood_raises():
         meta={"base_model": "fake"},
     )
     lm = DataOSLM(model, _FakeAdapter())
-    with pytest.raises(NotImplementedError):
+    assert lm.supports_loglikelihood() is False
+    with pytest.raises(NotImplementedError, match="score_continuations"):
         lm.loglikelihood([])
     with pytest.raises(NotImplementedError):
         lm.loglikelihood_rolling([])
+
+
+class _ScoringAdapter:
+    """Adapter implementing both generate_until and score_continuations."""
+
+    name = "scoring_fake"
+
+    def __init__(self, scores: list[tuple[float, bool]]):
+        self.scores = scores
+        self.score_calls: list[list[tuple[str, str]]] = []
+
+    def generate_until(self, model, requests, config):
+        return [
+            ModelResponse(
+                sample_id=request.sample_id,
+                index=request.index,
+                request_type="generate_until",
+                text="",
+            )
+            for request in requests
+        ]
+
+    def score_continuations(self, model, pairs, config):
+        self.score_calls.append(list(pairs))
+        return list(self.scores[: len(pairs)])
+
+
+def test_bridge_loglikelihood_dispatches_to_scoring_adapter():
+    """When the adapter implements score_continuations, DataOSLM.loglikelihood
+    must forward (context, continuation) pairs and pass results back as-is."""
+    from lm_eval.api.instance import Instance
+
+    from dataos.eval.backend import DataOSLM
+
+    canned: list[tuple[float, bool]] = [(-2.5, True), (-7.0, False)]
+    adapter = _ScoringAdapter(scores=canned)
+    model = ModelArtifact(
+        artifact_id="m",
+        name="m",
+        path="/tmp/dataos-eval-smoke-not-used",
+        producer="t",
+        meta={"base_model": "fake"},
+    )
+    lm = DataOSLM(model, adapter)
+    assert lm.supports_loglikelihood() is True
+
+    requests = [
+        Instance(
+            request_type="loglikelihood",
+            doc={},
+            arguments=("ctx-A", "cont-A"),
+            idx=0,
+        ),
+        Instance(
+            request_type="loglikelihood",
+            doc={},
+            arguments=("ctx-B", "cont-B"),
+            idx=1,
+        ),
+    ]
+    out = lm.loglikelihood(requests)
+
+    assert out == canned
+    assert adapter.score_calls == [[("ctx-A", "cont-A"), ("ctx-B", "cont-B")]]

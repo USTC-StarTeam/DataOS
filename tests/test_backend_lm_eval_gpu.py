@@ -31,6 +31,46 @@ MAX_NEW_TOKENS = int(os.environ.get("DATAOS_EVAL_GPU_MAX_NEW_TOKENS", "256"))
 @pytest.mark.gpu
 @pytest.mark.skipif(not MODEL_PATH, reason="DATAOS_EVAL_GPU_MODEL_PATH not set")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA device")
+def test_qwen25_0_5b_runs_mmlu_subset_via_loglikelihood(tmp_path):
+    """End-to-end multiple_choice path: lm-eval mmlu subtask through
+    DataOSLM.loglikelihood + TransformersAdapter.score_continuations."""
+    from dataos.core.artifact import ModelArtifact
+    from dataos.core.sandbox import Sandbox
+
+    from dataos.eval.adapters.transformers import TransformersAdapter
+    from dataos.eval.backend import run_lm_eval
+
+    sandbox = Sandbox(tmp_path / "sandbox-mmlu")
+    sandbox.prepare()
+    model_dir = sandbox.artifact_dir("model", "qwen-mmlu")
+    model_dir.mkdir(parents=True, exist_ok=True)
+    model = ModelArtifact(
+        artifact_id="qwen-mmlu",
+        name="qwen2.5-0.5b-instruct",
+        path=model_dir,
+        producer="test",
+        meta={"base_model": MODEL_PATH},
+    )
+    output = run_lm_eval(
+        model,
+        TransformersAdapter(),
+        tasks=["mmlu_high_school_mathematics"],
+        limit=4,
+        num_fewshot=0,
+        batch_size=1,
+        max_new_tokens=8,
+        apply_chat_template=False,
+    )
+    assert "mmlu_high_school_mathematics" in output.results, output.results
+    metrics = output.results["mmlu_high_school_mathematics"]
+    accuracy = metrics.get("acc,none")
+    assert isinstance(accuracy, float)
+    assert 0.0 <= accuracy <= 1.0
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not MODEL_PATH, reason="DATAOS_EVAL_GPU_MODEL_PATH not set")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="no CUDA device")
 def test_qwen25_0_5b_runs_gsm8k_on_gpu(tmp_path):
     sandbox = Sandbox(tmp_path / "sandbox")
     sandbox.prepare()
