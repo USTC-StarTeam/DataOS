@@ -7,8 +7,9 @@ metric we'll surface as the headline, and sane default run knobs.
 
 Adding a new task here makes it visible to the planner. ``output_type`` is the
 lm-eval field, NOT the DataOS request type — entries with
-``output_type != "generate_until"`` are filtered out by the resolver while
-``DataOSLM.loglikelihood`` is unimplemented.
+``output_type != "generate_until"`` are adapter-dependent: the resolver keeps
+them only when the configured adapter implements
+``EvalLoglikelihoodAdapter`` (e.g. ``TransformersAdapter``).
 """
 
 from __future__ import annotations
@@ -97,7 +98,7 @@ _BUILTIN: tuple[GalleryEntry, ...] = (
         default_batch_size=8,
         default_max_new_tokens=8,
         default_num_fewshot=5,
-        notes="Needs DataOSLM.loglikelihood; currently filtered out by resolver.",
+        notes="Adapter-dependent: needs EvalLoglikelihoodAdapter (e.g. TransformersAdapter).",
     ),
     GalleryEntry(
         task="arc_challenge",
@@ -110,7 +111,7 @@ _BUILTIN: tuple[GalleryEntry, ...] = (
         default_batch_size=8,
         default_max_new_tokens=8,
         default_num_fewshot=25,
-        notes="Needs DataOSLM.loglikelihood; currently filtered out by resolver.",
+        notes="Adapter-dependent: needs EvalLoglikelihoodAdapter (e.g. TransformersAdapter).",
     ),
     GalleryEntry(
         task="hellaswag",
@@ -123,7 +124,7 @@ _BUILTIN: tuple[GalleryEntry, ...] = (
         default_batch_size=8,
         default_max_new_tokens=8,
         default_num_fewshot=10,
-        notes="Needs DataOSLM.loglikelihood; currently filtered out by resolver.",
+        notes="Adapter-dependent: needs EvalLoglikelihoodAdapter (e.g. TransformersAdapter).",
     ),
     GalleryEntry(
         task="truthfulqa_mc2",
@@ -136,7 +137,7 @@ _BUILTIN: tuple[GalleryEntry, ...] = (
         default_batch_size=8,
         default_max_new_tokens=8,
         default_num_fewshot=0,
-        notes="Needs DataOSLM.loglikelihood; currently filtered out by resolver.",
+        notes="Adapter-dependent: needs EvalLoglikelihoodAdapter (e.g. TransformersAdapter).",
     ),
 )
 
