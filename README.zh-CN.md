@@ -25,6 +25,8 @@ DataOS 是一个面向监督微调（SFT）场景的本地优先数据系统。�
 - `scripts`: 可执行脚本；本次补充了一个真实可复现的 runtime demo。
 - `tests`: 单元测试和集成测试。
 
+第一批稳定算子的说明文档见 `docs/stable_operator_library_v1.md`。
+
 ## 当前需要注意的真实情况
 
 仓库自带的 `dataos/templates/sft_v1.json` 默认还是：
