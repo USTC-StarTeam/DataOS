@@ -23,6 +23,7 @@ ALLOWED_KWARGS = {
     "less_repo_path",
     "cache_dir",
     "force_recompute",
+    "python_executable",
 }
 
 
@@ -44,6 +45,7 @@ class LessConfig:
     less_repo_path: str | None
     cache_dir: str | None
     force_recompute: bool
+    python_executable: str | None
 
     @classmethod
     def from_kwargs(cls, kwargs: dict[str, Any]) -> "LessConfig":
@@ -90,4 +92,9 @@ class LessConfig:
             less_repo_path=str(params["less_repo_path"]) if params.get("less_repo_path") else None,
             cache_dir=str(params["cache_dir"]) if params.get("cache_dir") else None,
             force_recompute=bool(params.get("force_recompute", False)),
+            python_executable=(
+                str(params["python_executable"])
+                if params.get("python_executable")
+                else None
+            ),
         )
