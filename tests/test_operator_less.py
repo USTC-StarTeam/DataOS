@@ -749,3 +749,67 @@ def test_less_config_accepts_python_executable_kwarg(tmp_path):
         python_executable="/opt/custom/bin/python",
     )
     assert artifact.meta["less_selected_count"] == 5
+
+
+# ── Phase 1 ② — cache file-lock concurrency ──────────────────────────────────
+
+
+def _cache_lock_worker(cache_path_str: str, counter_path: str) -> None:
+    """Module-level helper run by multiprocessing.Process.
+
+    Acquires the cache lock, increments a shared counter only if cache_meta
+    isn't there yet (mimicking the runner's double-check), then writes the
+    meta. If the lock works, exactly one worker should bump the counter.
+    """
+    import json as _json
+    import time
+    from pathlib import Path as _Path
+
+    from dataos.operators._less.cache import CacheEntry
+
+    entry = CacheEntry(stage="warmup", key="ktest", path=_Path(cache_path_str))
+    with entry.lock():
+        if entry.hit():
+            return
+        # Simulate slow subprocess so the second worker is forced to wait.
+        time.sleep(0.3)
+        # Atomic-ish counter bump
+        cp = _Path(counter_path)
+        prev = int(cp.read_text()) if cp.exists() else 0
+        cp.write_text(str(prev + 1))
+        entry.write_meta({"log_path": "/dev/null"})
+
+
+def test_cache_lock_serialises_concurrent_workers(tmp_path):
+    import multiprocessing
+
+    cache_path = tmp_path / "cache" / "warmup" / "ktest"
+    counter_path = tmp_path / "counter.txt"
+
+    procs = [
+        multiprocessing.Process(
+            target=_cache_lock_worker,
+            args=(str(cache_path), str(counter_path)),
+        )
+        for _ in range(3)
+    ]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(timeout=10)
+        assert p.exitcode == 0, f"worker exited {p.exitcode}"
+
+    assert counter_path.read_text() == "1"
+    assert (cache_path / "cache_meta.json").exists()
+
+
+def test_cache_lock_can_be_reentered_after_release(tmp_path):
+    from dataos.operators._less.cache import CacheEntry
+
+    entry = CacheEntry(stage="warmup", key="k", path=tmp_path / "cache" / "warmup" / "k")
+    with entry.lock():
+        pass
+    # second acquisition in the same process should also succeed (sequential).
+    with entry.lock():
+        entry.write_meta({"log_path": "/dev/null"})
+    assert entry.hit()

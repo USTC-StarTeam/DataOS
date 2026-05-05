@@ -144,36 +144,39 @@ def run_less_pipeline(
     # ── Stage 1: warmup ──────────────────────────────────────────────────────
     warmup_entry = make_cache_entry(cache_root, "warmup", keys["warmup"])
     warmup_log = sandbox.logs_dir / "less_warmup.log"
-    if not config.force_recompute and warmup_entry.hit():
-        stages.append(_hit(warmup_entry, "warmup"))
-    else:
-        warmup_dir = warmup_entry.reserve()
-        _run(
-            warmup_command(config, pool_jsonl, warmup_dir),
-            cwd=repo_path,
-            log_path=warmup_log,
-            header=True,
-        )
-        ckpts = sorted(
-            p for p in warmup_dir.iterdir() if p.is_dir() and p.name.startswith("checkpoint-")
-        )
-        if not ckpts:
-            raise RuntimeError(
-                f"less: warmup produced no checkpoint-* directories in {warmup_dir} "
-                f"(see {warmup_log})"
+    with warmup_entry.lock():
+        if not config.force_recompute and warmup_entry.hit():
+            stages.append(_hit(warmup_entry, "warmup"))
+        else:
+            warmup_dir = warmup_entry.reserve()
+            _run(
+                warmup_command(config, pool_jsonl, warmup_dir),
+                cwd=repo_path,
+                log_path=warmup_log,
+                header=True,
             )
-        warmup_entry.write_meta(
-            {"checkpoints": [str(p) for p in ckpts], "log_path": str(warmup_log)}
-        )
-        stages.append(
-            StageResult(
-                name="warmup",
-                cache_status="miss",
-                cache_key=keys["warmup"],
-                cache_path=str(warmup_dir),
-                log_path=str(warmup_log),
+            ckpts = sorted(
+                p
+                for p in warmup_dir.iterdir()
+                if p.is_dir() and p.name.startswith("checkpoint-")
             )
-        )
+            if not ckpts:
+                raise RuntimeError(
+                    f"less: warmup produced no checkpoint-* directories in {warmup_dir} "
+                    f"(see {warmup_log})"
+                )
+            warmup_entry.write_meta(
+                {"checkpoints": [str(p) for p in ckpts], "log_path": str(warmup_log)}
+            )
+            stages.append(
+                StageResult(
+                    name="warmup",
+                    cache_status="miss",
+                    cache_key=keys["warmup"],
+                    cache_path=str(warmup_dir),
+                    log_path=str(warmup_log),
+                )
+            )
 
     checkpoints = [Path(p) for p in warmup_entry.read_meta()["checkpoints"]]
     _ensure_less_compatible_optimizer(checkpoints, config.base_model)
@@ -181,70 +184,72 @@ def run_less_pipeline(
     # ── Stage 2: train data gradients ────────────────────────────────────────
     tg_entry = make_cache_entry(cache_root, "train_grads", keys["train_grads"])
     tg_log = sandbox.logs_dir / "less_train_grads.log"
-    if not config.force_recompute and tg_entry.hit():
-        stages.append(_hit(tg_entry, "train_grads"))
-    else:
-        tg_dir = tg_entry.reserve()
-        _run_grads_per_checkpoint(
-            config=config,
-            gradient_type="adam",
-            train_files=pool_jsonl,
-            checkpoints=checkpoints,
-            output_root=tg_dir,
-            cwd=repo_path,
-            log_path=tg_log,
-            stage_label="train_grads",
-        )
-        tg_entry.write_meta(
-            {
-                "grads_dir": str(tg_dir),
-                "checkpoints": [str(p) for p in checkpoints],
-                "log_path": str(tg_log),
-            }
-        )
-        stages.append(
-            StageResult(
-                name="train_grads",
-                cache_status="miss",
-                cache_key=keys["train_grads"],
-                cache_path=str(tg_dir),
-                log_path=str(tg_log),
+    with tg_entry.lock():
+        if not config.force_recompute and tg_entry.hit():
+            stages.append(_hit(tg_entry, "train_grads"))
+        else:
+            tg_dir = tg_entry.reserve()
+            _run_grads_per_checkpoint(
+                config=config,
+                gradient_type="adam",
+                train_files=pool_jsonl,
+                checkpoints=checkpoints,
+                output_root=tg_dir,
+                cwd=repo_path,
+                log_path=tg_log,
+                stage_label="train_grads",
             )
-        )
+            tg_entry.write_meta(
+                {
+                    "grads_dir": str(tg_dir),
+                    "checkpoints": [str(p) for p in checkpoints],
+                    "log_path": str(tg_log),
+                }
+            )
+            stages.append(
+                StageResult(
+                    name="train_grads",
+                    cache_status="miss",
+                    cache_key=keys["train_grads"],
+                    cache_path=str(tg_dir),
+                    log_path=str(tg_log),
+                )
+            )
 
     # ── Stage 3: validation (target) gradients ───────────────────────────────
     vg_entry = make_cache_entry(cache_root, "val_grads", keys["val_grads"])
     vg_log = sandbox.logs_dir / "less_val_grads.log"
-    if not config.force_recompute and vg_entry.hit():
-        stages.append(_hit(vg_entry, "val_grads"))
-    else:
-        vg_dir = vg_entry.reserve()
-        _run_grads_per_checkpoint(
-            config=config,
-            gradient_type="sgd",
-            train_files=target_jsonl,
-            checkpoints=checkpoints,
-            output_root=vg_dir,
-            cwd=repo_path,
-            log_path=vg_log,
-            stage_label="val_grads",
-        )
-        vg_entry.write_meta(
-            {
-                "grads_dir": str(vg_dir),
-                "checkpoints": [str(p) for p in checkpoints],
-                "log_path": str(vg_log),
-            }
-        )
-        stages.append(
-            StageResult(
-                name="val_grads",
-                cache_status="miss",
-                cache_key=keys["val_grads"],
-                cache_path=str(vg_dir),
-                log_path=str(vg_log),
+    with vg_entry.lock():
+        if not config.force_recompute and vg_entry.hit():
+            stages.append(_hit(vg_entry, "val_grads"))
+        else:
+            vg_dir = vg_entry.reserve()
+            _run_grads_per_checkpoint(
+                config=config,
+                gradient_type="sgd",
+                train_files=target_jsonl,
+                checkpoints=checkpoints,
+                output_root=vg_dir,
+                cwd=repo_path,
+                log_path=vg_log,
+                stage_label="val_grads",
             )
-        )
+            vg_entry.write_meta(
+                {
+                    "grads_dir": str(vg_dir),
+                    "checkpoints": [str(p) for p in checkpoints],
+                    "log_path": str(vg_log),
+                }
+            )
+            stages.append(
+                StageResult(
+                    name="val_grads",
+                    cache_status="miss",
+                    cache_key=keys["val_grads"],
+                    cache_path=str(vg_dir),
+                    log_path=str(vg_log),
+                )
+            )
 
     # ── Stage 4: cosine matching + top-k (always runs) ───────────────────────
     select_dir = work_dir / "select"
