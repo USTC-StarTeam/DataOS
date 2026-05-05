@@ -184,17 +184,33 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ckpts = sorted(d for d in os.listdir(train_root) if os.path.isdir(os.path.join(train_root, d)))
 if not ckpts:
-    raise SystemExit(f'select: no checkpoint subdirs under {train_root}')
+    raise SystemExit('select: no checkpoint subdirs under ' + train_root)
 weight = 1.0 / len(ckpts)
 
+pool_size = None
 influence = None
 for ckpt in ckpts:
-    train_path = os.path.join(train_root, ckpt, f'dim{proj_dim}', 'all_orig.pt')
-    val_path = os.path.join(val_root, ckpt, f'dim{proj_dim}', 'all_orig.pt')
+    train_path = os.path.join(train_root, ckpt, 'dim' + proj_dim, 'all_orig.pt')
+    val_path = os.path.join(val_root, ckpt, 'dim' + proj_dim, 'all_orig.pt')
     train_g = torch.load(train_path).to(device).float()
     val_g = torch.load(val_path).to(device).float()
+    if train_g.dim() != 2:
+        raise SystemExit('select: train gradients at ' + train_path + ' must be 2-D, got shape ' + str(tuple(train_g.shape)))
+    if val_g.dim() != 2:
+        raise SystemExit('select: val gradients at ' + val_path + ' must be 2-D, got shape ' + str(tuple(val_g.shape)))
+    if train_g.shape[1] != val_g.shape[1]:
+        raise SystemExit('select: projection dim mismatch — train ' + str(train_g.shape[1]) + ' vs val ' + str(val_g.shape[1]))
+    if pool_size is None:
+        pool_size = train_g.shape[0]
+    elif train_g.shape[0] != pool_size:
+        raise SystemExit('select: pool size drift across ckpts — first saw ' + str(pool_size) + ', now ' + str(train_g.shape[0]) + ' at ' + train_path)
     score = (train_g @ val_g.T).mean(dim=1)
     influence = score * weight if influence is None else influence + score * weight
+
+if influence is None or influence.dim() != 1 or influence.shape[0] != pool_size:
+    raise SystemExit('select: influence vector must be 1-D length ' + str(pool_size) + ', got ' + (str(tuple(influence.shape)) if influence is not None else 'None'))
+if keep > pool_size:
+    raise SystemExit('select: keep=' + str(keep) + ' exceeds pool size ' + str(pool_size))
 
 ranked = torch.argsort(influence, descending=True)[:keep].tolist()
 os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
