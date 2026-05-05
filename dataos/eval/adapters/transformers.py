@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from dataos.core.artifact import ModelArtifact
-from dataos.eval.types import EvalConfig, EvalRequest, ModelResponse
+from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
 
 
 class TransformersAdapter:
@@ -15,7 +15,7 @@ class TransformersAdapter:
         self,
         model_artifact: ModelArtifact,
         pairs: list[tuple[str, str]],
-        config: EvalConfig,
+        config: AdapterCallContext,
     ) -> list[tuple[float, bool]]:
         if not pairs:
             return []
@@ -47,7 +47,7 @@ class TransformersAdapter:
         self,
         model_artifact: ModelArtifact,
         requests: list[EvalRequest],
-        config: EvalConfig,
+        config: AdapterCallContext,
     ) -> list[ModelResponse]:
         model, tokenizer, torch = _load_generation_assets(model_artifact, config)
         rendered_prompts = [
@@ -56,7 +56,7 @@ class TransformersAdapter:
         responses: list[ModelResponse] = []
         request_config = config.request
         if request_config is None:
-            raise ValueError("EvalConfig.request is required for generation")
+            raise ValueError("AdapterCallContext.request is required for generation")
         generate_kwargs = {
             "max_new_tokens": request_config.max_new_tokens,
             "do_sample": request_config.do_sample,
@@ -99,7 +99,7 @@ class TransformersAdapter:
 
 def _load_generation_assets(
     model_artifact: ModelArtifact,
-    config: EvalConfig,
+    config: AdapterCallContext,
 ):
     if importlib.util.find_spec("torch") is None:
         raise ValueError("PyTorch is required for native evaluation")
@@ -149,7 +149,7 @@ def _load_generation_assets(
     return model, tokenizer, torch
 
 
-def _render_chat_prompt(tokenizer: Any, prompt: str, config: EvalConfig) -> str:
+def _render_chat_prompt(tokenizer: Any, prompt: str, config: AdapterCallContext) -> str:
     if hasattr(tokenizer, "apply_chat_template"):
         adapter_config = config.adapter.config if config.adapter is not None else {}
         template_kwargs = {

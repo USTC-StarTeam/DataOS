@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from dataos.core.artifact import ModelArtifact
-from dataos.eval.types import EvalConfig, EvalRequest, ModelResponse
+from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
 
 
 class EvalModelAdapter(Protocol):
@@ -13,7 +13,7 @@ class EvalModelAdapter(Protocol):
         self,
         model_artifact: ModelArtifact,
         requests: list[EvalRequest],
-        config: EvalConfig,
+        config: AdapterCallContext,
     ) -> list[ModelResponse]: ...
 
 
@@ -35,7 +35,7 @@ class EvalLoglikelihoodAdapter(Protocol):
         self,
         model_artifact: ModelArtifact,
         pairs: list[tuple[str, str]],
-        config: EvalConfig,
+        config: AdapterCallContext,
     ) -> list[tuple[float, bool]]:
         """Score ``(context, continuation)`` pairs.
 
