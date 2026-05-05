@@ -761,7 +761,6 @@ def _cache_lock_worker(cache_path_str: str, counter_path: str) -> None:
     isn't there yet (mimicking the runner's double-check), then writes the
     meta. If the lock works, exactly one worker should bump the counter.
     """
-    import json as _json
     import time
     from pathlib import Path as _Path
 
@@ -914,3 +913,106 @@ def test_resolve_cache_root_env_overrides_everything(monkeypatch, tmp_path):
     sandbox_root.mkdir()
     resolved = resolve_cache_root(sandbox_root, cfg)
     assert resolved == tmp_path / "env_cache"
+
+
+# ── Phase 1 ⑥ — SELECT_SCRIPT schema validation ──────────────────────────────
+
+# These tests run SELECT_SCRIPT in a real subprocess so the asserts are
+# exercised the same way the production pipeline exercises them. They use
+# `pytest.importorskip("torch")` so machines without torch (the dev mac
+# in our case) skip without failing — runs on 5090-1 will exercise them.
+
+
+def _setup_grads(tmp_path, *, train_shape, val_shape, ckpts=("checkpoint-1",)):
+    torch = pytest.importorskip("torch")
+    train_root = tmp_path / "train_grads"
+    val_root = tmp_path / "val_grads"
+    proj_dim = train_shape[1]
+    for ckpt in ckpts:
+        td = train_root / ckpt / f"dim{proj_dim}"
+        vd = val_root / ckpt / f"dim{proj_dim}"
+        td.mkdir(parents=True, exist_ok=True)
+        vd.mkdir(parents=True, exist_ok=True)
+        torch.save(torch.randn(*train_shape), td / "all_orig.pt")
+        torch.save(torch.randn(*val_shape), vd / "all_orig.pt")
+    return train_root, val_root, proj_dim
+
+
+def _run_select_script(tmp_path, train_root, val_root, proj_dim, keep) -> tuple[int, str]:
+    import sys
+
+    from dataos.operators._less.commands import SELECT_SCRIPT
+
+    indices_path = tmp_path / "indices.json"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            SELECT_SCRIPT,
+            str(train_root),
+            str(val_root),
+            str(proj_dim),
+            str(keep),
+            str(indices_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode, (proc.stdout + proc.stderr)
+
+
+def test_select_script_happy_path(tmp_path):
+    pytest.importorskip("torch")
+    train_root, val_root, proj_dim = _setup_grads(
+        tmp_path, train_shape=(20, 16), val_shape=(4, 16), ckpts=("checkpoint-1", "checkpoint-2"),
+    )
+    rc, out = _run_select_script(tmp_path, train_root, val_root, proj_dim, keep=5)
+    assert rc == 0, out
+    indices = json.loads((tmp_path / "indices.json").read_text(encoding="utf-8"))
+    assert len(indices) == 5
+    assert all(0 <= i < 20 for i in indices)
+    assert sorted(indices) == indices  # script writes sorted output
+
+
+def test_select_script_rejects_projection_dim_mismatch(tmp_path):
+    torch = pytest.importorskip("torch")
+    train_root = tmp_path / "tg" / "checkpoint-1" / "dim16"
+    val_root = tmp_path / "vg" / "checkpoint-1" / "dim16"
+    train_root.mkdir(parents=True)
+    val_root.mkdir(parents=True)
+    torch.save(torch.randn(20, 16), train_root / "all_orig.pt")
+    torch.save(torch.randn(4, 32), val_root / "all_orig.pt")  # wrong proj
+    rc, out = _run_select_script(tmp_path, tmp_path / "tg", tmp_path / "vg", 16, keep=5)
+    assert rc != 0
+    assert "projection dim mismatch" in out
+
+
+def test_select_script_rejects_pool_size_drift(tmp_path):
+    torch = pytest.importorskip("torch")
+    proj_dim = 8
+    train_root = tmp_path / "tg"
+    val_root = tmp_path / "vg"
+    for ckpt, n in (("checkpoint-1", 20), ("checkpoint-2", 18)):  # drift
+        td = train_root / ckpt / f"dim{proj_dim}"
+        vd = val_root / ckpt / f"dim{proj_dim}"
+        td.mkdir(parents=True)
+        vd.mkdir(parents=True)
+        torch.save(torch.randn(n, proj_dim), td / "all_orig.pt")
+        torch.save(torch.randn(4, proj_dim), vd / "all_orig.pt")
+    rc, out = _run_select_script(tmp_path, train_root, val_root, proj_dim, keep=5)
+    assert rc != 0
+    assert "pool size drift" in out
+
+
+def test_select_script_rejects_non_2d_gradients(tmp_path):
+    torch = pytest.importorskip("torch")
+    proj_dim = 8
+    td = tmp_path / "tg" / "checkpoint-1" / f"dim{proj_dim}"
+    vd = tmp_path / "vg" / "checkpoint-1" / f"dim{proj_dim}"
+    td.mkdir(parents=True)
+    vd.mkdir(parents=True)
+    torch.save(torch.randn(20), td / "all_orig.pt")  # 1-D, wrong
+    torch.save(torch.randn(4, proj_dim), vd / "all_orig.pt")
+    rc, out = _run_select_script(tmp_path, tmp_path / "tg", tmp_path / "vg", proj_dim, keep=5)
+    assert rc != 0
+    assert "must be 2-D" in out
