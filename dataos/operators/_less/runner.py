@@ -281,6 +281,8 @@ def run_less_pipeline(
             f"less: selected_indices.json must be a list of ints (got {type(raw_indices).__name__})"
         )
 
+    _cleanup_select_intermediates(select_dir, keep_files=(indices_path,))
+
     stages.append(
         StageResult(
             name="select",
@@ -309,6 +311,32 @@ def _resolve_keep_count(config: LessConfig, pool_size: int) -> int:
     fraction = config.top_fraction if config.top_fraction is not None else 0.0
     keep = max(1, int(round(pool_size * fraction)))
     return min(keep, pool_size)
+
+
+def _cleanup_select_intermediates(select_dir: Path, keep_files: tuple[Path, ...]) -> None:
+    """Drop ``scores.pt`` and any ``dim<proj>/all_orig.pt`` left under select_dir.
+
+    The select stage's main output is ``selected_indices.json`` (small, useful
+    for replay). Intermediate score tensors can grow to tens of MB per run
+    and are not needed after the indices are written; we delete every ``*.pt``
+    and any ``all_orig.pt`` inside select_dir except for the explicit
+    ``keep_files``. Defensive — even when the current commands.py inline
+    SELECT_SCRIPT does not write scores.pt, future LESS upstream changes
+    might.
+    """
+    keep = {p.resolve() for p in keep_files}
+    if not select_dir.exists():
+        return
+    for path in select_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.resolve() in keep:
+            continue
+        if path.suffix == ".pt" or path.name == "all_orig.pt":
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 def _ensure_less_compatible_optimizer(checkpoints: list[Path], base_model: str) -> None:
