@@ -1,244 +1,176 @@
+"""Drive the lm-evaluation-harness bridge from the runtime stage.
+
+``run_eval_stage`` is the single entry point. It builds an
+:class:`EvalConfig` from ``task.eval_config``, picks the latest
+``ModelArtifact`` from upstream artifacts, instantiates the requested
+DataOS adapter, and calls :func:`run_lm_eval`. The :class:`LmEvalRunOutput`
+is then packaged into one :class:`EvalArtifact` whose meta carries the
+per-task results, the headline score, and a budget-trimmed copy of the
+raw lm-eval payload.
+"""
+
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from pathlib import Path
-
-from dataos.core.artifact import Artifact, DatasetArtifact, ModelArtifact, make_artifact_id
+from dataos.core.artifact import Artifact, EvalArtifact, ModelArtifact, make_artifact_id
 from dataos.core.sandbox import Sandbox
-from dataos.eval.config import resolve_eval_config
-from dataos.eval.providers.base import EvalRunContext
-from dataos.eval.registry import get_eval_provider
-from dataos.eval.store import EvalArtifactStore
-from dataos.eval.types import EvalRunOutput
+from dataos.eval.config import EvalConfig
+
+_RAW_TRIM_MAX_KEYS = 50
 
 
-def run_eval_stage(inputs: list[Artifact], sandbox: Sandbox, **kwargs) -> list[Artifact]:
-    task = kwargs.get("task")
-    model_artifact = _find_latest_model(inputs)
-    config = resolve_eval_config(getattr(task, "eval_config", {}), kwargs)
-    if config.data.path:
-        dataset_artifact = _materialize_eval_dataset_from_path(config.data.path)
-    else:
-        dataset_artifact = _find_latest_dataset(inputs)
-    provider = get_eval_provider(config.provider)
-    output = provider.run(
-        EvalRunContext(
-            dataset_artifact=dataset_artifact,
-            model_artifact=model_artifact,
-            sandbox=sandbox,
-            task_template=task,
-            config=config,
-        )
-    )
-
-    store = EvalArtifactStore(sandbox)
-    artifacts: list[Artifact] = []
-    trace_artifact_ids = {
-        "requests": None,
-        "responses": None,
-        "samples": None,
-    }
-    request_artifact = None
-    response_artifact = None
-    sample_artifact = None
-
-    base_trace_meta = _build_trace_meta(
-        output=output,
-        task=task,
-        model_artifact=model_artifact,
-        dataset_artifact=dataset_artifact,
-    )
-    request_records = [_request_record(request, output) for request in output.requests]
-    response_records = [_response_record(response) for response in output.responses]
-    sample_records = [_sample_record(sample) for sample in output.sample_results]
-
-    if request_records and config.artifacts.persist_requests:
-        request_parent_ids = [dataset_artifact.artifact_id] if dataset_artifact is not None else []
-        request_artifact = store.save_requests(request_records, request_parent_ids, base_trace_meta)
-        artifacts.append(request_artifact)
-        trace_artifact_ids["requests"] = request_artifact.artifact_id
-    if response_records and config.artifacts.persist_responses:
-        response_parent_ids = _compact_parent_ids(
-            [
-                dataset_artifact.artifact_id if dataset_artifact is not None else None,
-                model_artifact.artifact_id,
-                request_artifact.artifact_id if request_artifact is not None else None,
-            ]
-        )
-        response_artifact = store.save_responses(response_records, response_parent_ids, base_trace_meta)
-        artifacts.append(response_artifact)
-        trace_artifact_ids["responses"] = response_artifact.artifact_id
-    if sample_records and config.artifacts.persist_samples:
-        sample_parent_ids = _compact_parent_ids(
-            [
-                dataset_artifact.artifact_id if dataset_artifact is not None else None,
-                model_artifact.artifact_id,
-                response_artifact.artifact_id if response_artifact is not None else None,
-            ]
-        )
-        sample_artifact = store.save_samples(sample_records, sample_parent_ids, base_trace_meta)
-        artifacts.append(sample_artifact)
-        trace_artifact_ids["samples"] = sample_artifact.artifact_id
-
-    summary = _build_eval_summary(
-        output=output,
-        trace_artifact_ids=trace_artifact_ids,
-        task=task,
-        model_artifact=model_artifact,
-        dataset_artifact=dataset_artifact,
-    )
-    eval_parent_ids = _compact_parent_ids(
-        [
-            dataset_artifact.artifact_id if dataset_artifact is not None else None,
-            model_artifact.artifact_id,
-            sample_artifact.artifact_id if sample_artifact is not None else None,
-        ]
-    )
-    eval_artifact = store.save_eval_artifact(
-        model_artifact=model_artifact,
-        parent_ids=eval_parent_ids,
-        summary=summary,
-        sample_records=sample_records,
-    )
-    artifacts.append(eval_artifact)
-
-    sandbox.log("eval_model", _build_log_message(model_artifact, dataset_artifact, eval_artifact, output))
-    return artifacts
+def run_eval_stage(
+    artifacts: list[Artifact],
+    sandbox: Sandbox,
+    *,
+    task: Any,
+    experiment: Any | None = None,
+    **_unused: Any,
+) -> list[EvalArtifact]:
+    """Run an lm-eval task suite and emit a single :class:`EvalArtifact`."""
+    del experiment, _unused
+    config = EvalConfig(**task.eval_config)
+    model = _latest_model_artifact(artifacts)
+    adapter = _make_adapter(config.adapter, config.adapter_config)
+    output = _run_lm_eval(model, adapter, config)
+    artifact = _eval_output_to_artifact(output, sandbox, model, config)
+    sandbox.log("eval_model", _build_log_message(model, artifact, output, config))
+    return [artifact]
 
 
-def _materialize_eval_dataset_from_path(path: str) -> DatasetArtifact:
-    source = Path(path)
-    if not source.exists() or not source.is_dir():
-        raise ValueError(
-            f"eval_config.data.path is not a Hugging Face save_to_disk directory: {source}"
-        )
-    artifact = DatasetArtifact(
-        artifact_id=make_artifact_id("dataset"),
-        name=f"eval-dataset-{source.name}",
-        path=source,
-        parent_ids=[],
-        producer="eval_config.data.path",
-    )
-    artifact.refresh_metadata_from_disk()
-    return artifact
-
-
-def _find_latest_model(inputs: list[Artifact]) -> ModelArtifact:
-    for artifact in reversed(inputs):
+def _latest_model_artifact(artifacts: list[Artifact]) -> ModelArtifact:
+    for artifact in reversed(artifacts):
         if isinstance(artifact, ModelArtifact):
             return artifact
-    raise ValueError("eval_model requires at least one ModelArtifact input")
+    raise ValueError("run_eval_stage requires at least one ModelArtifact input")
 
 
-def _find_latest_dataset(inputs: list[Artifact]) -> DatasetArtifact | None:
-    for artifact in reversed(inputs):
-        if isinstance(artifact, DatasetArtifact):
-            return artifact
+def _make_adapter(name: str, adapter_config: dict[str, Any]) -> Any:
+    del adapter_config  # adapters read their knobs off AdapterCallContext at call time
+    if name == "transformers":
+        from dataos.eval.adapters.transformers import TransformersAdapter
+
+        return TransformersAdapter()
+    if name == "openai_compatible":
+        from dataos.eval.adapters.openai_compatible import OpenAICompatibleAdapter
+
+        return OpenAICompatibleAdapter()
+    raise ValueError(f"Unknown eval adapter {name!r}; expected 'transformers' or 'openai_compatible'")
+
+
+def _run_lm_eval(model: ModelArtifact, adapter: Any, config: EvalConfig):
+    from dataos.eval.backend import run_lm_eval
+
+    return run_lm_eval(
+        model,
+        adapter,
+        tasks=list(config.tasks),
+        limit=config.limit,
+        num_fewshot=config.num_fewshot,
+        batch_size=config.batch_size,
+        max_new_tokens=config.max_new_tokens,
+        apply_chat_template=config.apply_chat_template,
+        confirm_run_unsafe_code=config.confirm_run_unsafe_code,
+        adapter_config=dict(config.adapter_config),
+    )
+
+
+def _eval_output_to_artifact(
+    output: Any,
+    sandbox: Sandbox,
+    model: ModelArtifact,
+    config: EvalConfig,
+) -> EvalArtifact:
+    artifact_id = make_artifact_id("eval")
+    eval_dir = sandbox.artifact_dir("eval", artifact_id)
+    metrics = _flatten_metrics(output.results)
+    headline = _pick_headline(metrics, config.tasks)
+    summary: dict[str, Any] = {
+        "backend": "lm_eval",
+        "tasks": list(config.tasks),
+        "adapter": config.adapter,
+        "limit": config.limit,
+        "num_fewshot": config.num_fewshot,
+        "batch_size": config.batch_size,
+        "results": dict(output.results),
+        "score": headline,
+        "headline_score": headline,
+        "source_model_id": model.artifact_id,
+        "base_model": model.meta.get("base_model"),
+    }
+    (eval_dir / "results.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    raw = _trim_raw(output.raw)
+    (eval_dir / "lm_eval_results.json").write_text(
+        json.dumps(raw, indent=2, sort_keys=True, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    if output.samples:
+        for task_name, samples in output.samples.items():
+            safe = task_name.replace("/", "_")
+            with (eval_dir / f"samples-{safe}.jsonl").open("w", encoding="utf-8") as handle:
+                for record in samples:
+                    handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    return EvalArtifact(
+        artifact_id=artifact_id,
+        name=f"eval-{model.artifact_id}",
+        path=eval_dir,
+        parent_ids=[model.artifact_id],
+        producer="eval_model",
+        meta=summary,
+    )
+
+
+def _flatten_metrics(results: dict[str, Any]) -> dict[str, float]:
+    flat: dict[str, float] = {}
+    for task_name, metrics in (results or {}).items():
+        if not isinstance(metrics, dict):
+            continue
+        for key, value in metrics.items():
+            if isinstance(value, (int, float)) and "stderr" not in key and key != "alias":
+                flat[f"{task_name}::{key}"] = float(value)
+    return flat
+
+
+def _pick_headline(metrics: dict[str, float], tasks: list[str]) -> float | None:
+    for task in tasks:
+        for key, value in metrics.items():
+            if key.startswith(f"{task}::"):
+                return value
     return None
 
 
-def _build_trace_meta(
-    *,
-    output: EvalRunOutput,
-    task: Any,
-    model_artifact: ModelArtifact,
-    dataset_artifact: DatasetArtifact | None,
-) -> dict[str, Any]:
-    return {
-        "provider": output.provider,
-        "task": output.task_name,
-        "task_version": output.task_version,
-        "adapter": output.adapter_name,
-        "request_type": output.request_type,
-        "dataset_split": output.dataset_split,
-        "source_dataset_id": dataset_artifact.artifact_id if dataset_artifact is not None else None,
-        "source_model_id": model_artifact.artifact_id,
-        "task_id": getattr(task, "task_id", None),
-    }
-
-
-def _build_eval_summary(
-    *,
-    output: EvalRunOutput,
-    trace_artifact_ids: dict[str, str | None],
-    task: Any,
-    model_artifact: ModelArtifact,
-    dataset_artifact: DatasetArtifact | None,
-) -> dict[str, Any]:
-    bundle = output.summary
-    summary: dict[str, Any] = {
-        "provider": output.provider,
-        "task": output.task_name,
-        "task_version": output.task_version,
-        "adapter": output.adapter_name,
-        "request_type": output.request_type,
-        "metric": bundle.metric_name if bundle is not None else None,
-        "score": float(bundle.score) if bundle is not None else 0.0,
-        "dataset_split": output.dataset_split,
-        "source_dataset_id": dataset_artifact.artifact_id if dataset_artifact is not None else None,
-        "source_model_id": model_artifact.artifact_id,
-        "task_id": getattr(task, "task_id", None),
-        "base_model": model_artifact.meta.get("base_model"),
-        "trace_artifact_ids": trace_artifact_ids,
-    }
-    if bundle is not None:
-        summary.update(bundle.summary)
-    return summary
-
-
-def _request_record(request, output: EvalRunOutput) -> dict[str, Any]:
-    record = request.to_record()
-    record.update(
-        {
-            "task": output.task_name,
-            "task_version": output.task_version,
-        }
-    )
-    return record
-
-
-def _response_record(response) -> dict[str, Any]:
-    return response.to_record()
-
-
-def _sample_record(sample) -> dict[str, Any]:
-    record = sample.to_record()
-    is_correct = None
-    if "exact_match" in sample.metrics:
-        is_correct = bool(sample.metrics["exact_match"])
-    elif "correct" in sample.metrics:
-        is_correct = bool(sample.metrics["correct"])
-    record.update(
-        {
-            "predicted_answer": sample.normalized_prediction,
-            "reference_answer": sample.normalized_reference,
-            "is_correct": is_correct,
-        }
-    )
-    return record
+def _trim_raw(raw: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {"_note": "raw payload was not a dict", "_type": type(raw).__name__}
+    keep = {"results", "configs", "versions", "n-shot", "task_hashes", "model_source"}
+    trimmed = {key: value for key, value in raw.items() if key in keep}
+    if len(trimmed) < min(len(raw), _RAW_TRIM_MAX_KEYS):
+        for key in list(raw.keys())[: _RAW_TRIM_MAX_KEYS - len(trimmed)]:
+            if key not in trimmed and key != "samples":
+                trimmed[key] = raw[key]
+    return trimmed
 
 
 def _build_log_message(
-    model_artifact: ModelArtifact,
-    dataset_artifact: DatasetArtifact | None,
-    eval_artifact: Artifact,
-    output: EvalRunOutput,
+    model: ModelArtifact,
+    artifact: EvalArtifact,
+    output: Any,
+    config: EvalConfig,
 ) -> str:
+    headline = artifact.meta.get("headline_score")
     lines = [
-        f"model={model_artifact.artifact_id}",
-        f"eval={eval_artifact.artifact_id}",
-        f"provider={output.provider}",
-        f"score={float(output.summary.score if output.summary is not None else 0.0)}",
+        f"model={model.artifact_id}",
+        f"eval={artifact.artifact_id}",
+        "backend=lm_eval",
+        f"tasks={','.join(config.tasks)}",
+        f"adapter={config.adapter}",
+        f"score={headline if headline is not None else 'n/a'}",
     ]
-    if dataset_artifact is not None:
-        lines.append(f"dataset={dataset_artifact.artifact_id}")
-    if output.task_name:
-        lines.append(f"task={output.task_name}")
-    if output.dataset_split:
-        lines.append(f"split={output.dataset_split}")
+    if config.limit is not None:
+        lines.append(f"limit={config.limit}")
     return "\n".join(lines) + "\n"
-
-
-def _compact_parent_ids(parent_ids: list[str | None]) -> list[str]:
-    return [parent_id for parent_id in parent_ids if parent_id is not None]
