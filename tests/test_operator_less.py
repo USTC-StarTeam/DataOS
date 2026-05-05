@@ -671,6 +671,7 @@ def _stub_config(**overrides):
         cache_dir=None,
         force_recompute=False,
         python_executable=None,
+        warmup_percentage=1.0,
     )
     base.update(overrides)
     return LessConfig(**base)
@@ -1016,3 +1017,56 @@ def test_select_script_rejects_non_2d_gradients(tmp_path):
     rc, out = _run_select_script(tmp_path, tmp_path / "tg", tmp_path / "vg", proj_dim, keep=5)
     assert rc != 0
     assert "must be 2-D" in out
+
+
+# ── Phase 4 ⑨ — warmup_percentage configurable ───────────────────────────────
+
+
+def test_warmup_command_passes_warmup_percentage(tmp_path):
+    from dataos.operators._less.commands import warmup_command
+
+    cfg = _stub_config(warmup_percentage=0.05)
+    cmd = warmup_command(cfg, tmp_path / "p.jsonl", tmp_path / "out")
+    pct_index = cmd.index("--percentage")
+    assert cmd[pct_index + 1] == "0.05"
+
+
+def test_warmup_command_default_is_full_pool(tmp_path):
+    from dataos.operators._less.commands import warmup_command
+
+    cfg = _stub_config()  # warmup_percentage defaults to 1.0
+    cmd = warmup_command(cfg, tmp_path / "p.jsonl", tmp_path / "out")
+    pct_index = cmd.index("--percentage")
+    assert cmd[pct_index + 1] == "1.0"
+
+
+def test_less_config_rejects_warmup_percentage_out_of_range(tmp_path):
+    pool, target = _make_pair(tmp_path)
+    sandbox = Sandbox(tmp_path / "sandbox")
+    sandbox.prepare()
+    with pytest.raises(ValueError, match="warmup_percentage"):
+        LessSelectOperator().run(
+            [target, pool],
+            sandbox,
+            target_artifact_id=target.artifact_id,
+            base_model="m",
+            top_k=5,
+            mode="stub",
+            warmup_percentage=0.0,
+        )
+
+
+def test_less_config_accepts_warmup_percentage(tmp_path):
+    pool, target = _make_pair(tmp_path)
+    sandbox = Sandbox(tmp_path / "sandbox")
+    sandbox.prepare()
+    artifact = LessSelectOperator().run(
+        [target, pool],
+        sandbox,
+        target_artifact_id=target.artifact_id,
+        base_model="m",
+        top_k=5,
+        mode="stub",
+        warmup_percentage=0.05,
+    )
+    assert artifact.meta["less_selected_count"] == 5

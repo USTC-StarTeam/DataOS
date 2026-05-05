@@ -24,6 +24,7 @@ ALLOWED_KWARGS = {
     "cache_dir",
     "force_recompute",
     "python_executable",
+    "warmup_percentage",
 }
 
 
@@ -46,6 +47,7 @@ class LessConfig:
     cache_dir: str | None
     force_recompute: bool
     python_executable: str | None
+    warmup_percentage: float
 
     @classmethod
     def from_kwargs(cls, kwargs: dict[str, Any]) -> "LessConfig":
@@ -75,6 +77,10 @@ class LessConfig:
         if mode == "less" and not params.get("less_repo_path"):
             raise ValueError("less: 'less_repo_path' is required when mode='less'")
 
+        warmup_percentage = float(params.get("warmup_percentage", 1.0))
+        if not (0 < warmup_percentage <= 1):
+            raise ValueError("less: 'warmup_percentage' must be in (0, 1]")
+
         return cls(
             target_artifact_id=str(params["target_artifact_id"]),
             base_model=str(params["base_model"]),
@@ -97,4 +103,5 @@ class LessConfig:
                 if params.get("python_executable")
                 else None
             ),
+            warmup_percentage=float(params.get("warmup_percentage", 1.0)),
         )
