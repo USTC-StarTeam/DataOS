@@ -3,7 +3,7 @@
   "name": "SFT LLaMA-Factory Baseline",
   "goal": "Run a single-round SFT pipeline and train a LoRA adapter with LLaMA-Factory.",
   "input_description": "Input is an existing Hugging Face Dataset or DatasetDict save_to_disk directory.",
-  "output_description": "Produce cleaned and optionally expanded datasets, a trained model artifact, a stub eval artifact, and an experiment report.",
+  "output_description": "Produce cleaned and optionally expanded datasets, a trained model artifact, an lm-eval gsm8k score, and an experiment report.",
   "constraints": {
     "dataset_format": "hf_datasets",
     "llm_role": [
@@ -38,7 +38,12 @@
     }
   },
   "eval_config": {
-    "provider": "stub",
-    "provider_config": {"score": 0.5}
+    "tasks": ["gsm8k"],
+    "limit": 100,
+    "num_fewshot": 0,
+    "batch_size": 8,
+    "max_new_tokens": 256,
+    "apply_chat_template": true,
+    "adapter": "transformers"
   }
 }
