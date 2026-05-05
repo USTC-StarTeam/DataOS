@@ -8,7 +8,28 @@ and runtime layers. Heavy intermediates are content-addressed and cached at
 the workspace level so reuse across target tasks is automatic when the pool
 and warmup hyperparameters are unchanged.
 
-Spec fields (kwargs):
+Pool / target identification rule
+---------------------------------
+
+The operator distinguishes the two ``DatasetArtifact`` inputs as follows:
+
+- **target** = the artifact in ``inputs`` whose ``artifact_id`` matches the
+  required ``target_artifact_id`` kwarg exactly. Required and unambiguous.
+- **pool** = the **most recently added** ``DatasetArtifact`` in ``inputs``
+  whose id is **not** the target. ``find_pool_dataset`` scans
+  ``reversed(inputs)`` and returns the first match, so input ordering matters
+  only when multiple non-target datasets are present — the latest wins.
+
+When ``inputs`` contains a single ``DatasetArtifact`` and that artifact is
+the target, no pool is available and the operator raises. When two or more
+non-target datasets are present, only the latest is consumed; today the
+operator does not accept an explicit ``pool_artifact_id`` kwarg, so callers
+that need a non-default pool must reorder ``inputs`` so the desired pool
+comes last. (Explicit ``pool_artifact_id`` is a candidate future kwarg —
+do not assume it exists yet.)
+
+Spec fields (kwargs)
+--------------------
 
 - ``target_artifact_id`` (required): artifact_id of the target-task
   ``DatasetArtifact`` already present in ``inputs``.
@@ -23,6 +44,11 @@ Spec fields (kwargs):
 - ``less_repo_path`` (required when ``mode='less'``): local clone of
   ``princeton-nlp/LESS``.
 - ``cache_dir`` (optional): override for the cross-experiment cache root.
+  Resolution order: ``DATAOS_LESS_CACHE`` env > this kwarg > inferred
+  ``<workspace>/cache/less`` > ``~/.cache/dataos/less`` fallback.
+- ``python_executable`` (optional): override for the python interpreter that
+  runs ``-m less.<module>`` subprocesses. Resolution order:
+  this kwarg > ``DATAOS_LESS_PYTHON`` env > ``sys.executable``.
 - ``force_recompute`` (default ``False``): bypass cache hits.
 """
 
