@@ -132,7 +132,7 @@ def warmup_command(
         "--overwrite_output_dir",
         "True",
         "--percentage",
-        "1.0",
+        str(config.warmup_percentage),
     ]
 
 
