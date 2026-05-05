@@ -22,12 +22,30 @@ verification on bdaa_5090-1) and the conventions in
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 from dataos.operators._less.config import LessConfig
 
-PYTHON = "python3"
+ENV_PYTHON = "DATAOS_LESS_PYTHON"
 TORCHRUN = "torchrun"
+
+
+def python_for(config: LessConfig) -> str:
+    """Resolve which python executable to use for ``-m less.<module>`` calls.
+
+    Precedence: ``config.python_executable`` > ``$DATAOS_LESS_PYTHON`` env var
+    > ``sys.executable``. The latter ensures we drive the same interpreter that
+    imported DataOS itself, which is correct for ``uv run`` / venv setups
+    where the LESS deps were installed.
+    """
+    if config.python_executable:
+        return config.python_executable
+    env_value = os.environ.get(ENV_PYTHON)
+    if env_value:
+        return env_value
+    return sys.executable
 
 
 def warmup_command(
@@ -126,7 +144,7 @@ def grad_command(
     if gradient_type not in {"sgd", "adam"}:
         raise ValueError(f"less: gradient_type must be 'sgd' or 'adam' (got {gradient_type!r})")
     return [
-        PYTHON,
+        python_for(config),
         "-m",
         "less.data_selection.get_info",
         "--info_type",
@@ -194,7 +212,7 @@ def select_command(
 ) -> list[str]:
     """Stage 4 — cosine matching + top-k via inline ``python3 -c`` subprocess."""
     return [
-        PYTHON,
+        python_for(config),
         "-c",
         SELECT_SCRIPT,
         str(train_grads_root),
