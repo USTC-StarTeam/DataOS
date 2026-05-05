@@ -63,8 +63,11 @@ DataOS 是一个面向监督微调（SFT）场景的本地优先数据系统。�
 
 下面这组命令是我在本机真实跑通的命令。它会生成一个完整 workspace，并在其中留下：输入数据、去重后数据、采样后数据、LoRA adapter、训练日志、评测 artifact 和 summary。
 
+我验证时使用的是本地 Hugging Face 缓存中的 `Qwen/Qwen2.5-0.5B` snapshot；下面改写成通用占位路径，避免把机器上的绝对路径写进仓库。
+
 ```bash
-cd /home/xyzhi/workspace/DataOS
+REPO_ROOT=/path/to/DataOS
+cd "$REPO_ROOT"
 
 uv sync --extra dev --extra train --extra eval
 source .venv/bin/activate
@@ -72,7 +75,7 @@ uv pip install --python .venv/bin/python \
   --index-url https://download.pytorch.org/whl/cu128 \
   --upgrade --force-reinstall torch torchvision torchaudio
 
-BASE_MODEL=/home/xyzhi/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B/snapshots/060db6499f32faf8b98477b0a26969ef7d8b9987
+BASE_MODEL=/absolute/path/to/your/local/Qwen2.5-0.5B-snapshot
 
 python scripts/run_real_pipeline_demo.py \
   --workspace /tmp/dataos-real-demo \
