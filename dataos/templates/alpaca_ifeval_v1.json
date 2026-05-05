@@ -1,9 +1,9 @@
 {
   "task_id": "alpaca-ifeval-v1",
   "name": "Alpaca SFT + IFEval",
-  "goal": "LoRA-finetune Qwen2.5-0.5B-Instruct on an Alpaca subset and evaluate prompt-strict instruction following on IFEval.",
+  "goal": "LoRA-finetune Qwen2.5-0.5B-Instruct on an Alpaca subset and evaluate prompt-strict instruction following on lm-eval ifeval.",
   "input_description": "Hugging Face DatasetDict at <output_path of alpaca import_spec>, with columns instruction/input/response and train/test splits.",
-  "output_description": "Trained LoRA adapter and an IFEval EvalArtifact with prompt-strict and instruction-strict accuracy.",
+  "output_description": "Trained LoRA adapter and an lm-eval ifeval EvalArtifact with prompt-strict instruction-following accuracy.",
   "constraints": {
     "dataset_format": "hf_datasets",
     "llm_role": ["plan", "review"],
@@ -31,13 +31,12 @@
     }
   },
   "eval_config": {
-    "provider": "native",
-    "task": {"name": "ifeval"},
-    "data": {
-      "split": "train",
-      "path": "/home/hcgu/data/DataOS-smoke/ifeval-dataset"
-    },
-    "adapter": {"name": "transformers"},
-    "request": {"type": "generate_until", "batch_size": 8, "max_new_tokens": 1024}
+    "tasks": ["ifeval"],
+    "limit": 100,
+    "num_fewshot": 0,
+    "batch_size": 8,
+    "max_new_tokens": 1280,
+    "apply_chat_template": true,
+    "adapter": "transformers"
   }
 }

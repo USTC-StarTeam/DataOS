@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import os
+
+import pytest
 from datasets import Dataset
 
 from dataos.core.artifact import DatasetArtifact, EvalArtifact, ExperimentArtifact, ModelArtifact
+from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
 from dataos.runtime.runner import run_task
+
+pytest.importorskip("lm_eval")
 
 
 class FakeLLMClient:
@@ -15,7 +21,31 @@ class FakeLLMClient:
         return self.responses.pop(0)
 
 
-def test_run_task_smoke(tmp_path):
+class _FakeAdapter:
+    name = "transformers"
+
+    def generate_until(
+        self,
+        model_artifact,
+        requests: list[EvalRequest],
+        config: AdapterCallContext,
+    ) -> list[ModelResponse]:
+        del model_artifact, config
+        return [
+            ModelResponse(
+                sample_id=request.sample_id,
+                index=request.index,
+                request_type="generate_until",
+                text="Step-by-step reasoning gives us 18. #### 18",
+            )
+            for request in requests
+        ]
+
+
+def test_run_task_smoke(tmp_path, monkeypatch):
+    if not os.environ.get("HF_ENDPOINT") and not os.environ.get("HF_DATASETS_OFFLINE"):
+        pytest.skip("HF_ENDPOINT not set; skip to avoid network reach to huggingface.co")
+
     dataset = Dataset.from_dict(
         {
             "instruction": ["hello", "", "world"],
@@ -36,8 +66,22 @@ def test_run_task_smoke(tmp_path):
         "max_rounds": 1,
         "pipeline_hint": ["dedup", "sample"],
         "train_config": {"mode": "stub"},
-        "eval_config": {"provider": "stub", "provider_config": {"score": 0.5}},
+        "eval_config": {
+            "tasks": ["gsm8k"],
+            "limit": 2,
+            "num_fewshot": 0,
+            "batch_size": 2,
+            "max_new_tokens": 16,
+            "apply_chat_template": False,
+            "adapter": "transformers",
+        },
     }
+
+    monkeypatch.setattr(
+        "dataos.eval.runner._make_adapter",
+        lambda name, config: _FakeAdapter(),
+    )
+
     llm = FakeLLMClient(
         [
             {
@@ -66,8 +110,19 @@ def test_run_task_smoke(tmp_path):
 
     assert (result.experiment.sandbox.root / "report.json").exists()
     assert (result.experiment.sandbox.root / "review.json").exists()
-    assert any(isinstance(artifact, DatasetArtifact) and artifact.artifact_id != result.initial_artifact.artifact_id for artifact in result.experiment.artifacts)
+    assert any(
+        isinstance(artifact, DatasetArtifact)
+        and artifact.artifact_id != result.initial_artifact.artifact_id
+        for artifact in result.experiment.artifacts
+    )
     assert any(isinstance(artifact, ModelArtifact) for artifact in result.experiment.artifacts)
-    assert any(isinstance(artifact, EvalArtifact) for artifact in result.experiment.artifacts)
+    eval_artifacts = [
+        artifact for artifact in result.experiment.artifacts if isinstance(artifact, EvalArtifact)
+    ]
+    assert eval_artifacts, "expected at least one EvalArtifact from run_eval_stage"
+    eval_artifact = eval_artifacts[-1]
+    assert eval_artifact.meta["backend"] == "lm_eval"
+    assert eval_artifact.meta["tasks"] == ["gsm8k"]
+    assert eval_artifact.meta["adapter"] == "transformers"
     assert isinstance(result.experiment_artifact, ExperimentArtifact)
     assert result.archived_experiment_artifact.exists()
