@@ -414,8 +414,8 @@ def _make_fake_run(num_checkpoints: int = 2):
             output_path = Path(_arg(args, "--output_path"))
             output_path.mkdir(parents=True, exist_ok=True)
             (output_path / "grads.bin").write_text("fake-grads", encoding="utf-8")
-        elif args[:2] == ["python3", "-c"]:
-            # select script: args = ["python3", "-c", SCRIPT, train_root, val_root, proj_dim, keep, indices_path]
+        elif len(args) >= 2 and args[1] == "-c":
+            # select script: args = [<python>, "-c", SCRIPT, train_root, val_root, proj_dim, keep, indices_path]
             keep = int(args[6])
             indices_path = Path(args[7])
             indices_path.parent.mkdir(parents=True, exist_ok=True)
@@ -472,7 +472,7 @@ def test_less_real_mode_runs_full_pipeline(tmp_path, monkeypatch):
     assert len(invocations) == 6
     assert sum("less.train.train" in inv for inv in invocations) == 1
     assert sum("less.data_selection.get_info" in inv for inv in invocations) == 4
-    assert sum(call[:2] == ["python3", "-c"] for call in calls) == 1
+    assert sum(len(call) >= 2 and call[1] == "-c" for call in calls) == 1
 
     assert (cache / "warmup").exists()
     assert (cache / "train_grads").exists()
@@ -645,3 +645,107 @@ def test_less_registered_in_default_registry():
     registry = build_default_registry()
     operator = registry.get("less")
     assert isinstance(operator, LessSelectOperator)
+
+
+# ── Phase 1 ① — PYTHON executable configurable ────────────────────────────────
+
+
+def _stub_config(**overrides):
+    from dataos.operators._less.config import LessConfig
+
+    base = dict(
+        target_artifact_id="t",
+        base_model="m",
+        mode="less",
+        top_k=5,
+        top_fraction=None,
+        seed=42,
+        warmup_epochs=1,
+        projection_dim=8,
+        lora_r=8,
+        lora_alpha=16,
+        learning_rate=1e-4,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=1,
+        less_repo_path="/tmp/less",
+        cache_dir=None,
+        force_recompute=False,
+        python_executable=None,
+    )
+    base.update(overrides)
+    return LessConfig(**base)
+
+
+def test_python_for_uses_explicit_kwarg(monkeypatch):
+    from dataos.operators._less.commands import python_for
+
+    monkeypatch.delenv("DATAOS_LESS_PYTHON", raising=False)
+    cfg = _stub_config(python_executable="/opt/custom/bin/python")
+    assert python_for(cfg) == "/opt/custom/bin/python"
+
+
+def test_python_for_falls_back_to_env(monkeypatch):
+    from dataos.operators._less.commands import python_for
+
+    monkeypatch.setenv("DATAOS_LESS_PYTHON", "/env/bin/python3")
+    cfg = _stub_config()
+    assert python_for(cfg) == "/env/bin/python3"
+
+
+def test_python_for_falls_back_to_sys_executable(monkeypatch):
+    import sys
+
+    from dataos.operators._less.commands import python_for
+
+    monkeypatch.delenv("DATAOS_LESS_PYTHON", raising=False)
+    cfg = _stub_config()
+    assert python_for(cfg) == sys.executable
+
+
+def test_grad_command_uses_resolved_python(monkeypatch, tmp_path):
+    from dataos.operators._less.commands import grad_command
+
+    monkeypatch.delenv("DATAOS_LESS_PYTHON", raising=False)
+    cfg = _stub_config(python_executable="/opt/custom/bin/python")
+    cmd = grad_command(
+        cfg,
+        gradient_type="adam",
+        train_files=tmp_path / "p.jsonl",
+        model_path=tmp_path / "ckpt",
+        output_path=tmp_path / "out",
+    )
+    assert cmd[0] == "/opt/custom/bin/python"
+    assert cmd[1:3] == ["-m", "less.data_selection.get_info"]
+
+
+def test_select_command_uses_resolved_python(monkeypatch, tmp_path):
+    from dataos.operators._less.commands import select_command
+
+    monkeypatch.delenv("DATAOS_LESS_PYTHON", raising=False)
+    cfg = _stub_config(python_executable="/opt/custom/bin/python")
+    cmd = select_command(
+        cfg,
+        train_grads_root=tmp_path / "tg",
+        val_grads_root=tmp_path / "vg",
+        keep=5,
+        indices_path=tmp_path / "out.json",
+    )
+    assert cmd[0] == "/opt/custom/bin/python"
+    assert cmd[1] == "-c"
+
+
+def test_less_config_accepts_python_executable_kwarg(tmp_path):
+    pool, target = _make_pair(tmp_path)
+    sandbox = Sandbox(tmp_path / "sandbox")
+    sandbox.prepare()
+
+    artifact = LessSelectOperator().run(
+        [target, pool],
+        sandbox,
+        target_artifact_id=target.artifact_id,
+        base_model="m",
+        top_k=5,
+        mode="stub",
+        python_executable="/opt/custom/bin/python",
+    )
+    assert artifact.meta["less_selected_count"] == 5

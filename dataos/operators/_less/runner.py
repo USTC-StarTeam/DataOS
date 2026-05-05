@@ -20,6 +20,7 @@ from dataos.operators._less.cache import (
 )
 from dataos.operators._less.commands import (
     grad_command,
+    python_for,
     select_command,
     warmup_command,
 )
@@ -110,8 +111,12 @@ def run_less_pipeline(
     repo_path = Path(config.less_repo_path).expanduser()
     if not repo_path.exists():
         raise ValueError(f"less: less_repo_path does not exist: {repo_path}")
-    if shutil.which("python3") is None:
-        raise RuntimeError("less: 'python3' executable not found on PATH")
+    chosen_python = python_for(config)
+    if shutil.which(chosen_python) is None and not Path(chosen_python).exists():
+        raise RuntimeError(
+            f"less: python executable not found: {chosen_python} "
+            "(set python_executable kwarg or DATAOS_LESS_PYTHON)"
+        )
     if shutil.which("torchrun") is None:
         raise RuntimeError(
             "less: 'torchrun' not found on PATH (required for warmup); "
