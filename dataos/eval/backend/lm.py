@@ -6,7 +6,7 @@ from lm_eval.api.model import LM
 
 from dataos.core.artifact import ModelArtifact
 from dataos.eval.adapters.base import EvalLoglikelihoodAdapter
-from dataos.eval.types import EvalAdapterConfig, EvalConfig, EvalRequest, EvalRequestConfig
+from dataos.eval.types import AdapterCallContext, EvalAdapterConfig, EvalRequest, EvalRequestConfig
 
 if TYPE_CHECKING:
     from lm_eval.api.instance import Instance
@@ -19,7 +19,7 @@ class _GenerateUntilAdapter(Protocol):
         self,
         model_artifact: ModelArtifact,
         requests: list[EvalRequest],
-        config: EvalConfig,
+        config: AdapterCallContext,
     ) -> list[Any]: ...
 
 
@@ -104,8 +104,7 @@ class DataOSLM(LM):
                 )
             pairs.append((str(args[0]), str(args[1])))
         adapter_config = dict(self._adapter_config)
-        config = EvalConfig(
-            provider="lm_eval",
+        config = AdapterCallContext(
             adapter=EvalAdapterConfig(name=self._adapter.name, config=adapter_config),
         )
         return list(self._adapter.score_continuations(self._model, pairs, config))
@@ -134,8 +133,7 @@ class DataOSLM(LM):
         ]
         adapter_config = dict(self._adapter_config)
         adapter_config.setdefault("chat_template_already_applied", True)
-        config = EvalConfig(
-            provider="lm_eval",
+        config = AdapterCallContext(
             adapter=EvalAdapterConfig(name=self._adapter.name, config=adapter_config),
             request=EvalRequestConfig(
                 type="generate_until",

@@ -13,7 +13,7 @@ import pytest
 
 from dataos.core.artifact import ModelArtifact
 from dataos.core.sandbox import Sandbox
-from dataos.eval.types import EvalConfig, EvalRequest, ModelResponse
+from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
 
 pytest.importorskip("lm_eval")
 
@@ -32,7 +32,7 @@ class _FakeAdapter:
         self,
         model_artifact: ModelArtifact,
         requests: list[EvalRequest],
-        config: EvalConfig,
+        config: AdapterCallContext,
     ) -> list[ModelResponse]:
         self.call_count += 1
         self.last_batch_size = len(requests)

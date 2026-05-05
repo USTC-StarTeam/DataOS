@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 
 from dataos.core.artifact import ModelArtifact
-from dataos.eval.types import EvalConfig, EvalRequest, ModelResponse
+from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
 
 
 class OpenAICompatibleAdapter:
@@ -13,7 +13,7 @@ class OpenAICompatibleAdapter:
         self,
         model_artifact: ModelArtifact,
         requests: list[EvalRequest],
-        config: EvalConfig,
+        config: AdapterCallContext,
     ) -> list[ModelResponse]:
         adapter_config = config.adapter.config if config.adapter is not None else {}
         base_url = str(
