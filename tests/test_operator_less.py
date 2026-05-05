@@ -859,3 +859,58 @@ def test_less_real_mode_cleans_up_select_intermediates(tmp_path, monkeypatch):
     assert not (select_dir / "scores.pt").exists()
     assert not (select_dir / "dim8192" / "all_orig.pt").exists()
     assert artifact.meta["less_selected_count"] == 5
+
+
+# ── Phase 1 ⑤ — resolve_cache_root tightening ────────────────────────────────
+
+
+def test_resolve_cache_root_falls_back_when_workspace_looks_synthetic(monkeypatch, tmp_path):
+    from dataos.operators._less.cache import resolve_cache_root
+
+    monkeypatch.delenv("DATAOS_LESS_CACHE", raising=False)
+    cfg = _stub_config(cache_dir=None)
+    sandbox_root = tmp_path / "sandbox"
+    sandbox_root.mkdir()
+    # tmp_path.parent.parent points at /tmp or /private/var/... — does not
+    # contain sandboxes/ and is not named "workspace"; must NOT be used.
+    resolved = resolve_cache_root(sandbox_root, cfg)
+    assert resolved == Path("~/.cache/dataos/less").expanduser()
+
+
+def test_resolve_cache_root_accepts_workspace_with_sandboxes_subdir(monkeypatch, tmp_path):
+    from dataos.operators._less.cache import resolve_cache_root
+
+    monkeypatch.delenv("DATAOS_LESS_CACHE", raising=False)
+    cfg = _stub_config(cache_dir=None)
+    workspace = tmp_path / "ws"
+    (workspace / "sandboxes").mkdir(parents=True)
+    sandbox_root = workspace / "sandboxes" / "exp-1"
+    sandbox_root.mkdir()
+    resolved = resolve_cache_root(sandbox_root, cfg)
+    assert resolved == workspace / "cache" / "less"
+
+
+def test_resolve_cache_root_accepts_workspace_named_directory(monkeypatch, tmp_path):
+    from dataos.operators._less.cache import resolve_cache_root
+
+    monkeypatch.delenv("DATAOS_LESS_CACHE", raising=False)
+    cfg = _stub_config(cache_dir=None)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sandbox_root = workspace / "sandboxes" / "exp-2"
+    sandbox_root.mkdir(parents=True)
+    resolved = resolve_cache_root(sandbox_root, cfg)
+    assert resolved == workspace / "cache" / "less"
+
+
+def test_resolve_cache_root_env_overrides_everything(monkeypatch, tmp_path):
+    from dataos.operators._less.cache import resolve_cache_root
+
+    monkeypatch.setenv("DATAOS_LESS_CACHE", str(tmp_path / "env_cache"))
+    cfg = _stub_config(cache_dir=str(tmp_path / "kwarg_cache"))
+    workspace = tmp_path / "workspace"
+    (workspace / "sandboxes").mkdir(parents=True)
+    sandbox_root = workspace / "sandboxes" / "exp-3"
+    sandbox_root.mkdir()
+    resolved = resolve_cache_root(sandbox_root, cfg)
+    assert resolved == tmp_path / "env_cache"
