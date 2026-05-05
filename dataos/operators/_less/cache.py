@@ -19,10 +19,14 @@ def resolve_cache_root(sandbox_root: Path, config: LessConfig) -> Path:
     """Pick the workspace-level cache root for LESS intermediates.
 
     Resolution order:
-    1. ``DATAOS_LESS_CACHE`` env var.
-    2. ``config.cache_dir`` kwarg.
-    3. ``<workspace>/cache/less`` derived from ``sandbox_root.parent.parent``
-       (matches the runner.py layout: ``<workspace>/sandboxes/<exp_id>``).
+    1. ``DATAOS_LESS_CACHE`` env var (deployment override).
+    2. ``config.cache_dir`` kwarg (per-call override).
+    3. Inferred ``<workspace>/cache/less`` via ``sandbox_root.parent.parent``.
+       Inference accepted **only** when the candidate looks like a real
+       DataOS workspace — either it already contains a ``sandboxes/``
+       subdirectory (matches ``run_task`` layout) or its directory name is
+       literally ``workspace``. This stops unit tests with
+       ``Sandbox(tmp_path / "sandbox")`` from polluting ``tmp_path.parent``.
     4. ``~/.cache/dataos/less`` fallback.
     """
     env_value = os.environ.get(ENV_CACHE_DIR)
@@ -31,7 +35,11 @@ def resolve_cache_root(sandbox_root: Path, config: LessConfig) -> Path:
     if config.cache_dir:
         return Path(config.cache_dir).expanduser()
     inferred_workspace = sandbox_root.parent.parent
-    if inferred_workspace.exists() and inferred_workspace != sandbox_root:
+    looks_like_workspace = inferred_workspace.exists() and (
+        (inferred_workspace / "sandboxes").is_dir()
+        or inferred_workspace.name == "workspace"
+    )
+    if looks_like_workspace and inferred_workspace != sandbox_root:
         return inferred_workspace / "cache" / "less"
     return Path("~/.cache/dataos/less").expanduser()
 
