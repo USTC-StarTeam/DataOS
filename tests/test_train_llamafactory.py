@@ -210,3 +210,120 @@ def test_train_llamafactory_rejects_unknown_step_param(tmp_path):
             task=task,
             unknown_flag=True,
         )
+
+
+# ── Phase 2 ⑧ — run_task with LESS step (stub mode) ──────────────────────────
+
+
+class _LessPlannerStub:
+    """Stub planning + reviewing LLM that wires a LESS step into run_task.
+
+    The first ``generate_json`` call is the plan request — we read the
+    initial-artifact id out of the user_prompt JSON and use it as
+    ``target_artifact_id`` so the LESS step can find it back at execution
+    time. Subsequent calls return a stub review payload.
+    """
+
+    def __init__(self, pool_path: Path, top_k: int = 5):
+        self.pool_path = pool_path
+        self.top_k = top_k
+
+    def generate_json(self, system_prompt: str, user_prompt: str, temperature: float = 0.0) -> dict:
+        del temperature
+        if "review" in system_prompt.lower():
+            return {
+                "summary": "stub review for less smoke",
+                "issues": [],
+                "next_hypothesis": "n/a",
+                "recommended_changes": [],
+            }
+        payload = json.loads(user_prompt)
+        initial_id = payload["initial_artifacts"][0]["artifact_id"]
+        return {
+            "steps": [
+                {
+                    "operator_name": "import_dataset",
+                    "params": {
+                        "source": "hf_local",
+                        "path": str(self.pool_path),
+                        "name": "alpaca-pool-stub",
+                    },
+                },
+                {
+                    "operator_name": "less",
+                    "params": {
+                        "target_artifact_id": initial_id,
+                        "base_model": "stub-model",
+                        "top_k": self.top_k,
+                        "mode": "stub",
+                        "seed": 7,
+                    },
+                },
+            ],
+            "reasoning_summary": "import alpaca pool then run LESS against the initial ifeval target",
+            "expected_gain": "select top-k high-influence rows for downstream training",
+        }
+
+
+def _hf_save(path: Path, *, n: int, prefix: str) -> Path:
+    Dataset.from_dict(
+        {
+            "instruction": [f"{prefix}-instruction-{i}" for i in range(n)],
+            "response": [f"{prefix}-response-{i}" for i in range(n)],
+        }
+    ).save_to_disk(str(path))
+    return path
+
+
+def test_run_task_with_less_step_stub(tmp_path):
+    from dataos.runtime.runner import run_task
+
+    target_dir = _hf_save(tmp_path / "target", n=4, prefix="target")
+    pool_dir = _hf_save(tmp_path / "pool", n=20, prefix="pool")
+
+    workspace = tmp_path / "workspace"
+    (workspace / "sandboxes").mkdir(parents=True, exist_ok=True)
+
+    template = {
+        "task_id": "sft-less-smoke",
+        "name": "less smoke",
+        "goal": "select via LESS then stub-train + stub-eval",
+        "input_description": "ifeval target subset; alpaca pool imported by plan",
+        "output_description": "stub model + stub eval",
+        "constraints": {"dataset_format": "hf_datasets"},
+        "budget": {"max_experiments": 1},
+        "max_rounds": 1,
+        "pipeline_hint": ["import_dataset", "less"],
+        "train_config": {"mode": "stub"},
+        "eval_config": {"provider": "stub", "provider_config": {"score": 0.5}},
+    }
+
+    llm = _LessPlannerStub(pool_path=pool_dir, top_k=5)
+    result = run_task(
+        task_template=template,
+        dataset_path=target_dir,
+        workspace_dir=workspace,
+        llm_client=llm,
+    )
+
+    operator_steps = [
+        step for step in result.experiment.steps if step.get("step_type") == "operator"
+    ]
+    step_names = [step["operator_name"] for step in operator_steps]
+    assert step_names == ["import_dataset", "less"], step_names
+
+    less_step = next(step for step in operator_steps if step["operator_name"] == "less")
+    assert less_step["status"] == "completed"
+    assert len(less_step["output_artifact_ids"]) == 1
+
+    less_output_id = less_step["output_artifact_ids"][0]
+    less_artifact = next(a for a in result.experiment.artifacts if a.artifact_id == less_output_id)
+    assert less_artifact.producer == "less"
+    assert less_artifact.meta["less_mode"] == "stub"
+    assert less_artifact.meta["less_selected_count"] == 5
+    assert less_artifact.meta["less_pool_count"] == 20
+
+    manifest = json.loads((less_artifact.path / "selection_manifest.json").read_text(encoding="utf-8"))
+    assert len(manifest["selected_indices"]) == 5
+    assert manifest["target_artifact_id"] == result.initial_artifact.artifact_id
+    assert manifest["pool_artifact_id"] != result.initial_artifact.artifact_id

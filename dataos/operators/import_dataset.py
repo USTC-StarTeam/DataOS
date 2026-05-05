@@ -140,7 +140,10 @@ class ImportDatasetOperator(Operator):
 
     def run(self, inputs: list[Artifact], sandbox: Sandbox, **kwargs) -> DatasetArtifact:
         del inputs
-        spec = dict(kwargs)
+        # Strip runtime-injected kwargs the agent passes to every operator
+        # (task / experiment) — they're not part of the import spec and would
+        # not be JSON-serialisable when written to meta.
+        spec = {k: v for k, v in kwargs.items() if k not in {"task", "experiment"}}
         loaded = _resolve_dataset(spec)
         dataset_dict = _ensure_dataset_dict(loaded)
 
