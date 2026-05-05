@@ -1,9 +1,9 @@
 {
   "task_id": "gsm8k-llamafactory-v1",
   "name": "GSM8K LLaMA-Factory Baseline",
-  "goal": "Train a LoRA adapter on GSM8K-style instruction data and evaluate on the held-out test split.",
+  "goal": "Train a LoRA adapter on GSM8K-style instruction data and evaluate via lm-eval gsm8k.",
   "input_description": "Input is a Hugging Face DatasetDict save_to_disk directory with train/test splits and instruction/response columns.",
-  "output_description": "Produce a trained model artifact, a GSM8K exact-match eval artifact, and experiment reports.",
+  "output_description": "Produce a trained model artifact, an lm-eval gsm8k EvalArtifact, and experiment reports.",
   "constraints": {
     "dataset_format": "hf_datasets",
     "llm_role": [
@@ -37,10 +37,12 @@
     }
   },
   "eval_config": {
-    "provider": "native",
-    "task": {"name": "gsm8k"},
-    "data": {"split": "test"},
-    "adapter": {"name": "transformers"},
-    "request": {"type": "generate_until", "batch_size": 8, "max_new_tokens": 256}
+    "tasks": ["gsm8k"],
+    "limit": 200,
+    "num_fewshot": 0,
+    "batch_size": 64,
+    "max_new_tokens": 256,
+    "apply_chat_template": true,
+    "adapter": "transformers"
   }
 }

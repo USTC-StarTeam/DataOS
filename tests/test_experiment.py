@@ -36,7 +36,7 @@ def _task() -> TaskTemplate:
             "max_rounds": 1,
             "pipeline_hint": ["dedup", "sample"],
             "train_config": {"mode": "stub"},
-            "eval_config": {"provider": "stub"},
+            "eval_config": {"tasks": ["gsm8k"], "limit": 2, "adapter": "transformers"},
         }
     )
 
