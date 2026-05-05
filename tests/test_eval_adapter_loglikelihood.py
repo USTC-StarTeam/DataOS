@@ -15,7 +15,7 @@ from dataos.core.artifact import ModelArtifact
 from dataos.core.sandbox import Sandbox
 from dataos.eval.adapters.base import EvalLoglikelihoodAdapter
 from dataos.eval.adapters.transformers import TransformersAdapter
-from dataos.eval.types import EvalConfig, EvalRequest, ModelResponse
+from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
 
 
 class _FakeScoringAdapter:
@@ -66,7 +66,7 @@ class TestFakeAdapterReturnsCannedScores:
         scores = adapter.score_continuations(
             model_artifact=None,
             pairs=[("ctx1", "cont1"), ("ctx2", "cont2"), ("ctx3", "cont3")],
-            config=EvalConfig(provider="lm_eval"),
+            config=AdapterCallContext(),
         )
         assert scores == canned
         assert len(adapter.calls) == 1
@@ -107,11 +107,7 @@ def test_transformers_score_continuations_qwen_05b(tmp_path):
         (context, " Paris."),     # correct
         (context, " banana."),    # nonsense
     ]
-    config = EvalConfig(
-        provider="lm_eval",
-        adapter=None,
-        request=None,
-    )
+    config = AdapterCallContext(adapter=None, request=None)
     scores = adapter.score_continuations(model, pairs, config)
 
     assert len(scores) == 2
@@ -142,6 +138,6 @@ def test_transformers_score_continuations_handles_empty_continuation(tmp_path):
         meta={"base_model": MODEL_PATH},
     )
     adapter = TransformersAdapter()
-    config = EvalConfig(provider="lm_eval", adapter=None, request=None)
+    config = AdapterCallContext(adapter=None, request=None)
     scores = adapter.score_continuations(model, [("hello", "")], config)
     assert scores == [(0.0, True)]
