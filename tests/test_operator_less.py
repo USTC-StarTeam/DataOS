@@ -813,3 +813,49 @@ def test_cache_lock_can_be_reentered_after_release(tmp_path):
     with entry.lock():
         entry.write_meta({"log_path": "/dev/null"})
     assert entry.hit()
+
+
+# ── Phase 1 ③ — select_dir cleanup ────────────────────────────────────────────
+
+
+def test_less_real_mode_cleans_up_select_intermediates(tmp_path, monkeypatch):
+    pool, target = _make_pair(tmp_path)
+    repo = tmp_path / "less_repo"
+    repo.mkdir()
+    cache = tmp_path / "less_cache"
+    sandbox = Sandbox(tmp_path / "sandbox")
+    sandbox.prepare()
+
+    fake_run, _ = _make_fake_run(num_checkpoints=2)
+
+    def fake_run_with_scores(args, cwd, stdout, stderr, check):
+        # Mimic a select-script that drops a scores.pt + dim<proj>/all_orig.pt
+        # next to the indices, so we can verify the cleanup actually removes
+        # them after success.
+        if len(args) >= 2 and args[1] == "-c":
+            indices_path = Path(args[7])
+            indices_path.parent.mkdir(parents=True, exist_ok=True)
+            (indices_path.parent / "scores.pt").write_text("scratch", encoding="utf-8")
+            dim_dir = indices_path.parent / "dim8192"
+            dim_dir.mkdir(parents=True, exist_ok=True)
+            (dim_dir / "all_orig.pt").write_text("scratch", encoding="utf-8")
+        return fake_run(args, cwd, stdout, stderr, check)
+
+    _patch_runtime(monkeypatch, fake_run_with_scores)
+
+    artifact = LessSelectOperator().run(
+        [target, pool],
+        sandbox,
+        target_artifact_id=target.artifact_id,
+        base_model="m",
+        top_k=5,
+        mode="less",
+        less_repo_path=str(repo),
+        cache_dir=str(cache),
+    )
+
+    select_dir = sandbox.tmp_dir / "less" / "select"
+    assert (select_dir / "selected_indices.json").exists()
+    assert not (select_dir / "scores.pt").exists()
+    assert not (select_dir / "dim8192" / "all_orig.pt").exists()
+    assert artifact.meta["less_selected_count"] == 5
