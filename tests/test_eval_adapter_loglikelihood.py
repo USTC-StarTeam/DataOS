@@ -15,7 +15,7 @@ from dataos.core.artifact import ModelArtifact
 from dataos.core.sandbox import Sandbox
 from dataos.eval.adapters.base import EvalLoglikelihoodAdapter
 from dataos.eval.adapters.transformers import TransformersAdapter
-from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
+from dataos.eval.types import AdapterCallContext, ModelResponse
 
 
 class _FakeScoringAdapter:
