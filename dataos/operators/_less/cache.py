@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from dataos.operators._less.config import LessConfig
 
@@ -103,6 +105,33 @@ class CacheEntry:
 
     def read_meta(self) -> dict[str, Any]:
         return json.loads((self.path / "cache_meta.json").read_text(encoding="utf-8"))
+
+    @contextlib.contextmanager
+    def lock(self) -> Iterator[None]:
+        """Hold an exclusive ``fcntl.flock`` on a sibling lock file.
+
+        Serialises concurrent workers contending for the same cache key. The
+        intended pattern is:
+
+            with entry.lock():
+                if entry.hit():        # double-check after acquiring lock
+                    skip subprocess
+                else:
+                    run subprocess
+                    entry.write_meta(...)
+
+        ``fcntl.flock`` locks per-process; tests use ``multiprocessing`` to
+        exercise contention. NFS / SMB filesystems can degrade flock semantics
+        — DataOS does not deploy on those, so we accept the limitation.
+        """
+        self.path.mkdir(parents=True, exist_ok=True)
+        lock_path = self.path / ".lock"
+        with lock_path.open("w") as fh:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 def make_cache_entry(cache_root: Path, stage: str, key: str) -> CacheEntry:
