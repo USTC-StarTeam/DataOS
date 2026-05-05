@@ -193,8 +193,13 @@ class DataOSAgent:
         try:
             if self.llm_client is None:
                 raise ValueError("llm_client is required to run specialist agent tasks")
+            catalog = (
+                task.input_context.get("operator_catalog")
+                if isinstance(task.input_context, dict)
+                else None
+            )
             payload = self.llm_client.generate_json(
-                _role_system_prompt(task.role),
+                _role_system_prompt(task.role, catalog),
                 json.dumps(task.input_context, sort_keys=True, ensure_ascii=False),
                 temperature=0.0,
             )
@@ -309,8 +314,14 @@ def compile_context(
     *,
     context_scope: str,
 ) -> dict[str, Any]:
+    from dataos.operators import build_default_registry  # lazy: keeps module importable if operators unavailable
+
     state = store.get_project_state(project_id)
     summary = store.export_project_summary(project_id)
+    try:
+        operator_catalog = _build_operator_catalog(build_default_registry().describe_all())
+    except Exception:
+        operator_catalog = []
     return {
         "context_scope": context_scope,
         "project": state["project"],
@@ -324,6 +335,7 @@ def compile_context(
             if proposal["status"] in {"accepted", "rejected"}
         ],
         "recent_events": state.get("events", [])[-20:],
+        "operator_catalog": operator_catalog,
     }
 
 
@@ -476,12 +488,42 @@ def _validate_proposal_payload(proposal_type: str, payload: dict[str, Any]) -> N
     raise ValueError(f"Unsupported proposal_type: {proposal_type}")
 
 
-def _role_system_prompt(role: str) -> str:
-    return (
+_OPERATOR_AWARE_ROLES: frozenset[str] = frozenset(
+    {"experiment_planner", "operator_designer", "critic"}
+)
+
+
+def _role_system_prompt(
+    role: str,
+    operator_catalog: list[dict[str, str]] | None = None,
+) -> str:
+    base = (
         "You are a DataOS specialist agent. Return JSON only. "
         f"Your role is {role}. Produce a proposal_type and payload suitable for "
         "DataOS Research OS. Do not execute work directly."
     )
+    if role not in _OPERATOR_AWARE_ROLES or not operator_catalog:
+        return base
+    lines = "\n".join(f"  {entry['summary']}" for entry in operator_catalog)
+    return (
+        f"{base}\n\n"
+        "Available data operators (use exact names in experiment specs):\n"
+        f"{lines}"
+    )
+
+
+def _build_operator_catalog(
+    descriptions: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    result = []
+    for d in descriptions:
+        name = str(d.get("name", ""))
+        desc = str(d.get("description", ""))
+        summary = f"{name} — {desc}"
+        if len(summary) > 80:
+            summary = summary[:77] + "..."
+        result.append({"name": name, "summary": summary})
+    return result
 
 
 def _compact_tasks(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
