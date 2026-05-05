@@ -19,7 +19,6 @@ import pytest
 from dataos.eval.planner import (
     EvalPlanItem,
     default_llm_client,
-    llm_intent,
     plan_eval,
 )
 from dataos.llm import OpenAICompatLLMClient

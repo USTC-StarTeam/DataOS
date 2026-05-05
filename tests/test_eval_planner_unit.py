@@ -3,11 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from dataos.eval.planner import (
     EvalIntent,
-    EvalPlanItem,
     builtin_gallery,
     keyword_intent,
     llm_intent,

@@ -1,10 +1,13 @@
-"""Integration test: run_eval_stage drives lm-eval and emits DataOS artifacts.
+"""Integration: ``run_eval_stage`` drives lm-eval and emits EvalArtifact.
 
-Uses a fake adapter (registered in-place) so we exercise the full runner path
-— config resolution, adapter dispatch, artifact persistence — without GPU or
-real model weights. lm-eval is required; gsm8k is fetched from
-``HF_ENDPOINT=https://hf-mirror.com`` if the mirror is set.
+Uses a fake adapter monkey-patched into the runner's ``_make_adapter``
+factory so the full runtime path (config resolution -> adapter dispatch
+-> artifact persistence) is exercised without GPU or real model weights.
+``lm_eval`` must be importable; the gsm8k task is fetched from
+``HF_ENDPOINT`` (``HF_ENDPOINT=https://hf-mirror.com`` works behind the
+GFW).
 """
+
 from __future__ import annotations
 
 import json
@@ -12,21 +15,20 @@ import os
 
 import pytest
 
-from dataos.core.artifact import EvalArtifact, ModelArtifact, ResultArtifact
+from dataos.core.artifact import EvalArtifact, ModelArtifact
 from dataos.core.sandbox import Sandbox
 from dataos.core.task import TaskTemplate
 from dataos.eval import run_eval_stage
-from dataos.eval.types import EvalConfig, EvalRequest, ModelResponse
+from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
 
 pytest.importorskip("lm_eval")
-pytest.skip("phase B reverted: relies on new EvalConfig schema (tasks/adapter)", allow_module_level=True)
 
 
 class _FakeAdapter:
     name = "fake"
     instances: list["_FakeAdapter"] = []
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.calls = 0
         type(self).instances.append(self)
 
@@ -34,8 +36,9 @@ class _FakeAdapter:
         self,
         model_artifact: ModelArtifact,
         requests: list[EvalRequest],
-        config: EvalConfig,
+        config: AdapterCallContext,
     ) -> list[ModelResponse]:
+        del model_artifact, config
         self.calls += 1
         return [
             ModelResponse(
@@ -63,11 +66,12 @@ def _task() -> TaskTemplate:
             "train_config": {"mode": "stub"},
             "eval_config": {
                 "tasks": ["gsm8k"],
-                "adapter": {"name": "fake"},
                 "limit": 3,
                 "num_fewshot": 0,
-                "request": {"batch_size": 3, "max_new_tokens": 16},
+                "batch_size": 3,
+                "max_new_tokens": 16,
                 "apply_chat_template": False,
+                "adapter": "fake",
             },
         }
     )
@@ -85,16 +89,12 @@ def _model_artifact(sandbox: Sandbox) -> ModelArtifact:
     )
 
 
-def test_run_eval_stage_persists_eval_and_sample_artifacts(tmp_path, monkeypatch):
+def test_run_eval_stage_persists_eval_artifact_via_fake_adapter(tmp_path, monkeypatch):
     if not os.environ.get("HF_ENDPOINT") and not os.environ.get("HF_DATASETS_OFFLINE"):
         pytest.skip("HF_ENDPOINT not set; avoid network reach to huggingface.co")
 
-    monkeypatch.setitem(
-        __import__("dataos.eval.runner", fromlist=["ADAPTERS"]).ADAPTERS,
-        "fake",
-        _FakeAdapter,
-    )
     _FakeAdapter.instances.clear()
+    monkeypatch.setattr("dataos.eval.runner._make_adapter", lambda name, config: _FakeAdapter())
 
     sandbox = Sandbox(tmp_path / "sandbox")
     sandbox.prepare()
@@ -103,20 +103,17 @@ def test_run_eval_stage_persists_eval_and_sample_artifacts(tmp_path, monkeypatch
 
     artifacts = run_eval_stage([model], sandbox=sandbox, task=task)
 
-    eval_artifacts = [a for a in artifacts if isinstance(a, EvalArtifact)]
-    sample_artifacts = [a for a in artifacts if isinstance(a, ResultArtifact)]
+    eval_artifacts = [artifact for artifact in artifacts if isinstance(artifact, EvalArtifact)]
     assert len(eval_artifacts) == 1
     eval_artifact = eval_artifacts[0]
-    assert len(sample_artifacts) == 1
-    sample_artifact = sample_artifacts[0]
 
     assert eval_artifact.meta["backend"] == "lm_eval"
     assert eval_artifact.meta["tasks"] == ["gsm8k"]
     assert eval_artifact.meta["adapter"] == "fake"
     assert eval_artifact.meta["limit"] == 3
-    assert eval_artifact.meta["score"] is not None
     assert "gsm8k" in eval_artifact.meta["results"]
-    assert eval_artifact.meta["sample_artifact_ids"]["gsm8k"] == sample_artifact.artifact_id
+    assert eval_artifact.meta["headline_score"] is not None
+    assert eval_artifact.meta["score"] == eval_artifact.meta["headline_score"]
 
     results_path = eval_artifact.path / "results.json"
     raw_path = eval_artifact.path / "lm_eval_results.json"
@@ -125,8 +122,13 @@ def test_run_eval_stage_persists_eval_and_sample_artifacts(tmp_path, monkeypatch
     summary = json.loads(results_path.read_text(encoding="utf-8"))
     assert summary["backend"] == "lm_eval"
 
-    sample_lines = (sample_artifact.path / "samples.jsonl").read_text(encoding="utf-8").strip().splitlines()
-    docs_seen = {json.loads(line)["doc_id"] for line in sample_lines}
+    samples_path = eval_artifact.path / "samples-gsm8k.jsonl"
+    assert samples_path.exists()
+    docs_seen = {
+        json.loads(line)["doc_id"]
+        for line in samples_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
     assert docs_seen == {0, 1, 2}
 
     assert _FakeAdapter.instances and _FakeAdapter.instances[-1].calls >= 1
