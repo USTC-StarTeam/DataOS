@@ -1,5 +1,7 @@
 # DataOS
 
+[中文说明 / Chinese README](README.zh-CN.md)
+
 DataOS V0.1 is a local-first, agentic data system for SFT workflows. The LLM is only used for planning and review, while a fixed runtime executes registered operators in sequence inside an isolated sandbox.
 
 ## Scope
