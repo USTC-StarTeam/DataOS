@@ -53,13 +53,23 @@ def warmup_command(
     pool_jsonl: Path,
     output_dir: Path,
 ) -> list[str]:
-    """Stage 1 — warmup LoRA training. Output: ``<output_dir>/checkpoint-*/``."""
+    """Stage 1 — warmup LoRA training. Output: ``<output_dir>/checkpoint-*/``.
+
+    The ``--master-port`` is offset from torchrun's default 29500 by
+    ``config.seed`` so that concurrent operator invocations on the same host
+    (Phase 3 alignment runs across 3 GPUs) do not collide on the rendezvous
+    socket. The offset is taken modulo a 16k-port window starting at 29500
+    to stay well clear of low-numbered well-known ports.
+    """
+    rdzv_port = 29500 + (config.seed % 16384)
     return [
         TORCHRUN,
         "--nproc_per_node",
         "1",
         "--nnodes",
         "1",
+        "--master-port",
+        str(rdzv_port),
         "-m",
         "less.train.train",
         "--model_name_or_path",
