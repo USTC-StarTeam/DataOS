@@ -17,39 +17,51 @@ DataOS 是一个面向监督微调（SFT）场景的本地优先数据系统。�
 
 - `dataos/core`: Artifact、TaskTemplate、Sandbox、Experiment、Registry 等核心抽象。
 - `dataos/operators`: 内置数据算子，目前包括 `import_dataset`、`dedup`、`sample`、`format_convert`、`less`。
-- `dataos/train`: 真实训练阶段，当前接入 `LLaMA-Factory`。
-- `dataos/eval`: 真实评测阶段，支持 `native` provider、`transformers` / `openai_compatible` adapter，以及多类 task 定义。
+- `dataos/train`: 训练阶段，当前接入 `LLaMA-Factory`。
+- `dataos/eval`: 评测阶段，支持 `native` provider、`transformers` / `openai_compatible` adapter，以及多类 task 定义。
 - `dataos/runtime`: 组合 task、artifact、agent、train、eval 的统一运行入口。
 - `dataos/research`: 面向研究任务编排的 project / task / worker / scheduler / agent 层。
-- `dataos/templates`: 任务模板示例。
-- `scripts`: 可执行脚本；本次补充了一个真实可复现的 runtime demo。
+- `dataos/templates`: 任务模板与导入 spec。
+- `scripts`: 实际运行脚本。
 - `tests`: 单元测试和集成测试。
 
-## 当前需要注意的真实情况
+第一批稳定算子的说明文档见 `docs/stable_operator_library_v1.md`。
 
-仓库自带的 `dataos/templates/sft_v1.json` 默认还是：
+## 当前推荐的 demo
 
-- `train_config.mode = "stub"`
-- `eval_config.provider = "stub"`
+从现在开始，中文 README 里默认推荐的 demo 脚本统一是：
 
-所以如果你直接照英文 README 里的默认模板运行，它不是一个“真实训练 + 真实评测”的 demo。
+- `scripts/run_real_pipeline_demo.py`
 
-本中文 README 下面提供的是一套我已经在服务器本地实际跑通的、**非 stub**、**真实训练**、**真实评测** 的 demo 命令。
+这个脚本的定位很明确：
 
-## 已验证的真实 demo
+- 它走的是完整的真实闭环，不是单独的评测旁路。
+- 它的训练输入来自真实 `tatsu-lab/alpaca_eval`。
+- 它的中间会经过真实 `import_dataset`、`dedup`、`sample` 算子。
+- 它会调用真实 `LLaMA-Factory` 跑 LoRA SFT。
+- 它最终会在真实 `google/IFEval` 样本上做评测，并产出 DataOS 标准 artifact。
 
-### 这套 demo 覆盖了什么
+仓库里和 “Alpaca 训练 + IFEval 评测” 对应的任务模板是 `dataos/templates/alpaca_ifeval_v1.json`。`scripts/run_real_pipeline_demo.py` 现在就是沿着这个方向整理出来的默认入口：它更适合展示 DataOS 当前固定 runtime 的完整主链路，而不只是单独验证评测栈。
 
-`scripts/run_real_pipeline_demo.py` 会按顺序执行：
+如果你只想快速验证 IFEval 评测栈，而不想先跑训练，可以再看：
 
-1. 构造一个小型 Hugging Face `DatasetDict`。
-2. 运行真实 `dedup` 算子。
-3. 运行真实 `sample` 算子。
-4. 运行真实 `LLaMA-Factory` LoRA 训练。
-5. 运行真实 `native + transformers` 评测。
-6. 输出真实 artifact、训练日志和评测结果。
+- `scripts/run_ifeval_baseline.py`
 
-它没有走 `stub` 训练，也没有走 `stub` 评测。
+## 已验证的运行方式
+
+### 默认 demo 覆盖了什么
+
+`scripts/run_real_pipeline_demo.py` 会完成下面这条真实链路：
+
+1. 读取真实 `tatsu-lab/alpaca_eval` 原始 JSON。
+2. 规范化成可训练的 Hugging Face `DatasetDict(train/validation)`。
+3. 通过 `import_dataset`、`dedup`、`sample` 做真实处理。
+4. 调用 `run_train_stage()` 和 `LLaMA-Factory` 跑真实 LoRA SFT。
+5. 读取真实 IFEval 行并构造成评测数据集。
+6. 通过 `native` provider 和 `transformers` adapter 执行真实推理与真实打分。
+7. 产出真实模型 artifact、样本 artifact、`EvalArtifact` 和 `real_demo_summary.json`。
+
+它不是 stub，也不是只跑评测的旁路 demo，而是完整的训练加评测闭环。
 
 ### 我实际验证通过的环境
 
@@ -59,11 +71,11 @@ DataOS 是一个面向监督微调（SFT）场景的本地优先数据系统。�
 - CUDA 12.8 驱动
 - 本地缓存模型：`Qwen/Qwen2.5-0.5B`
 
+额外说明：我在这台机器上实际跑这个脚本时，把环境里的 `transformers` 固定到了 `4.57.1`。较旧版本缺少 `Qwen2Tokenizer`，而更高版本又可能和当前 `LLaMA-Factory` 训练链路不兼容，所以 `4.57.1` 是当前这套 demo 更稳妥的交集版本。
+
 ### 我实际跑通的命令
 
-下面这组命令是我在本机真实跑通的命令。它会生成一个完整 workspace，并在其中留下：输入数据、去重后数据、采样后数据、LoRA adapter、训练日志、评测 artifact 和 summary。
-
-我验证时使用的是本地 Hugging Face 缓存中的 `Qwen/Qwen2.5-0.5B` snapshot；下面改写成通用占位路径，避免把机器上的绝对路径写进仓库。
+下面这组命令是我在服务器上真实跑通的命令。为了让命令不依赖私有路径，我把需要的真实源数据都写成了通用文件输入形式。
 
 ```bash
 REPO_ROOT=/path/to/DataOS
@@ -71,50 +83,87 @@ cd "$REPO_ROOT"
 
 uv sync --extra dev --extra train --extra eval
 source .venv/bin/activate
-uv pip install --python .venv/bin/python \
-  --index-url https://download.pytorch.org/whl/cu128 \
-  --upgrade --force-reinstall torch torchvision torchaudio
+uv pip install --python .venv/bin/python --upgrade 'transformers>=4.51.0,<=4.57.1'
+uv pip install --python .venv/bin/python --upgrade 'peft>=0.14.0,<=0.17.1'
 
 BASE_MODEL=/absolute/path/to/your/local/Qwen2.5-0.5B-snapshot
 
+python3 - <<'PY'
+import json
+import pathlib
+import urllib.request
+
+out = pathlib.Path('/tmp/dataos-real-demo-inputs')
+out.mkdir(parents=True, exist_ok=True)
+
+with urllib.request.urlopen(
+    'https://huggingface.co/datasets/tatsu-lab/alpaca_eval/resolve/main/alpaca_eval.json?download=true',
+    timeout=60,
+) as resp:
+    alpaca = json.load(resp)
+
+with urllib.request.urlopen(
+    'https://datasets-server.huggingface.co/rows?dataset=google%2FIFEval&config=default&split=train&offset=0&length=8',
+    timeout=30,
+) as resp:
+    ifeval_rows = [item['row'] for item in json.load(resp)['rows']]
+
+(out / 'alpaca_eval.json').write_text(json.dumps(alpaca, ensure_ascii=False), encoding='utf-8')
+(out / 'ifeval_rows.json').write_text(json.dumps(ifeval_rows, ensure_ascii=False, indent=2), encoding='utf-8')
+print(out)
+PY
+
 python scripts/run_real_pipeline_demo.py \
-  --workspace /tmp/dataos-real-demo \
+  --workspace /tmp/dataos-real-alpaca-ifeval \
   --base-model "$BASE_MODEL" \
+  --alpaca-eval-json /tmp/dataos-real-demo-inputs/alpaca_eval.json \
+  --ifeval-json /tmp/dataos-real-demo-inputs/ifeval_rows.json \
+  --max-train-samples 8 \
+  --max-validation-samples 4 \
+  --max-eval-samples 4 \
   --overwrite
 ```
 
-### 我本地实跑得到的结果
+### 我这次实跑得到的结果
 
-这次实跑成功完成了真实训练和真实评测，关键结果包括：
+这次实跑已经成功完成，脚本正常输出了真实模型 artifact 和真实 `EvalArtifact`。关键结果是：
 
-- 训练前 `train` split 有 5 条样本，其中 1 条重复。
-- `dedup` 后 `train` split 变为 4 条。
-- `sample` 后仍保留 `train=4`、`test=2`。
-- `train_llamafactory` 产出了真实 LoRA adapter 目录。
-- `eval_model` 在 `test` split 上完成了真实推理和打分。
-- 这次 demo 的 `gsm8k exact_match` 结果为 `1.0`（2/2）。
+- `alpaca_eval_row_count = 805`
+- 导入后数据量：`train = 724`，`validation = 81`
+- 采样后数据量：`train = 8`，`validation = 4`
+- 评测任务：`ifeval`
+- 评测 provider：`native`
+- adapter：`transformers`
+- 样本数：`4`
+- `prompt_strict_accuracy = 0.25`
+- `instruction_strict_accuracy = 0.14285714285714285`
+- summary：`/tmp/dataos-real-alpaca-ifeval/real_demo_summary.json`
 
-输出 summary 会写到：
+这里的分数高低不重要，重要的是：真实输入、真实算子、真实训练、真实推理、真实打分和 artifact 落盘这条链路已经跑通了。
 
-```bash
-/tmp/dataos-real-demo/real_demo_summary.json
-```
+## 其他 demo 的定位
 
-训练日志会写到 summary 里的 `train_log` 对应路径。
+仓库里现有的其他 demo / 校验脚本可以继续保留做内部验证，但中文 README 后续默认把 `scripts/run_real_pipeline_demo.py` 当作对外 demo 入口。
 
-## 关于 `run_task()` 和 agent 版完整闭环
+其中 `scripts/run_ifeval_baseline.py` 现在更适合作为轻量评测 demo：
 
-仓库的 `run_task()` 还会包含：
+- 它不跑训练
+- 它直接评测本地基础模型
+- 它更适合单独验证 IFEval 评测链路是否正常
 
-- `LLMPlanningAgent.plan()`
-- `LLMPlanningAgent.review()`
+如果你要看默认完整链路的拆解说明，可以直接读：
 
-也就是说，如果你想跑“LLM 自动规划数据算子 + 固定 runtime 训练评测”的完整 agent 闭环，还需要一个可用的 JSON LLM 客户端，例如：
+- `docs/real_demo_alpaca_ifeval.md`
 
-- 仓库当前默认支持的 OpenAI-compatible endpoint
-- 或你自己传入的自定义 `LLMClient`
+如果你要看更完整的 task template 背景，可以再读：
 
-本 README 里给出的已验证 demo，故意聚焦在**本仓库当前最稳定、最容易本地复现、并且不依赖私有 API 凭证** 的真实 runtime 主链路上。
+- `dataos/templates/alpaca_ifeval_v1.json`
+
+如果你要理解 `run_task()` 的固定 runtime 主线，可以再读：
+
+- `dataos/runtime/runner.py`
+- `dataos/train/llamafactory.py`
+- `dataos/eval/runner.py`
 
 ## 建议阅读顺序
 
@@ -122,10 +171,12 @@ python scripts/run_real_pipeline_demo.py \
 
 1. `README.md`
 2. `README.zh-CN.md`
-3. `dataos/runtime/runner.py`
-4. `dataos/train/llamafactory.py`
-5. `dataos/eval/runner.py`
-6. `dataos/operators/`
-7. `dataos/research/`
+3. `scripts/run_real_pipeline_demo.py`
+4. `docs/real_demo_alpaca_ifeval.md`
+5. `dataos/templates/alpaca_ifeval_v1.json`
+6. `dataos/runtime/runner.py`
+7. `dataos/train/llamafactory.py`
+8. `dataos/eval/runner.py`
+9. `dataos/research/`
 
-这样会比较容易先抓住 runtime 主线，再理解 agent 和 research orchestration 层。
+这样会比较容易先抓住当前默认完整 demo，再往下理解 runtime 和 research orchestration。
