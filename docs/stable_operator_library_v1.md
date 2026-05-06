@@ -1,152 +1,152 @@
-# Stable Operator Library V1
+# 稳定算子库 V1
 
-This document describes the first hand-written stable operator batch under `dataos/operators/`.
-It is the operator-engineer-facing companion to `docs/dataos_overview.md`.
+这份文档描述了 `dataos/operators/` 下第一批手写的稳定算子。
+它是面向算子工程师的配套说明，可与 `docs/dataos_overview.md` 对照阅读。
 
-## Design Position
+## 设计立场
 
-These operators are intentionally **not** a direct copy of DataJuicer or DataFlow.
-They are DataOS-native in three ways:
+这些算子刻意**不是**对 DataJuicer 或 DataFlow 的直接照搬。
+它们体现 DataOS 的原生取向，主要有三点：
 
-1. They are **artifact-first**: every operator consumes `DatasetArtifact` and emits a fresh `DatasetArtifact` with lineage.
-2. They are **split-aware**: `DatasetDict` is the default mental model, not an afterthought.
-3. They are **research-loop-oriented**: metadata, logs, and deterministic behavior matter as much as the transform itself.
+1. 它们是 **artifact-first** 的：每个算子都消费 `DatasetArtifact`，并产出一个带 lineage 的全新 `DatasetArtifact`。
+2. 它们是 **split-aware** 的：`DatasetDict` 是默认心智模型，而不是事后补上的兼容层。
+3. 它们是 **research-loop-oriented** 的：元数据、日志和确定性行为，与具体变换本身同样重要。
 
-The goal is not to ship the biggest operator zoo. The goal is to ship a compact, auditable, reproducible operator set that works well inside DataOS' daemon-style research loop.
+我们的目标不是堆出一个最大的算子动物园，而是提供一套紧凑、可审计、可复现、能够稳定嵌入 DataOS 守护进程式研究闭环中的算子集合。
 
-## Families
+## 算子家族
 
-### 1. Repair / Governance
+### 1. 修复 / 治理
 
-| Operator | Purpose | DataOS-specific trait |
+| 算子 | 作用 | DataOS 特性 |
 |---|---|---|
-| `schema_guard` | Normalize heterogeneous SFT rows into canonical `instruction/input/response` fields. | Treats schema repair as a first-class stable operator instead of hidden pre-processing glue. |
-| `pii_redact` | Redact obvious emails / phones / URLs from text columns. | Preserves dataset shape and logs redaction counts into artifact metadata for later audit. |
+| `schema_guard` | 把结构不统一的 SFT 样本规整为标准的 `instruction/input/response` 字段。 | 把 schema 修复视为稳定算子的一等能力，而不是隐藏在预处理胶水代码里的临时逻辑。 |
+| `pii_redact` | 从文本列里脱敏明显的邮箱 / 电话 / URL。 | 保持数据集整体形状不变，并把脱敏计数写进 artifact 元数据，方便后续审计。 |
 
-### 2. Cheap Filters
+### 2. 低成本过滤
 
-| Operator | Purpose | DataOS-specific trait |
+| 算子 | 作用 | DataOS 特性 |
 |---|---|---|
-| `length_filter` | Drop rows outside a simple length band. | Supports total-length and per-column thresholds while staying HF-dataset-native. |
-| `lang_filter` | Keep only rows whose dominant script matches allowed labels such as `en`, `zh`, or `mixed`. | Uses a lightweight split-aware script heuristic instead of depending on an external service. |
-| `quality_filter` | Remove weak instruction-response pairs via heuristic scoring or optional LLM judging. | Keeps an explicit `quality_judgments.jsonl` audit trail beside the artifact. |
+| `length_filter` | 丢弃长度超出简单阈值范围的样本。 | 同时支持总长度阈值和按列阈值，并保持 Hugging Face dataset 原生工作方式。 |
+| `lang_filter` | 只保留主导书写系统属于 `en`、`zh`、`mixed` 等允许标签的样本。 | 采用轻量、split-aware 的脚本启发式，而不是依赖外部语言服务。 |
+| `quality_filter` | 通过启发式打分或可选的 LLM 评审，移除较弱的 instruction-response 对。 | 在 artifact 旁显式落盘 `quality_judgments.jsonl` 审计轨迹。 |
 
-### 3. Annotation / Balancing / Ordering
+### 3. 标注 / 均衡 / 排序
 
-| Operator | Purpose | DataOS-specific trait |
+| 算子 | 作用 | DataOS 特性 |
 |---|---|---|
-| `category_tag` | Assign coarse task-surface labels such as `translation`, `math`, `code`, `writing`. | Designed to create control signals for later balancing and analysis operators. |
-| `category_balance` | Rebalance a split by category using deterministic downsample / upsample strategies. | Interleaves categories after balancing so the resulting split is not blocky. |
-| `curriculum_sort` | Order rows from easy-to-hard or hard-to-easy using a simple surface complexity proxy. | Emits an explicit curriculum score column that downstream analysis can inspect. |
+| `category_tag` | 打上粗粒度任务表面标签，例如 `translation`、`math`、`code`、`writing`。 | 设计目标是为后续均衡与分析算子提供可控信号。 |
+| `category_balance` | 按类别对某个 split 做确定性的下采样 / 上采样平衡。 | 平衡完成后会重新交错类别，避免结果 split 呈现明显分块。 |
+| `curriculum_sort` | 按简单表面复杂度代理分数，把样本从易到难或从难到易排序。 | 会显式写出 curriculum score 列，方便下游分析检查。 |
 
-### 4. Data Construction / Mixing
+### 4. 数据构造 / 混合
 
-| Operator | Purpose | DataOS-specific trait |
+| 算子 | 作用 | DataOS 特性 |
 |---|---|---|
-| `instruction_synthesis_template` | Create deterministic instruction rewrites while preserving the gold response. | Adds provenance columns such as `dataos_synth_template` and `dataos_synth_source_index`. |
-| `mixture` | Build a training mixture from multiple upstream dataset artifacts. | Operates on artifact ids directly and writes source provenance into every mixed row. |
+| `instruction_synthesis_template` | 在保留 gold response 的前提下，生成确定性的 instruction 改写版本。 | 追加 `dataos_synth_template`、`dataos_synth_source_index` 等 provenance 列。 |
+| `mixture` | 从多个上游数据集 artifact 中构建训练混合数据。 | 直接基于 artifact id 工作，并把来源 provenance 写进每一条混合样本。 |
 
-## Operator Summary
+## 算子概要
 
 ### `schema_guard`
 
-- Normalizes common aliases like `prompt -> instruction` and `output -> response`.
-- Optional strict mode can fail fast instead of silently repairing.
-- Best used near the front of a pipeline when data sources are heterogeneous.
+- 规范化常见别名，比如 `prompt -> instruction`、`output -> response`。
+- 可选的 strict 模式可以在发现问题时快速失败，而不是静默修复。
+- 最适合放在 pipeline 前段，用来处理异构数据源。
 
 ### `pii_redact`
 
-- Supports email, phone, and URL redaction.
-- Can either mask PII in-place or drop rows containing PII.
-- Useful before synthesis, export, or external judging.
+- 支持邮箱、电话和 URL 脱敏。
+- 既可以原位遮蔽 PII，也可以直接丢弃含 PII 的样本。
+- 适合放在数据合成、导出或外部评审之前。
 
 ### `length_filter`
 
-- Supports `words` or `chars` units.
-- Can enforce total-length bounds and per-column bounds.
-- Useful for trimming pathological long-tail data before training or judging.
+- 支持 `words` 或 `chars` 两种计量单位。
+- 可以同时限制总长度和按列长度。
+- 适合在训练或评审前裁掉异常长尾样本。
 
 ### `lang_filter`
 
-- Supports `allowed_languages=[...]`, e.g. `['en']`, `['zh']`, `['mixed']`.
-- Optional annotation mode can attach the detected label to a column.
-- Intended as a cheap routing filter, not a benchmark-grade language detector.
+- 支持 `allowed_languages=[...]`，例如 `['en']`、`['zh']`、`['mixed']`。
+- 可选 annotation 模式可以把检测到的标签写回某一列。
+- 它的定位是廉价路由过滤器，不是基准级语言识别器。
 
 ### `quality_filter`
 
-- `mode='heuristic'`: fully local, deterministic quality scoring.
-- `mode='llm_judge'`: calls an OpenAI-compatible `/chat/completions` endpoint with JSON output.
-- In LLM mode, use standard arguments such as `base_url`, `api_key`, and `model`.
+- `mode='heuristic'`：完全本地、确定性的质量打分。
+- `mode='llm_judge'`：调用 OpenAI-compatible `/chat/completions` 接口，并要求 JSON 输出。
+- 在 LLM 模式下，使用标准参数，如 `base_url`、`api_key`、`model`。
 
 ### `category_tag`
 
-- Uses a simple task-surface preset instead of heavyweight semantic classification.
-- Creates a low-cost structural signal that other operators can consume.
-- Especially useful before `category_balance`.
+- 采用简单的任务表面预设，而不是重量级语义分类器。
+- 它提供的是低成本结构信号，供其他算子消费。
+- 尤其适合放在 `category_balance` 之前。
 
 ### `category_balance`
 
-- Supports `downsample_to_min`, `cap`, and `upsample_to_max`.
-- Balances one split at a time, typically `train`.
-- Keeps other splits untouched.
+- 支持 `downsample_to_min`、`cap` 和 `upsample_to_max`。
+- 一次只平衡一个 split，通常是 `train`。
+- 其他 split 保持不动。
 
 ### `curriculum_sort`
 
-- Computes a simple surface complexity proxy from prompt/response length, formatting, and code markers.
-- Designed for deterministic curriculum experiments rather than perfect difficulty estimation.
-- Writes the resulting score into a configurable column.
+- 依据 prompt/response 长度、格式特征、代码标记等信息计算一个简单的表面复杂度代理分数。
+- 它面向的是确定性 curriculum 实验，而不是追求完美难度估计。
+- 结果分数会写入一个可配置列。
 
 ### `mixture`
 
-- Mixes multiple parent artifacts by artifact id.
-- Adds `dataos_source_artifact` provenance to every mixed row.
-- Keeps the operator small and deterministic instead of turning it into a generic recipe language.
+- 基于 artifact id 混合多个父级 artifact。
+- 每一条混合样本都会写入 `dataos_source_artifact` provenance。
+- 它刻意保持小而确定，不把自己扩展成一个泛化 recipe 语言。
 
 ### `instruction_synthesis_template`
 
-- Generates small, deterministic instruction variants from a seed training split.
-- The first version deliberately avoids hidden LLM costs.
-- Intended as a cheap baseline against which future `self_instruct_lite` or candidate operators can be compared.
+- 从种子训练 split 中生成小规模、确定性的 instruction 变体。
+- 第一版刻意避免隐藏的 LLM 成本。
+- 它适合作为廉价基线，与未来的 `self_instruct_lite` 或候选算子进行对照。
 
-## Why this is different from DataJuicer / DataFlow
+## 为什么它和 DataJuicer / DataFlow 不一样
 
-### Compared with DataJuicer
+### 相比 DataJuicer
 
-- DataJuicer emphasizes a broad, reusable operator zoo across many data-engineering scenarios.
-- DataOS stable operators are narrower and more opinionated: they optimize for SFT research loops, artifact lineage, and split-aware experimentation.
-- DataOS operators record compact but explicit run metadata because the downstream consumer is not only the transformed data, but also the analyzer / critic / report loop.
+- DataJuicer 更强调覆盖广泛数据工程场景的通用算子动物园。
+- DataOS 的稳定算子更窄、更有观点：它们优先优化 SFT 研究闭环、artifact lineage，以及 split-aware 实验。
+- DataOS 算子会显式记录紧凑但足够明确的运行元数据，因为下游消费者不只是变换后的数据本身，还包括 analyzer / critic / report 闭环。
 
-### Compared with DataFlow
+### 相比 DataFlow
 
-- DataFlow-style recipes often treat data steps as workflow nodes in a broader pipeline system.
-- DataOS stable operators are deliberately smaller-grain and plug directly into the `run_task()` operator-plan stage.
-- The key abstraction in DataOS is the typed artifact chain, not a generic DAG DSL.
+- DataFlow 风格的 recipe 往往把数据步骤视为更大 pipeline 系统里的工作流节点。
+- DataOS 的稳定算子刻意做得更小粒度，并直接接入 `run_task()` 的算子规划阶段。
+- 在 DataOS 里，关键抽象是 typed artifact chain，而不是通用 DAG DSL。
 
-## Suggested Pipeline Motifs
+## 推荐的 pipeline 模式
 
-### Minimal cleanup motif
+### 最小清洗模式
 
 1. `schema_guard`
 2. `pii_redact`
 3. `lang_filter`
 4. `quality_filter`
 
-### Category-aware motif
+### 类别感知模式
 
 1. `schema_guard`
 2. `category_tag`
 3. `category_balance`
 4. `curriculum_sort`
 
-### Cheap augmentation motif
+### 低成本增强模式
 
 1. `schema_guard`
 2. `quality_filter`
 3. `instruction_synthesis_template`
 4. `mixture`
 
-## Notes for future work
+## 后续工作说明
 
-- A future `self_instruct_lite` can be added on top of the same artifact contract, but should stay explicit about model cost and provenance.
-- A future `quality_filter` judge pool can batch OpenAI-compatible requests more aggressively once the research daemon starts managing token backpressure.
-- Candidate operators should remain separate from this stable library until validated and promoted.
+- 未来可以在同一套 artifact contract 之上增加 `self_instruct_lite`，但必须明确写清模型成本和 provenance。
+- 未来 `quality_filter` 的 judge pool 可以在研究守护进程开始管理 token backpressure 之后，更积极地做 OpenAI-compatible 请求批处理。
+- 候选算子在被验证并晋升之前，应继续与这套稳定算子库分开管理。
