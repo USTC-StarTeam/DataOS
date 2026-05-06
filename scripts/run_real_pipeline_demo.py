@@ -1,3 +1,9 @@
+"""Deprecated as the default documented demo.
+
+README.zh-CN.md now treats scripts/run_ifeval_baseline.py as the default demo
+entrypoint on the zxy branch. This script is kept for ad hoc runtime checks.
+"""
+
 from __future__ import annotations
 
 import argparse
