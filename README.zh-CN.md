@@ -31,35 +31,37 @@ DataOS 是一个面向监督微调（SFT）场景的本地优先数据系统。�
 
 从现在开始，中文 README 里默认推荐的 demo 脚本统一是：
 
-- `scripts/run_ifeval_baseline.py`
+- `scripts/run_real_pipeline_demo.py`
 
 这个脚本的定位很明确：
 
-- 它不改模型代码，直接对一个本地模型跑 IFEval baseline。
-- 它的输入是一个 Hugging Face `save_to_disk` 格式的 IFEval 数据目录。
-- 它的输出是 DataOS 标准的 `EvalArtifact` 和样本结果 artifact。
-- 它不依赖 `run_task()` 的 plan/review LLM，也不需要你先把完整 research orchestration 跑起来。
+- 它走的是完整的真实闭环，不是单独的评测旁路。
+- 它的训练输入来自真实 `tatsu-lab/alpaca_eval`。
+- 它的中间会经过真实 `import_dataset`、`dedup`、`sample` 算子。
+- 它会调用真实 `LLaMA-Factory` 跑 LoRA SFT。
+- 它最终会在真实 `google/IFEval` 样本上做评测，并产出 DataOS 标准 artifact。
 
-仓库里和 “Alpaca 训练 + IFEval 评测” 对应的任务模板是 `dataos/templates/alpaca_ifeval_v1.json`。那个模板描述的是同一个主题方向：训练侧用 Alpaca 风格数据，评测侧用 IFEval。当前这份 README 选择把 `scripts/run_ifeval_baseline.py` 作为默认 demo，是因为它更稳定、更直接，也更容易先把评测链路跑通。
+仓库里和 “Alpaca 训练 + IFEval 评测” 对应的任务模板是 `dataos/templates/alpaca_ifeval_v1.json`。`scripts/run_real_pipeline_demo.py` 现在就是沿着这个方向整理出来的默认入口：它更适合展示 DataOS 当前固定 runtime 的完整主链路，而不只是单独验证评测栈。
 
-如果你需要一条“真实输入数据 -> 真实处理算子 -> 真实训练 -> 真实评测”的完整闭环，可以看：
+如果你只想快速验证 IFEval 评测栈，而不想先跑训练，可以再看：
 
-- `scripts/run_real_pipeline_demo.py`
-- `docs/real_demo_alpaca_ifeval.md`
+- `scripts/run_ifeval_baseline.py`
 
 ## 已验证的运行方式
 
-### 这套 demo 覆盖了什么
+### 默认 demo 覆盖了什么
 
-`scripts/run_ifeval_baseline.py` 会完成下面这条真实链路：
+`scripts/run_real_pipeline_demo.py` 会完成下面这条真实链路：
 
-1. 读取一个 IFEval 格式的 Hugging Face `Dataset` / `DatasetDict` 目录。
-2. 构造一个指向本地基础模型的 `ModelArtifact`。
-3. 调用 `run_eval_stage()`。
-4. 通过 `native` provider 和 `transformers` adapter 执行真实推理。
-5. 产出真实 `EvalArtifact` 和样本结果 artifact。
+1. 读取真实 `tatsu-lab/alpaca_eval` 原始 JSON。
+2. 规范化成可训练的 Hugging Face `DatasetDict(train/validation)`。
+3. 通过 `import_dataset`、`dedup`、`sample` 做真实处理。
+4. 调用 `run_train_stage()` 和 `LLaMA-Factory` 跑真实 LoRA SFT。
+5. 读取真实 IFEval 行并构造成评测数据集。
+6. 通过 `native` provider 和 `transformers` adapter 执行真实推理与真实打分。
+7. 产出真实模型 artifact、样本 artifact、`EvalArtifact` 和 `real_demo_summary.json`。
 
-它是一个真实评测 demo，不是 stub 评测。
+它不是 stub，也不是只跑评测的旁路 demo，而是完整的训练加评测闭环。
 
 ### 我实际验证通过的环境
 
@@ -73,7 +75,7 @@ DataOS 是一个面向监督微调（SFT）场景的本地优先数据系统。�
 
 ### 我实际跑通的命令
 
-下面这组命令是我在服务器上真实跑通的命令。为了让命令不依赖私有数据路径，我先用一个极小的 IFEval 格式样例数据集生成了本地 `save_to_disk` 目录，再把它喂给 `scripts/run_ifeval_baseline.py`。
+下面这组命令是我在服务器上真实跑通的命令。为了让命令不依赖私有路径，我把需要的真实源数据都写成了通用文件输入形式。
 
 ```bash
 REPO_ROOT=/path/to/DataOS
@@ -82,78 +84,76 @@ cd "$REPO_ROOT"
 uv sync --extra dev --extra train --extra eval
 source .venv/bin/activate
 uv pip install --python .venv/bin/python --upgrade 'transformers>=4.51.0,<=4.57.1'
-
-python - <<'PY'
-from pathlib import Path
-from datasets import Dataset, DatasetDict
-import shutil
-
-rows = {
-    "key": ["sample-1", "sample-2"],
-    "prompt": [
-        "Write a one-paragraph note ending with the phrase Have a great day.",
-        "Reply in lowercase only and avoid the word secret.",
-    ],
-    "instruction_id_list": [
-        ["startend:end_checker", "length_constraints:number_words"],
-        ["change_case:english_lowercase", "keywords:forbidden_words"],
-    ],
-    "kwargs": [
-        [
-            {"end_phrase": "Have a great day."},
-            {"relation": "at least", "num_words": 5},
-        ],
-        [
-            {},
-            {"forbidden_words": ["secret"]},
-        ],
-    ],
-}
-
-path = Path('/tmp/dataos-ifeval-mini')
-if path.exists():
-    shutil.rmtree(path)
-DatasetDict({"train": Dataset.from_dict(rows)}).save_to_disk(str(path))
-print(path)
-PY
+uv pip install --python .venv/bin/python --upgrade 'peft>=0.14.0,<=0.17.1'
 
 BASE_MODEL=/absolute/path/to/your/local/Qwen2.5-0.5B-snapshot
 
-python scripts/run_ifeval_baseline.py \
-  --workspace /tmp/dataos-ifeval-baseline \
-  --dataset /tmp/dataos-ifeval-mini \
-  --model "$BASE_MODEL" \
-  --max-samples 2 \
-  --batch-size 1 \
-  --max-new-tokens 128
+python3 - <<'PY'
+import json
+import pathlib
+import urllib.request
+
+out = pathlib.Path('/tmp/dataos-real-demo-inputs')
+out.mkdir(parents=True, exist_ok=True)
+
+with urllib.request.urlopen(
+    'https://huggingface.co/datasets/tatsu-lab/alpaca_eval/resolve/main/alpaca_eval.json?download=true',
+    timeout=60,
+) as resp:
+    alpaca = json.load(resp)
+
+with urllib.request.urlopen(
+    'https://datasets-server.huggingface.co/rows?dataset=google%2FIFEval&config=default&split=train&offset=0&length=8',
+    timeout=30,
+) as resp:
+    ifeval_rows = [item['row'] for item in json.load(resp)['rows']]
+
+(out / 'alpaca_eval.json').write_text(json.dumps(alpaca, ensure_ascii=False), encoding='utf-8')
+(out / 'ifeval_rows.json').write_text(json.dumps(ifeval_rows, ensure_ascii=False, indent=2), encoding='utf-8')
+print(out)
+PY
+
+python scripts/run_real_pipeline_demo.py \
+  --workspace /tmp/dataos-real-alpaca-ifeval \
+  --base-model "$BASE_MODEL" \
+  --alpaca-eval-json /tmp/dataos-real-demo-inputs/alpaca_eval.json \
+  --ifeval-json /tmp/dataos-real-demo-inputs/ifeval_rows.json \
+  --max-train-samples 8 \
+  --max-validation-samples 4 \
+  --max-eval-samples 4 \
+  --overwrite
 ```
 
 ### 我这次实跑得到的结果
 
-这次实跑已经成功完成，脚本正常输出了真实 `EvalArtifact`。关键结果是：
+这次实跑已经成功完成，脚本正常输出了真实模型 artifact 和真实 `EvalArtifact`。关键结果是：
 
+- `alpaca_eval_row_count = 805`
+- 导入后数据量：`train = 724`，`validation = 81`
+- 采样后数据量：`train = 8`，`validation = 4`
 - 评测任务：`ifeval`
 - 评测 provider：`native`
 - adapter：`transformers`
-- 样本数：`2`
-- `prompt_strict_accuracy = 0.0`
-- `instruction_strict_accuracy = 0.25`
-- 输出目录：`/tmp/dataos-ifeval-baseline/sandbox/artifacts/evals/...`
+- 样本数：`4`
+- `prompt_strict_accuracy = 0.25`
+- `instruction_strict_accuracy = 0.14285714285714285`
+- summary：`/tmp/dataos-real-alpaca-ifeval/real_demo_summary.json`
 
-这里的分数高低不重要，重要的是：脚本本身、模型加载、IFEval 请求构建、真实推理、打分和 artifact 落盘这条链路已经跑通了。
+这里的分数高低不重要，重要的是：真实输入、真实算子、真实训练、真实推理、真实打分和 artifact 落盘这条链路已经跑通了。
 
 ## 其他 demo 的定位
 
-仓库里现有的其他 demo / 校验脚本可以继续保留做内部验证，但中文 README 后续默认只把 `scripts/run_ifeval_baseline.py` 当作对外 demo 入口。
+仓库里现有的其他 demo / 校验脚本可以继续保留做内部验证，但中文 README 后续默认把 `scripts/run_real_pipeline_demo.py` 当作对外 demo 入口。
 
-其中 `scripts/run_real_pipeline_demo.py` 现在已经改成了完整的真实链路 demo：
+其中 `scripts/run_ifeval_baseline.py` 现在更适合作为轻量评测 demo：
 
-- 训练输入来自真实 `tatsu-lab/alpaca_eval`
-- 数据处理中间会经过真实 `import_dataset`、`dedup`、`sample`
-- 训练阶段走真实 `LLaMA-Factory` LoRA SFT
-- 评测阶段走真实 `google/IFEval`
+- 它不跑训练
+- 它直接评测本地基础模型
+- 它更适合单独验证 IFEval 评测链路是否正常
 
-它更适合做“整个 DataOS 固定 runtime 主链路是否真的跑通”的验证。
+如果你要看默认完整链路的拆解说明，可以直接读：
+
+- `docs/real_demo_alpaca_ifeval.md`
 
 如果你要看更完整的 task template 背景，可以再读：
 
@@ -171,11 +171,12 @@ python scripts/run_ifeval_baseline.py \
 
 1. `README.md`
 2. `README.zh-CN.md`
-3. `scripts/run_ifeval_baseline.py`
-4. `dataos/templates/alpaca_ifeval_v1.json`
-5. `dataos/runtime/runner.py`
-6. `dataos/train/llamafactory.py`
-7. `dataos/eval/runner.py`
-8. `dataos/research/`
+3. `scripts/run_real_pipeline_demo.py`
+4. `docs/real_demo_alpaca_ifeval.md`
+5. `dataos/templates/alpaca_ifeval_v1.json`
+6. `dataos/runtime/runner.py`
+7. `dataos/train/llamafactory.py`
+8. `dataos/eval/runner.py`
+9. `dataos/research/`
 
-这样会比较容易先抓住当前默认 demo，再往下理解 runtime 和 research orchestration。
+这样会比较容易先抓住当前默认完整 demo，再往下理解 runtime 和 research orchestration。
