@@ -42,6 +42,11 @@ DataOS 是一个面向监督微调（SFT）场景的本地优先数据系统。�
 
 仓库里和 “Alpaca 训练 + IFEval 评测” 对应的任务模板是 `dataos/templates/alpaca_ifeval_v1.json`。那个模板描述的是同一个主题方向：训练侧用 Alpaca 风格数据，评测侧用 IFEval。当前这份 README 选择把 `scripts/run_ifeval_baseline.py` 作为默认 demo，是因为它更稳定、更直接，也更容易先把评测链路跑通。
 
+如果你需要一条“真实输入数据 -> 真实处理算子 -> 真实训练 -> 真实评测”的完整闭环，可以看：
+
+- `scripts/run_real_pipeline_demo.py`
+- `docs/real_demo_alpaca_ifeval.md`
+
 ## 已验证的运行方式
 
 ### 这套 demo 覆盖了什么
@@ -64,7 +69,7 @@ DataOS 是一个面向监督微调（SFT）场景的本地优先数据系统。�
 - CUDA 12.8 驱动
 - 本地缓存模型：`Qwen/Qwen2.5-0.5B`
 
-额外说明：我在这台机器上实际跑这个脚本时，把环境里的 `transformers` 升级到了 `4.57.x`，因为较旧版本缺少 `Qwen2Tokenizer`，会导致本地 Qwen 2.5 快照无法被脚本加载。
+额外说明：我在这台机器上实际跑这个脚本时，把环境里的 `transformers` 固定到了 `4.57.1`。较旧版本缺少 `Qwen2Tokenizer`，而更高版本又可能和当前 `LLaMA-Factory` 训练链路不兼容，所以 `4.57.1` 是当前这套 demo 更稳妥的交集版本。
 
 ### 我实际跑通的命令
 
@@ -76,7 +81,7 @@ cd "$REPO_ROOT"
 
 uv sync --extra dev --extra train --extra eval
 source .venv/bin/activate
-uv pip install --python .venv/bin/python --upgrade 'transformers>=4.45,<5'
+uv pip install --python .venv/bin/python --upgrade 'transformers>=4.51.0,<=4.57.1'
 
 python - <<'PY'
 from pathlib import Path
@@ -140,6 +145,15 @@ python scripts/run_ifeval_baseline.py \
 ## 其他 demo 的定位
 
 仓库里现有的其他 demo / 校验脚本可以继续保留做内部验证，但中文 README 后续默认只把 `scripts/run_ifeval_baseline.py` 当作对外 demo 入口。
+
+其中 `scripts/run_real_pipeline_demo.py` 现在已经改成了完整的真实链路 demo：
+
+- 训练输入来自真实 `tatsu-lab/alpaca_eval`
+- 数据处理中间会经过真实 `import_dataset`、`dedup`、`sample`
+- 训练阶段走真实 `LLaMA-Factory` LoRA SFT
+- 评测阶段走真实 `google/IFEval`
+
+它更适合做“整个 DataOS 固定 runtime 主链路是否真的跑通”的验证。
 
 如果你要看更完整的 task template 背景，可以再读：
 
