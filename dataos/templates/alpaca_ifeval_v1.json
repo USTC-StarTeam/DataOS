@@ -11,7 +11,7 @@
   },
   "budget": {"max_experiments": 1},
   "max_rounds": 1,
-  "pipeline_hint": ["dedup"],
+  "pipeline_hint": ["map_to_alpaca", "filter_exact_dedup", "evaluate_text_quality"],
   "train_config": {
     "mode": "llamafactory",
     "model_name_or_path": "/home/hcgu/data/hf-home/hub/models--Qwen--Qwen2.5-0.5B-Instruct/snapshots/main",

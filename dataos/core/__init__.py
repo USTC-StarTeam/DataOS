@@ -10,7 +10,7 @@ from dataos.core.artifact import (
     ResultArtifact,
 )
 from dataos.core.experiment import Experiment
-from dataos.core.operator import Operator
+from dataos.core.operator import Operator, OperatorParameter
 from dataos.core.registry import OperatorRegistry
 from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
@@ -26,6 +26,7 @@ __all__ = [
     "LocalArtifactStore",
     "ModelArtifact",
     "Operator",
+    "OperatorParameter",
     "OperatorRegistry",
     "PlanStep",
     "ResultArtifact",
