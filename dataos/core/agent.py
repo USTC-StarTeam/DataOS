@@ -30,6 +30,8 @@ class PlanStep:
 
 @dataclass(slots=True)
 class LLMPlanningAgent:
+    """Single-experiment planner and reviewer used by ``run_task``."""
+
     llm_client: LLMClient
     registry: OperatorRegistry
     max_steps: int = PLAN_MAX_STEPS

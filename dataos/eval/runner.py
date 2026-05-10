@@ -6,7 +6,8 @@
 DataOS adapter, and calls :func:`run_lm_eval`. The :class:`LmEvalRunOutput`
 is then packaged into one :class:`EvalArtifact` whose meta carries the
 per-task results, the headline score, and a budget-trimmed copy of the
-raw lm-eval payload.
+raw lm-eval payload. Legacy ``provider="stub"`` configs still emit a local
+stub eval artifact for smoke tests and dry runs.
 """
 
 from __future__ import annotations
@@ -31,13 +32,53 @@ def run_eval_stage(
 ) -> list[EvalArtifact]:
     """Run an lm-eval task suite and emit a single :class:`EvalArtifact`."""
     del experiment, _unused
-    config = EvalConfig(**task.eval_config)
+    eval_config = dict(task.eval_config)
     model = _latest_model_artifact(artifacts)
+    if eval_config.get("provider") == "stub":
+        artifact = _stub_eval_artifact(sandbox, model, eval_config)
+        sandbox.log(
+            "eval_model",
+            _build_stub_log_message(model, artifact, eval_config),
+        )
+        return [artifact]
+    config = EvalConfig(**eval_config)
     adapter = _make_adapter(config.adapter, config.adapter_config)
     output = _run_lm_eval(model, adapter, config)
     artifact = _eval_output_to_artifact(output, sandbox, model, config)
     sandbox.log("eval_model", _build_log_message(model, artifact, output, config))
     return [artifact]
+
+
+def _stub_eval_artifact(
+    sandbox: Sandbox,
+    model: ModelArtifact,
+    eval_config: dict[str, Any],
+) -> EvalArtifact:
+    provider_config = dict(eval_config.get("provider_config", {}))
+    score = float(provider_config.get("score", eval_config.get("score", 0.0)))
+    artifact_id = make_artifact_id("eval")
+    eval_dir = sandbox.artifact_dir("eval", artifact_id)
+    summary: dict[str, Any] = {
+        "backend": "stub",
+        "provider": "stub",
+        "score": score,
+        "headline_score": score,
+        "source_model_id": model.artifact_id,
+        "base_model": model.meta.get("base_model"),
+        "provider_config": provider_config,
+    }
+    (eval_dir / "results.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    return EvalArtifact(
+        artifact_id=artifact_id,
+        name=f"eval-{model.artifact_id}",
+        path=eval_dir,
+        parent_ids=[model.artifact_id],
+        producer="eval_model",
+        meta=summary,
+    )
 
 
 def _latest_model_artifact(artifacts: list[Artifact]) -> ModelArtifact:
@@ -173,4 +214,21 @@ def _build_log_message(
     ]
     if config.limit is not None:
         lines.append(f"limit={config.limit}")
+    return "\n".join(lines) + "\n"
+
+
+def _build_stub_log_message(
+    model: ModelArtifact,
+    artifact: EvalArtifact,
+    eval_config: dict[str, Any],
+) -> str:
+    score = artifact.meta.get("score")
+    lines = [
+        f"model={model.artifact_id}",
+        f"eval={artifact.artifact_id}",
+        "backend=stub",
+        f"score={score if score is not None else 'n/a'}",
+    ]
+    if eval_config.get("provider_config"):
+        lines.append(f"provider_config={json.dumps(eval_config['provider_config'], sort_keys=True)}")
     return "\n".join(lines) + "\n"

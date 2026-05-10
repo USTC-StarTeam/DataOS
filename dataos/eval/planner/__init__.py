@@ -1,8 +1,10 @@
-"""Natural-language planner for DataOS eval.
+"""Natural-language helper for DataOS eval.
 
 User-facing entry point: :func:`plan_eval` takes a free-form goal string and
 returns a ranked list of :class:`EvalPlanItem` objects keyed by lm-eval task
 name. :func:`execute_plan` then drives those items through the lm-eval bridge.
+This package is intentionally not a project agent and does not own persistent
+project state.
 """
 
 from dataos.eval.planner.gallery import Gallery, GalleryEntry, builtin_gallery
