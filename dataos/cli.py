@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
-from typing import Any
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -22,51 +20,23 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dataos")
     parser.set_defaults(func=lambda args: parser.print_help())
     subparsers = parser.add_subparsers(dest="command")
-    _add_data_commands(subparsers)
+    _add_operator_commands(subparsers)
     return parser
 
 
-def _add_data_commands(subparsers) -> None:
-    data = subparsers.add_parser("data", help="Materialize and inspect DataOS dataset artifacts")
-    data_sub = data.add_subparsers(dest="data_command")
+def _add_operator_commands(subparsers) -> None:
+    operators = subparsers.add_parser("operators", help="Inspect built-in DataOS operators")
+    operators_sub = operators.add_subparsers(dest="operators_command")
 
-    import_cmd = data_sub.add_parser("import", help="Run the import_dataset operator from a JSON spec")
-    _add_workspace_arg(import_cmd)
-    import_cmd.add_argument("--spec", required=True, help="Path to JSON spec or inline JSON object")
-    import_cmd.add_argument(
-        "--sandbox",
-        default=None,
-        help="Optional sandbox dir (defaults to <workspace>/data-import)",
-    )
-    import_cmd.set_defaults(func=_cmd_data_import)
+    list_cmd = operators_sub.add_parser("list", help="List operator categories, schemas, and defaults")
+    list_cmd.set_defaults(func=_cmd_operators_list)
 
 
-def _add_workspace_arg(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--workspace", default="workspace")
-
-
-def _cmd_data_import(args) -> dict[str, Any]:
-    from dataos.core.sandbox import Sandbox
+def _cmd_operators_list(args) -> list[dict[str, object]]:
+    del args
     from dataos.operators import build_default_registry
 
-    spec = _load_json_arg(args.spec)
-    sandbox_dir = Path(args.sandbox) if args.sandbox else Path(args.workspace) / "data-import"
-    sandbox = Sandbox(sandbox_dir)
-    sandbox.prepare()
-    operator = build_default_registry().get("import_dataset")
-    artifact = operator.run([], sandbox, **spec)
-    artifact.save_meta()
-    return artifact.summary()
-
-
-def _load_json_arg(value: str) -> dict[str, Any]:
-    path = Path(value)
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    loaded = json.loads(value)
-    if not isinstance(loaded, dict):
-        raise ValueError(f"Expected JSON object: {value}")
-    return loaded
+    return build_default_registry().describe_all()
 
 
 if __name__ == "__main__":  # pragma: no cover

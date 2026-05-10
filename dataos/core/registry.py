@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from dataos.core.operator import Operator
 
@@ -23,5 +24,5 @@ class OperatorRegistry:
     def list(self) -> list[Operator]:
         return [self._operators[name] for name in sorted(self._operators)]
 
-    def describe_all(self) -> list[dict[str, str]]:
+    def describe_all(self) -> list[dict[str, Any]]:
         return [operator.describe() for operator in self.list()]

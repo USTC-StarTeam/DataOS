@@ -14,6 +14,7 @@ PLAN_RULES = [
     "Do not ask to modify code, execute shell commands, or generate a new operator.",
     "Treat all datasets as Hugging Face datasets artifacts, never JSONL.",
     "Use dataset summaries based on hf_object_type, splits, num_rows, columns, and features.",
+    "Use only parameters that appear in the operator schema; fill required parameters and prefer defaults when the task does not constrain them.",
 ]
 
 REVIEW_RULES = [
@@ -32,7 +33,7 @@ def build_plan_system_prompt(max_steps: int = PLAN_MAX_STEPS) -> str:
         f"{joined_rules}\n"
         "Output schema:\n"
         '{\n'
-        '  "steps": [{"operator_name": "dedup", "params": {"keys": ["instruction"]}}],\n'
+        '  "steps": [{"operator_name": "filter_exact_dedup", "params": {"keys": ["instruction"]}}],\n'
         '  "reasoning_summary": "short string",\n'
         '  "expected_gain": "short string"\n'
         '}'
@@ -85,7 +86,7 @@ def build_review_user_prompt(
 
 def validate_plan_payload(
     payload: dict[str, Any],
-    operator_names: set[str],
+    operator_lookup: dict[str, Any],
     max_steps: int = PLAN_MAX_STEPS,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
@@ -102,12 +103,17 @@ def validate_plan_payload(
         if not isinstance(step, dict):
             raise ValueError("Each plan step must be an object")
         operator_name = step.get("operator_name")
-        if operator_name not in operator_names:
+        if operator_name not in operator_lookup:
             raise ValueError(f"Plan uses unregistered operator: {operator_name}")
         params = step.get("params", {})
         if not isinstance(params, dict):
             raise ValueError("Plan step params must be an object")
-        normalized_steps.append({"operator_name": operator_name, "params": params})
+        normalized_steps.append(
+            {
+                "operator_name": operator_name,
+                "params": operator_lookup[operator_name].normalize_params(params),
+            }
+        )
     return {
         "steps": normalized_steps,
         "reasoning_summary": str(payload["reasoning_summary"]),

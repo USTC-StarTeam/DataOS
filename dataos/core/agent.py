@@ -43,12 +43,12 @@ class LLMPlanningAgent:
         task: TaskTemplate,
         initial_artifact_summaries: list[dict[str, Any]],
         history_summaries: list[dict[str, Any]],
-        operator_descriptions: list[dict[str, str]] | None = None,
+        operator_descriptions: list[dict[str, Any]] | None = None,
         prompt_rules: str | None = None,
     ) -> list[PlanStep]:
         del prompt_rules  # Reserved for future overrides.
         operator_descriptions = operator_descriptions or self.registry.describe_all()
-        operator_names = {item["name"] for item in operator_descriptions}
+        operator_lookup = {operator.name: operator for operator in self.registry.list()}
         system_prompt = build_plan_system_prompt(self.max_steps)
         user_prompt = build_plan_user_prompt(
             task.to_record(),
@@ -58,11 +58,11 @@ class LLMPlanningAgent:
         )
         try:
             payload = self.llm_client.generate_json(system_prompt, user_prompt, temperature=0.0)
-            normalized = validate_plan_payload(payload, operator_names, max_steps=self.max_steps)
+            normalized = validate_plan_payload(payload, operator_lookup, max_steps=self.max_steps)
             self.last_plan_payload = normalized
             return [PlanStep(**step) for step in normalized["steps"]]
         except Exception as exc:
-            fallback = self._fallback_plan()
+            fallback = self._fallback_plan(task)
             self.last_plan_payload = {
                 "steps": [step.to_record() for step in fallback],
                 "reasoning_summary": f"Fallback plan used because LLM output was invalid: {exc}",
@@ -143,8 +143,17 @@ class LLMPlanningAgent:
         experiment.sandbox.write_json("review.json", normalized)
         return normalized
 
-    def _fallback_plan(self) -> list[PlanStep]:
-        available = list(self.registry.list())
+    def _fallback_plan(self, task: TaskTemplate) -> list[PlanStep]:
+        available = {operator.name: operator for operator in self.registry.list()}
         if not available:
             raise ValueError("Registry does not contain any fallback data operators")
-        return [PlanStep(available[0].name, {})]
+        hinted_steps: list[PlanStep] = []
+        for operator_name in task.pipeline_hint:
+            operator = available.get(operator_name)
+            if operator is None:
+                continue
+            hinted_steps.append(PlanStep(operator_name, operator.default_params()))
+        if hinted_steps:
+            return hinted_steps[: self.max_steps]
+        first = next(iter(available.values()))
+        return [PlanStep(first.name, first.default_params())]

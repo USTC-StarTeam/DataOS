@@ -15,6 +15,9 @@ workflows. The stable architecture is intentionally narrow:
 - The runtime planning agent plans operator steps and reviews the finished
   experiment.
 - Operators execute deterministically in local Python and emit typed artifacts.
+- A small subset of evaluator / generator operators may optionally call an
+  OpenAI-compatible endpoint when the task explicitly needs LLM scoring or data
+  augmentation.
 - Training and evaluation are fixed runtime stages.
 - Evaluation keeps lm-eval backend compatibility and a small natural-language
   eval helper.
@@ -51,24 +54,24 @@ The LLM plans and reviews only. Execution stays in local code.
 
 ## Operator Registry
 
-The default registry is composed from `dataos/operators/__init__.py`. It contains
-deterministic data operators such as:
+The default registry is composed from `dataos/operators/__init__.py`. It now
+groups operators by category:
 
-- `dedup`
-- `sample`
-- `schema_guard`
-- `pii_redact`
-- `length_filter`
-- `lang_filter`
-- `quality_filter`
-- `category_tag`
-- `category_balance`
-- `curriculum_sort`
-- `mixture`
-- `instruction_synthesis_template`
-- `format_convert`
-- `import_dataset`
-- `less`
+- mapper
+  - `map_to_alpaca`
+  - `map_to_sharegpt`
+- selector
+  - `select_random_subset`
+  - `select_top_by_score`
+- filter
+  - `filter_exact_dedup`
+  - `filter_by_text_length`
+- evaluator
+  - `evaluate_text_quality`
+  - `evaluate_llm_pair`
+- generator
+  - `generate_rewritten_query`
+  - `generate_rewritten_answer`
 
 These are data-stage operators only. `train_llamafactory` and `eval_model` stay
 outside the registry as fixed runtime stages.
@@ -79,7 +82,7 @@ outside the registry as fixed runtime stages.
 |---|---|
 | `dataos/core/` | Artifact model, sandbox, experiment state, task schema, operator interface, planning agent. |
 | `dataos/runtime/` | `run_task()` orchestration and fixed runtime stage wiring. |
-| `dataos/operators/` | Deterministic dataset operators. |
+| `dataos/operators/` | Category-organized dataset operators plus shared operator helpers. |
 | `dataos/train/` | LLaMA-Factory training runtime stage. |
 | `dataos/eval/` | lm-eval bridge, adapters, eval config, NL-to-lm-eval helper. |
 | `dataos/llm/` | LLM client interfaces and OpenAI-compatible implementation. |
@@ -105,7 +108,7 @@ agent.
 The CLI is intentionally small:
 
 ```bash
-dataos data import --workspace workspace --spec import.json
+dataos operators list
 ```
 
 End-to-end experiment execution should use the Python API:
@@ -126,8 +129,10 @@ The stable framing for the paper is:
 
 1. DataOS standardizes local SFT experiment artifacts around Hugging Face
    datasets, typed artifacts, and sandboxed experiment directories.
-2. LLM calls are confined to planning and reviewing.
-3. Local deterministic code owns operator execution, training, evaluation, and
+2. Planning and review are still the main LLM boundary, while a small subset of
+   evaluator / generator operators can optionally call OpenAI-compatible
+   endpoints when the task explicitly requires it.
+3. Local code still owns operator orchestration, training, evaluation, and
    artifact persistence.
 4. lm-eval compatibility gives evaluation coverage without turning evaluation
    planning into another agent runtime.
