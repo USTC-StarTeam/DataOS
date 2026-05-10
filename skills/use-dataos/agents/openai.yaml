@@ -1,4 +1,0 @@
-interface:
-  display_name: "Use DataOS"
-  short_description: "Run and inspect DataOS workflows locally"
-  default_prompt: "Use $use-dataos to set up a DataOS task, run it locally, and inspect the resulting artifacts."
