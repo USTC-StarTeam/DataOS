@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from datasets import Dataset, DatasetDict
 
 from dataos.core.artifact import Artifact, DatasetArtifact, make_artifact_id
