@@ -1,4 +1,0 @@
-interface:
-  display_name: "Add DataOS Eval Task"
-  short_description: "Extend DataOS native eval benchmarks"
-  default_prompt: "Use $add-dataos-eval-task to add a new native eval task, dataset contract, and test coverage in DataOS."
