@@ -19,7 +19,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.2.0",
   "ruff>=0.6.0",
 ]
 train = [
@@ -39,16 +38,6 @@ dataos = "dataos.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["dataos*"]
-
-[tool.pytest.ini_options]
-addopts = "-q"
-testpaths = ["tests"]
-markers = [
-  "integration: tests that require external API access",
-  "task_eval: model-capability task evaluations (non-blocking in CI)",
-  "mcp_external: external third-party MCP connectivity tests (manual run)",
-  "gpu: tests that require a CUDA device (CI runs with -m 'not gpu')",
-]
 
 [tool.ruff]
 line-length = 100
