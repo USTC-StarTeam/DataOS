@@ -3,11 +3,14 @@
 [中文说明 / Chinese README](README.zh-CN.md)
 
 DataOS is a local-first, single-experiment runtime for SFT data workflows.
-It keeps the LLM boundary narrow: the LLM plans data-operator steps and reviews
-the finished experiment, while local Python code owns execution, training,
-evaluation, and artifact persistence.
+It keeps the LLM boundary mostly narrow: the planning agent still handles plan
+and review, while local Python code owns execution, training, evaluation, and
+artifact persistence. Some evaluator and generator operators may optionally use
+an OpenAI-compatible model when the task explicitly requires scoring or
+augmentation.
 
 The current architecture is documented in [docs/dataos_overview.md](docs/dataos_overview.md).
+The operator catalog is documented in [docs/operators_zh.md](docs/operators_zh.md).
 
 ## Scope
 
@@ -50,6 +53,12 @@ result = run_task(
 
 print(result.experiment.status)
 print(result.review)
+```
+
+## CLI
+
+```bash
+dataos operators list
 ```
 
 ## Validation

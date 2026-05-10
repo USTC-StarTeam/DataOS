@@ -3,10 +3,12 @@
 [English README](README.md)
 
 DataOS 当前收敛为一个面向 SFT 数据工作流的本地优先、单实验 runtime。
-LLM 只负责数据算子的计划和实验结束后的 review；算子执行、训练、评测和
-artifact 落盘都由本地确定性代码完成。
+LLM 主要负责数据算子的计划和实验结束后的 review；算子执行、训练、评测和
+artifact 落盘仍由本地代码主导。对于显式需要打分或数据增强的场景，个别
+evaluator / generator 算子可以选择调用 OpenAI-compatible 模型。
 
-当前唯一主文档是 [docs/dataos_overview.md](docs/dataos_overview.md)。
+当前主文档是 [docs/dataos_overview.md](docs/dataos_overview.md)，算子中文说明见
+[docs/operators_zh.md](docs/operators_zh.md)。
 
 ## 当前边界
 
@@ -47,6 +49,12 @@ result = run_task(
 
 print(result.experiment.status)
 print(result.review)
+```
+
+## CLI
+
+```bash
+dataos operators list
 ```
 
 ## 校验

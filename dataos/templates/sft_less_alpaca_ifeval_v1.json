@@ -1,8 +1,8 @@
 {
   "task_id": "sft-less-alpaca-ifeval-v1",
-  "name": "SFT LESS Alpaca + IFEval",
-  "goal": "Use LESS (low-rank gradient similarity search) to pick the most-influential 5% of an Alpaca subset for IFEval, fine-tune Qwen2.5-0.5B-Instruct with LoRA on that selected subset, and evaluate on IFEval prompt-strict and instruction-strict accuracy.",
-  "input_description": "Initial DatasetArtifact = IFEval target subset (HF DatasetDict at /home/hcgu/data/DataOS-smoke/ifeval-dataset, columns: prompt, instruction_id_list, kwargs). The Alpaca pool is materialized by the first plan step (import_dataset) from /home/hcgu/data/DataOS-smoke/alpaca-subset-5k. The 'less' step then selects top 5% of the pool against the target.",
+  "name": "SFT Curated Alpaca + IFEval",
+  "goal": "Map an Alpaca-style pool into a stable SFT format, score the pairs, keep the highest-quality subset, fine-tune Qwen2.5-0.5B-Instruct with LoRA, and evaluate on IFEval.",
+  "input_description": "Initial DatasetArtifact is a Hugging Face DatasetDict save_to_disk directory. The operator plan can normalize it to Alpaca format, score data quality, and keep a smaller high-quality subset before training.",
   "output_description": "Trained LoRA adapter and IFEval EvalArtifact with prompt_strict / instruction_strict accuracy on a held-out IFEval slice.",
   "constraints": {
     "dataset_format": "hf_datasets",
@@ -11,7 +11,7 @@
   },
   "budget": {"max_experiments": 1},
   "max_rounds": 1,
-  "pipeline_hint": ["import_dataset", "less"],
+  "pipeline_hint": ["map_to_alpaca", "evaluate_text_quality", "select_top_by_score"],
   "train_config": {
     "mode": "llamafactory",
     "model_name_or_path": "/home/hcgu/data/hf-home/hub/models--Qwen--Qwen2.5-0.5B-Instruct/snapshots/main",

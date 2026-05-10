@@ -186,6 +186,7 @@ class DatasetArtifact(Artifact):
             "features": self.meta.get("features"),
             "fingerprint": self.meta.get("fingerprint"),
             "format": self.meta.get("format"),
+            "dataset_format": self.meta.get("dataset_format"),
         }
 
 

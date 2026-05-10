@@ -18,8 +18,10 @@
   },
   "max_rounds": 1,
   "pipeline_hint": [
-    "dedup",
-    "sample"
+    "map_to_alpaca",
+    "filter_exact_dedup",
+    "evaluate_text_quality",
+    "select_top_by_score"
   ],
   "train_config": {
     "mode": "llamafactory",

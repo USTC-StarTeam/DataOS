@@ -332,25 +332,17 @@ def _export_datasets_for_llamafactory(
 
 
 def _write_alpaca_dataset(dataset: Dataset, target: Path) -> dict[str, str]:
-    if "instruction" not in dataset.column_names or "response" not in dataset.column_names:
-        columns = ", ".join(dataset.column_names)
-        raise ValueError(
-            "llamafactory mode requires dataset columns 'instruction' and 'response'; "
-            f"found: {columns}"
-        )
-
     records: list[dict[str, Any]] = []
     for index, row in enumerate(dataset):
-        instruction = _coerce_optional_string(row.get("instruction"), "instruction", index, required=True)
-        response = _coerce_optional_string(row.get("response"), "response", index, required=True)
+        instruction, user_input, response, system = _extract_training_pair(row, dataset.column_names, index)
         record: dict[str, Any] = {
             "instruction": instruction,
             "output": response,
         }
-        if "input" in dataset.column_names:
-            record["input"] = _coerce_optional_string(row.get("input"), "input", index)
-        if "system" in dataset.column_names:
-            record["system"] = _coerce_optional_string(row.get("system"), "system", index)
+        if user_input:
+            record["input"] = user_input
+        if system:
+            record["system"] = system
         if "history" in dataset.column_names:
             record["history"] = _normalize_history(row.get("history"), index)
         records.append(record)
@@ -367,6 +359,57 @@ def _write_alpaca_dataset(dataset: Dataset, target: Path) -> dict[str, str]:
     if "history" in dataset.column_names:
         column_mapping["history"] = "history"
     return column_mapping
+
+
+def _extract_training_pair(
+    row: dict[str, Any],
+    columns: list[str],
+    index: int,
+) -> tuple[str, str, str, str]:
+    if "conversations" in columns:
+        prompt_parts: list[str] = []
+        response = ""
+        for message in row.get("conversations") or []:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("from") or message.get("role") or "").lower()
+            content = _coerce_optional_string(
+                message.get("value") or message.get("content"),
+                "conversation_content",
+                index,
+            )
+            if role in {"human", "user"} and content:
+                prompt_parts.append(content)
+            elif role in {"assistant", "gpt"} and content:
+                response = content
+        prompt = "\n".join(part for part in prompt_parts if part).strip()
+        if not prompt or not response:
+            raise ValueError(f"Row {index} could not be converted from ShareGPT conversations to Alpaca")
+        instruction, _, user_input = prompt.partition("\n")
+        system = _coerce_optional_string(row.get("system"), "system", index)
+        return instruction.strip(), user_input.strip(), response, system
+
+    instruction_column = "instruction" if "instruction" in columns else "prompt" if "prompt" in columns else None
+    response_column = (
+        "response"
+        if "response" in columns
+        else "output"
+        if "output" in columns
+        else "answer"
+        if "answer" in columns
+        else None
+    )
+    if instruction_column is None or response_column is None:
+        joined = ", ".join(columns)
+        raise ValueError(
+            "llamafactory mode requires Alpaca-like columns or ShareGPT conversations; "
+            f"found: {joined}"
+        )
+    instruction = _coerce_optional_string(row.get(instruction_column), instruction_column, index, required=True)
+    response = _coerce_optional_string(row.get(response_column), response_column, index, required=True)
+    user_input = _coerce_optional_string(row.get("input"), "input", index)
+    system = _coerce_optional_string(row.get("system"), "system", index)
+    return instruction, user_input, response, system
 
 
 def _coerce_optional_string(value: Any, field_name: str, index: int, required: bool = False) -> str:
