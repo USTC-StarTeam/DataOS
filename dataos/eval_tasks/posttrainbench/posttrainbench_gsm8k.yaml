@@ -1,0 +1,26 @@
+tag:
+  - posttrainbench
+  - math_word_problems
+task: posttrainbench_gsm8k
+dataset_path: openai/gsm8k
+dataset_name: main
+output_type: generate_until
+test_split: test
+doc_to_text: !function utils.doc_to_text
+doc_to_target: !function utils.doc_to_target
+process_results: !function utils.process_results
+metric_list:
+  - metric: accuracy
+    aggregation: mean
+    higher_is_better: true
+generation_kwargs:
+  until:
+    - "</s>"
+    - "<|im_end|>"
+repeats: 1
+num_fewshot: 0
+metadata:
+  version: 1.0
+  source: PostTrainBench GSM8K protocol
+  dataset: openai/gsm8k main/test
+  metric: Inspect AI match(numeric=True) compatible end-match accuracy
