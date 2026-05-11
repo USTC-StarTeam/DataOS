@@ -109,7 +109,11 @@ The CLI is intentionally small:
 
 ```bash
 dataos operators list
-dataos train --task dataos/templates/sft_v1.json --dataset tatsu-lab/alpaca,/path/to/hf_dataset
+
+dataos train \
+  --task dataos/templates/sft_v1.json \
+  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+  --workspace workspace
 ```
 
 End-to-end experiment execution should use the Python API:
@@ -119,7 +123,9 @@ from dataos.runtime import run_task
 
 result = run_task(
     task_template="dataos/templates/sft_v1.json",
-    datasets=["/path/to/hf_dataset"],
+    datasets=[
+        "/path/to/hf_dataset",
+    ],
     workspace_dir="workspace",
 )
 ```
