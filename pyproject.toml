@@ -32,12 +32,19 @@ eval = [
   "immutabledict",
   "nltk",
 ]
+vllm = [
+  "vllm>=0.8.0",
+  "ray>=2.9",
+]
 
 [project.scripts]
 dataos = "dataos.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["dataos*"]
+
+[tool.setuptools.package-data]
+dataos = ["templates/**/*.json", "eval_tasks/**/*.yaml", "eval_tasks/**/*.jinja"]
 
 [tool.ruff]
 line-length = 100

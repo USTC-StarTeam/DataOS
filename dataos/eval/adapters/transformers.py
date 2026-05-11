@@ -150,8 +150,10 @@ def _load_generation_assets(
 
 
 def _render_chat_prompt(tokenizer: Any, prompt: str, config: AdapterCallContext) -> str:
+    adapter_config = config.adapter.config if config.adapter is not None else {}
+    if adapter_config.get("chat_template_already_applied"):
+        return prompt
     if hasattr(tokenizer, "apply_chat_template"):
-        adapter_config = config.adapter.config if config.adapter is not None else {}
         template_kwargs = {
             "tokenize": False,
             "add_generation_prompt": True,

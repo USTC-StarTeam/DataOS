@@ -1,13 +1,13 @@
 """Drive the lm-evaluation-harness bridge from the runtime stage.
 
 ``run_eval_stage`` is the single entry point. It builds an
-:class:`EvalConfig` from ``task.eval_config``, picks the latest
-``ModelArtifact`` from upstream artifacts, instantiates the requested
-DataOS adapter, and calls :func:`run_lm_eval`. The :class:`LmEvalRunOutput`
-is then packaged into one :class:`EvalArtifact` whose meta carries the
-per-task results, the headline score, and a budget-trimmed copy of the
-raw lm-eval payload. Legacy ``provider="stub"`` configs still emit a local
-stub eval artifact for smoke tests and dry runs.
+:class:`EvalConfig` from ``task.eval_config`` and routes either to the
+original DataOSLM adapter bridge or to lm-eval's native model backends.
+The :class:`LmEvalRunOutput` is then packaged into one :class:`EvalArtifact`
+whose meta carries the per-task results, the headline score, a protocol
+snapshot, and a budget-trimmed copy of the raw lm-eval payload. Legacy
+``provider="stub"`` configs still emit a local stub eval artifact for smoke
+tests and dry runs.
 """
 
 from __future__ import annotations
@@ -42,8 +42,12 @@ def run_eval_stage(
         )
         return [artifact]
     config = EvalConfig(**eval_config)
-    adapter = _make_adapter(config.adapter, config.adapter_config)
-    output = _run_lm_eval(model, adapter, config)
+    mode = config.normalized_mode()
+    if mode == "lm_eval_native":
+        output = _run_lm_eval_native(model, config)
+    else:
+        adapter = _make_adapter(config.adapter, config.adapter_config)
+        output = _run_lm_eval(model, adapter, config)
     artifact = _eval_output_to_artifact(output, sandbox, model, config)
     sandbox.log("eval_model", _build_log_message(model, artifact, output, config))
     return [artifact]
@@ -118,6 +122,12 @@ def _run_lm_eval(model: ModelArtifact, adapter: Any, config: EvalConfig):
     )
 
 
+def _run_lm_eval_native(model: ModelArtifact, config: EvalConfig):
+    from dataos.eval.backend import run_lm_eval_native
+
+    return run_lm_eval_native(model, config)
+
+
 def _eval_output_to_artifact(
     output: Any,
     sandbox: Sandbox,
@@ -128,13 +138,16 @@ def _eval_output_to_artifact(
     eval_dir = sandbox.artifact_dir("eval", artifact_id)
     metrics = _flatten_metrics(output.results)
     headline = _pick_headline(metrics, config.tasks)
+    protocol = _protocol_snapshot(output, model, config)
     summary: dict[str, Any] = {
         "backend": "lm_eval",
+        "mode": config.normalized_mode(),
         "tasks": list(config.tasks),
-        "adapter": config.adapter,
         "limit": config.limit,
         "num_fewshot": config.num_fewshot,
         "batch_size": config.batch_size,
+        "model": protocol["resolved"].get("lm_eval_model"),
+        "adapter": config.adapter if config.normalized_mode() == "legacy_adapter" else None,
         "results": dict(output.results),
         "score": headline,
         "headline_score": headline,
@@ -143,6 +156,10 @@ def _eval_output_to_artifact(
     }
     (eval_dir / "results.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    (eval_dir / "protocol.json").write_text(
+        json.dumps(protocol, indent=2, sort_keys=True, ensure_ascii=False, default=str),
         encoding="utf-8",
     )
     raw = _trim_raw(output.raw)
@@ -188,13 +205,39 @@ def _pick_headline(metrics: dict[str, float], tasks: list[str]) -> float | None:
 def _trim_raw(raw: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return {"_note": "raw payload was not a dict", "_type": type(raw).__name__}
-    keep = {"results", "configs", "versions", "n-shot", "task_hashes", "model_source"}
+    keep = {
+        "results",
+        "configs",
+        "config",
+        "versions",
+        "n-shot",
+        "task_hashes",
+        "model_source",
+        "model_configs",
+        "higher_is_better",
+        "git_hash",
+        "date",
+    }
     trimmed = {key: value for key, value in raw.items() if key in keep}
     if len(trimmed) < min(len(raw), _RAW_TRIM_MAX_KEYS):
         for key in list(raw.keys())[: _RAW_TRIM_MAX_KEYS - len(trimmed)]:
             if key not in trimmed and key != "samples":
                 trimmed[key] = raw[key]
     return trimmed
+
+
+def _protocol_snapshot(output: Any, model: ModelArtifact, config: EvalConfig) -> dict[str, Any]:
+    return {
+        "eval_config": config.to_record(),
+        "source_model": {
+            "artifact_id": model.artifact_id,
+            "path": str(model.path),
+            "base_model": model.meta.get("base_model"),
+            "finetuning_type": model.meta.get("finetuning_type"),
+            "producer": model.producer,
+        },
+        "resolved": dict(getattr(output, "protocol", {}) or {}),
+    }
 
 
 def _build_log_message(
@@ -208,10 +251,14 @@ def _build_log_message(
         f"model={model.artifact_id}",
         f"eval={artifact.artifact_id}",
         "backend=lm_eval",
+        f"mode={config.normalized_mode()}",
         f"tasks={','.join(config.tasks)}",
-        f"adapter={config.adapter}",
         f"score={headline if headline is not None else 'n/a'}",
     ]
+    if config.normalized_mode() == "lm_eval_native":
+        lines.append(f"lm_eval_model={artifact.meta.get('model') or config.model or 'hf'}")
+    else:
+        lines.append(f"adapter={config.adapter}")
     if config.limit is not None:
         lines.append(f"limit={config.limit}")
     return "\n".join(lines) + "\n"
