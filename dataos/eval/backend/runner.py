@@ -13,6 +13,7 @@ class LmEvalRunOutput:
     results: dict[str, Any]
     samples: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     raw: dict[str, Any] = field(default_factory=dict)
+    protocol: dict[str, Any] = field(default_factory=dict)
 
 
 def run_lm_eval(
@@ -65,4 +66,10 @@ def run_lm_eval(
         results=dict(raw_dict.get("results", {})),
         samples=dict(raw_dict.get("samples", {})),
         raw=raw_dict,
+        protocol={
+            "mode": "legacy_adapter",
+            "lm_eval_model": "DataOSLM",
+            "adapter": getattr(adapter, "name", adapter.__class__.__name__),
+            "adapter_config": dict(adapter_config or {}),
+        },
     )
