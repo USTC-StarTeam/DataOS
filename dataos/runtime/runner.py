@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,7 +12,6 @@ from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
 from dataos.core.task import TaskTemplate
 from dataos.eval import run_eval_stage
-from dataos.llm.client import LLMClient
 from dataos.llm.openai_compat import (
     DASHSCOPE_BASE_URL,
     DEFAULT_MODEL,
@@ -30,16 +28,15 @@ class RunTaskResult:
     review: dict[str, Any]
     experiment_artifact: ExperimentArtifact
     archived_experiment_artifact: ExperimentArtifact
-    initial_artifact: DatasetArtifact
+    initial_artifacts: list[DatasetArtifact]
     store: LocalArtifactStore
     agent: LLMPlanningAgent
 
 
 def run_task(
     task_template: TaskTemplate | str | Path | dict[str, Any],
-    dataset_path: str | Path,
+    datasets: list[str | Path] | str | Path,
     workspace_dir: str | Path = "workspace",
-    llm_client: LLMClient | None = None,
     sandbox_root: str | Path | None = None,
     history_summaries: list[dict[str, Any]] | None = None,
 ) -> RunTaskResult:
@@ -52,19 +49,20 @@ def run_task(
     sandbox = Sandbox(sandbox_path)
     sandbox.prepare()
 
-    initial_artifact = _materialize_initial_dataset(dataset_path, sandbox)
-    initial_artifact.save_meta()
+    dataset_sources = _normalize_dataset_inputs(datasets)
+    initial_artifacts = _materialize_initial_datasets(dataset_sources, sandbox)
 
     registry = build_default_registry()
-    llm = llm_client or _build_client_from_env()
+    llm = _build_client_from_env()
     agent = LLMPlanningAgent(llm_client=llm, registry=registry)
 
     experiment = Experiment(exp_id=exp_id, task=task, sandbox=sandbox)
-    experiment.add_artifact(initial_artifact)
+    for artifact in initial_artifacts:
+        experiment.add_artifact(artifact)
     agent.run_experiment(
         task=task,
         experiment=experiment,
-        initial_artifacts=[initial_artifact],
+        initial_artifacts=initial_artifacts,
         history_summaries=history_summaries,
     )
     _run_training_stage(task=task, experiment=experiment)
@@ -79,7 +77,7 @@ def run_task(
         review=review,
         experiment_artifact=experiment_artifact,
         archived_experiment_artifact=archived_experiment,
-        initial_artifact=initial_artifact,
+        initial_artifacts=initial_artifacts,
         store=store,
         agent=agent,
     )
@@ -93,24 +91,33 @@ def _load_task(task_template: TaskTemplate | str | Path | dict[str, Any]) -> Tas
     return TaskTemplate.from_json(task_template)
 
 
-def _materialize_initial_dataset(dataset_path: str | Path, sandbox: Sandbox) -> DatasetArtifact:
-    source = Path(dataset_path)
-    if not source.exists():
-        raise FileNotFoundError(f"Initial dataset path does not exist: {source}")
-    artifact_id = make_artifact_id("dataset")
-    target = sandbox.inputs_dir / artifact_id
-    if target.exists():
-        shutil.rmtree(target)
-    shutil.copytree(source, target)
-    artifact = DatasetArtifact(
-        artifact_id=artifact_id,
-        name="initial-dataset",
-        path=target,
-        parent_ids=[],
-        producer="run_task",
-    )
-    artifact.refresh_metadata_from_disk()
-    return artifact
+def _normalize_dataset_inputs(datasets: list[str | Path] | str | Path) -> list[str]:
+    if isinstance(datasets, (str, Path)):
+        items = [datasets]
+    else:
+        items = list(datasets)
+    normalized = [str(item).strip() for item in items if str(item).strip()]
+    if not normalized:
+        raise ValueError("run_task requires at least one dataset input")
+    return normalized
+
+
+def _materialize_initial_datasets(dataset_sources: list[str], sandbox: Sandbox) -> list[DatasetArtifact]:
+    artifacts: list[DatasetArtifact] = []
+    for index, source in enumerate(dataset_sources, start=1):
+        artifact_id = make_artifact_id("dataset")
+        artifact = DatasetArtifact(
+            artifact_id=artifact_id,
+            name=f"initial-dataset-{index}",
+            path=sandbox.inputs_dir / artifact_id,
+            source=source,
+            parent_ids=[],
+            producer="run_task",
+        )
+        artifact.materialize()
+        artifact.save_meta()
+        artifacts.append(artifact)
+    return artifacts
 
 
 def _run_training_stage(task: TaskTemplate, experiment: Experiment) -> None:
@@ -178,7 +185,7 @@ def _run_runtime_stage(
         raise
 
 
-def _build_client_from_env() -> LLMClient:
+def _build_client_from_env() -> OpenAICompatLLMClient:
     api_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("STARTEAM_API_KEY")
     if not api_key:
         raise ValueError(

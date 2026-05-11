@@ -40,7 +40,7 @@ or persistent control-plane state.
 
 The authoritative experiment entrypoint is `dataos.runtime.run_task()`.
 
-1. Materialize the input Hugging Face dataset directory into the sandbox.
+1. Materialize one or more dataset inputs into sandbox-managed Hugging Face dataset directories.
 2. Ask `LLMPlanningAgent` for operator steps.
 3. Execute registered data operators deterministically.
 4. Run fixed runtime stages:
@@ -88,7 +88,7 @@ outside the registry as fixed runtime stages.
 | `dataos/llm/` | LLM client interfaces and OpenAI-compatible implementation. |
 | `dataos/prompts/` | Planning and review prompt builders. |
 | `dataos/templates/` | Example task templates and import specs. |
-| `dataos/cli.py` | Minimal CLI; currently keeps `data import`. |
+| `dataos/cli.py` | CLI entrypoints for operator inspection and `dataos train`. |
 
 ## Eval Scope
 
@@ -109,6 +109,7 @@ The CLI is intentionally small:
 
 ```bash
 dataos operators list
+dataos train --task dataos/templates/sft_v1.json --dataset tatsu-lab/alpaca,/path/to/hf_dataset
 ```
 
 End-to-end experiment execution should use the Python API:
@@ -118,7 +119,7 @@ from dataos.runtime import run_task
 
 result = run_task(
     task_template="dataos/templates/sft_v1.json",
-    dataset_path="/path/to/hf_dataset",
+    datasets=["/path/to/hf_dataset"],
     workspace_dir="workspace",
 )
 ```

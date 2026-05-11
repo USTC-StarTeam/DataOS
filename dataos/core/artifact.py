@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from datasets import Dataset, DatasetDict, load_from_disk
+from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 
 ARTIFACT_TYPES = {"dataset", "model", "eval", "result", "experiment"}
 
@@ -116,9 +116,13 @@ class Artifact(ABC):
 
 @dataclass(slots=True)
 class DatasetArtifact(Artifact):
+    source: str | Path | None = None
+
     def __post_init__(self) -> None:
         self.type = "dataset"
         Artifact.__post_init__(self)
+        if self.source is not None:
+            self.source = str(self.source)
         self.meta.setdefault("format", "hf_datasets")
         if self.meta["format"] != "hf_datasets":
             raise ValueError("DatasetArtifact only supports Hugging Face datasets format")
@@ -161,7 +165,9 @@ class DatasetArtifact(Artifact):
         self.save_meta()
 
     def load(self) -> Dataset | DatasetDict:
-        if not self.path.exists() or not self.path.is_dir():
+        if not self.path.exists():
+            self.materialize()
+        if not self.path.is_dir():
             raise ValueError(f"DatasetArtifact path does not exist or is not a directory: {self.path}")
         try:
             dataset_obj = load_from_disk(str(self.path))
@@ -170,6 +176,23 @@ class DatasetArtifact(Artifact):
         if not isinstance(dataset_obj, (Dataset, DatasetDict)):
             raise ValueError(f"Unsupported Hugging Face datasets object at {self.path}")
         return dataset_obj
+
+    def materialize(self) -> None:
+        if self.path.exists() and self.path.is_dir():
+            try:
+                self.refresh_metadata_from_disk()
+                return
+            except Exception:
+                shutil.rmtree(self.path)
+
+        if self.source is None:
+            raise ValueError(
+                "DatasetArtifact requires either an existing save_to_disk path or a source string"
+            )
+
+        dataset_obj = _load_dataset_source(self.source)
+        self.meta["source"] = str(self.source)
+        self.save(dataset_obj)
 
     def summary(self) -> dict[str, Any]:
         if not self.meta:
@@ -187,7 +210,62 @@ class DatasetArtifact(Artifact):
             "fingerprint": self.meta.get("fingerprint"),
             "format": self.meta.get("format"),
             "dataset_format": self.meta.get("dataset_format"),
+            "source": self.meta.get("source"),
         }
+
+
+def _load_dataset_source(source: str) -> Dataset | DatasetDict:
+    source_path = Path(source).expanduser()
+    if source_path.exists():
+        try:
+            dataset_obj = load_from_disk(str(source_path))
+        except Exception:
+            dataset_obj = _load_dataset_from_local_source(source_path)
+        if not isinstance(dataset_obj, (Dataset, DatasetDict)):
+            raise ValueError(f"Unsupported dataset object loaded from local source: {source}")
+        return dataset_obj
+
+    try:
+        dataset_obj = load_dataset(source)
+    except Exception as exc:
+        raise ValueError(f"Failed to load dataset source '{source}' from Hugging Face") from exc
+    if not isinstance(dataset_obj, (Dataset, DatasetDict)):
+        raise ValueError(f"Unsupported dataset object loaded from Hugging Face source: {source}")
+    return dataset_obj
+
+
+def _load_dataset_from_local_source(source_path: Path) -> Dataset | DatasetDict:
+    if source_path.is_file():
+        suffix = source_path.suffix.lower()
+        if suffix in {".json", ".jsonl"}:
+            return load_dataset("json", data_files=str(source_path))
+        if suffix == ".csv":
+            return load_dataset("csv", data_files=str(source_path))
+        if suffix == ".parquet":
+            return load_dataset("parquet", data_files=str(source_path))
+        raise ValueError(f"Unsupported local dataset file format: {source_path}")
+
+    if source_path.is_dir():
+        suffix_to_builder = {
+            ".json": "json",
+            ".jsonl": "json",
+            ".csv": "csv",
+            ".parquet": "parquet",
+        }
+        files_by_builder: dict[str, list[str]] = {}
+        for suffix, builder in suffix_to_builder.items():
+            matched = sorted(str(path) for path in source_path.rglob(f"*{suffix}"))
+            if matched:
+                files_by_builder.setdefault(builder, []).extend(matched)
+        if len(files_by_builder) == 1:
+            builder, files = next(iter(files_by_builder.items()))
+            return load_dataset(builder, data_files=files)
+        try:
+            return load_dataset(str(source_path))
+        except Exception as exc:
+            raise ValueError(f"Unsupported local dataset directory: {source_path}") from exc
+
+    raise ValueError(f"Local dataset source does not exist: {source_path}")
 
 
 @dataclass(slots=True)

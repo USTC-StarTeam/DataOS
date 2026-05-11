@@ -41,15 +41,18 @@ class LocalArtifactStore:
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(artifact.path, target)
-        cloned = type(artifact)(
-            artifact_id=artifact.artifact_id,
-            name=artifact.name,
-            path=target,
-            meta=dict(artifact.meta),
-            created_at=artifact.created_at,
-            parent_ids=list(artifact.parent_ids),
-            producer=artifact.producer,
-        )
+        kwargs = {
+            "artifact_id": artifact.artifact_id,
+            "name": artifact.name,
+            "path": target,
+            "meta": dict(artifact.meta),
+            "created_at": artifact.created_at,
+            "parent_ids": list(artifact.parent_ids),
+            "producer": artifact.producer,
+        }
+        if isinstance(artifact, DatasetArtifact):
+            kwargs["source"] = artifact.source
+        cloned = type(artifact)(**kwargs)
         if isinstance(cloned, DatasetArtifact):
             cloned.meta.setdefault("format", "hf_datasets")
         cloned.save_meta()
