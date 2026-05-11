@@ -47,7 +47,9 @@ from dataos.runtime import run_task
 
 result = run_task(
     task_template=Path("dataos/templates/sft_v1.json"),
-    datasets=[Path("/path/to/hf_dataset")],
+    datasets=[
+        Path("/path/to/hf_dataset"),
+    ],
     workspace_dir=Path("workspace"),
 )
 
@@ -59,7 +61,11 @@ print(result.review)
 
 ```bash
 dataos operators list
-dataos train --task dataos/templates/sft_v1.json --dataset tatsu-lab/alpaca,/path/to/hf_dataset
+
+dataos train \
+  --task dataos/templates/sft_v1.json \
+  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+  --workspace workspace
 ```
 
 ## Validation
