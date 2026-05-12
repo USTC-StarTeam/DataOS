@@ -27,6 +27,14 @@ The operator catalog is documented in [docs/operators_zh.md](docs/operators_zh.m
 
 ## Install
 
+If `uv` is installed under `~/.local/bin`, add it to your shell first:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Then sync the project environment:
+
 ```bash
 uv sync --extra dev
 ```
@@ -61,30 +69,12 @@ print(result.review)
 ## CLI
 
 ```bash
-dataos operators list
+uv run dataos operators list
 
-dataos train \
+uv run dataos train \
   --task dataos/templates/sft_v1.json \
   --dataset alpaca-eval,gsm8k \
   --workspace workspace
-```
-
-If `dataos` is not available in your shell, run the CLI module directly:
-
-```bash
-python3 -m dataos.cli operators list
-
-python3 -m dataos.cli train \
-  --task dataos/templates/sft_v1.json \
-  --dataset alpaca-eval,gsm8k \
-  --workspace workspace
-```
-
-To make `dataos ...` available as a direct command without `uv`, install the
-project into your current Python environment:
-
-```bash
-pip install -e .
 ```
 
 ## Validation

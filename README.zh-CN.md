@@ -23,6 +23,14 @@ evaluator / generator 算子可以选择调用 OpenAI-compatible 模型。
 
 ## 安装
 
+如果 `uv` 装在 `~/.local/bin` 下面，先把它加到当前 shell 的 `PATH`：
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+然后同步项目环境：
+
 ```bash
 uv sync --extra dev
 ```
@@ -57,30 +65,12 @@ print(result.review)
 ## CLI
 
 ```bash
-dataos operators list
+uv run dataos operators list
 
-dataos train \
+uv run dataos train \
   --task dataos/templates/sft_v1.json \
   --dataset alpaca-eval,gsm8k \
   --workspace workspace
-```
-
-如果当前 shell 里没有 `dataos` 命令，可以直接运行模块入口：
-
-```bash
-python3 -m dataos.cli operators list
-
-python3 -m dataos.cli train \
-  --task dataos/templates/sft_v1.json \
-  --dataset alpaca-eval,gsm8k \
-  --workspace workspace
-```
-
-如果你希望不依赖 `uv` 也能直接使用 `dataos ...`，先把项目安装到当前
-Python 环境里：
-
-```bash
-pip install -e .
 ```
 
 ## 校验

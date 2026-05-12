@@ -108,28 +108,20 @@ agent.
 The CLI is intentionally small:
 
 ```bash
-dataos operators list
+uv run dataos operators list
 
-dataos train \
+uv run dataos train \
   --task dataos/templates/sft_v1.json \
   --dataset alpaca-eval,gsm8k \
   --workspace workspace
 ```
 
-If the script entrypoint is not installed in the current shell, the equivalent
-module form is:
+If `uv` is installed under `~/.local/bin`, add it to `PATH` before running the
+CLI:
 
 ```bash
-python3 -m dataos.cli operators list
-
-python3 -m dataos.cli train \
-  --task dataos/templates/sft_v1.json \
-  --dataset alpaca-eval,gsm8k \
-  --workspace workspace
+export PATH="$HOME/.local/bin:$PATH"
 ```
-
-To make `dataos ...` available directly without `uv`, install the project into
-the current Python environment with `pip install -e .`.
 
 End-to-end experiment execution should use the Python API:
 
