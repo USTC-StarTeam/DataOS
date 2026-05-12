@@ -27,9 +27,7 @@ class RunTaskResult:
     experiment: Experiment
     review: dict[str, Any]
     experiment_artifact: ExperimentArtifact
-    archived_experiment_artifact: ExperimentArtifact
     initial_artifacts: list[DatasetArtifact]
-    store: LocalArtifactStore
     agent: LLMPlanningAgent
 
 
@@ -45,7 +43,7 @@ def run_task(
 
     task = _load_task(task_template)
     exp_id = make_artifact_id("exp")
-    sandbox_path = Path(sandbox_root) if sandbox_root is not None else Path(workspace_dir) / "sandboxes" / exp_id
+    sandbox_path = Path(sandbox_root) if sandbox_root is not None else store.experiments_root / exp_id
     sandbox = Sandbox(sandbox_path)
     sandbox.prepare()
 
@@ -67,18 +65,16 @@ def run_task(
     )
     _run_training_stage(task=task, experiment=experiment)
     _run_eval_stage(task=task, experiment=experiment)
-    experiment_artifact = experiment.finalize()
     review = agent.review(task, experiment)
-    archived_experiment = store.save(experiment_artifact)
+    experiment_artifact = experiment.finalize()
+    store.save(experiment_artifact)
 
     return RunTaskResult(
         task=task,
         experiment=experiment,
         review=review,
         experiment_artifact=experiment_artifact,
-        archived_experiment_artifact=archived_experiment,
         initial_artifacts=initial_artifacts,
-        store=store,
         agent=agent,
     )
 

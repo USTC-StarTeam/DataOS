@@ -88,7 +88,7 @@ class LLMPlanningAgent:
             operator_descriptions=self.registry.describe_all(),
         )
         if self.last_plan_payload is not None:
-            experiment.sandbox.write_json("plan.json", self.last_plan_payload)
+            experiment.set_plan(self.last_plan_payload)
 
         for step in steps:
             operator = self.registry.get(step.operator_name)
@@ -140,7 +140,7 @@ class LLMPlanningAgent:
                 "recommended_changes": ["Review the experiment report before starting another round."],
             }
         self.last_review_payload = normalized
-        experiment.sandbox.write_json("review.json", normalized)
+        experiment.set_review(normalized)
         return normalized
 
     def _fallback_plan(self, task: TaskTemplate) -> list[PlanStep]:

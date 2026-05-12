@@ -234,6 +234,29 @@ def _load_dataset_source(source: str) -> Dataset | DatasetDict:
     return dataset_obj
 
 
+def _infer_split_data_files(files: list[str]) -> dict[str, list[str]] | None:
+    split_aliases = {
+        "train": "train",
+        "test": "test",
+        "validation": "validation",
+        "valid": "validation",
+        "eval": "eval",
+        "dev": "dev",
+    }
+    grouped: dict[str, list[str]] = {}
+    for file_name in files:
+        stem = Path(file_name).stem.lower()
+        matched_split = None
+        for candidate, normalized in split_aliases.items():
+            if stem == candidate or stem.startswith(f"{candidate}-") or stem.startswith(f"{candidate}_"):
+                matched_split = normalized
+                break
+        if matched_split is None:
+            return None
+        grouped.setdefault(matched_split, []).append(file_name)
+    return grouped or None
+
+
 def _load_dataset_from_local_source(source_path: Path) -> Dataset | DatasetDict:
     if source_path.is_file():
         suffix = source_path.suffix.lower()
@@ -259,7 +282,8 @@ def _load_dataset_from_local_source(source_path: Path) -> Dataset | DatasetDict:
                 files_by_builder.setdefault(builder, []).extend(matched)
         if len(files_by_builder) == 1:
             builder, files = next(iter(files_by_builder.items()))
-            return load_dataset(builder, data_files=files)
+            split_files = _infer_split_data_files(files)
+            return load_dataset(builder, data_files=split_files or files)
         try:
             return load_dataset(str(source_path))
         except Exception as exc:

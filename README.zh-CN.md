@@ -14,7 +14,7 @@ evaluator / generator 算子可以选择调用 OpenAI-compatible 模型。
 
 - 数据工件统一使用 Hugging Face `Dataset` / `DatasetDict` 的
   `save_to_disk` 目录。
-- `run_task()` 在本地 sandbox 中执行一次实验。
+- `run_task()` 在本地实验目录中执行一次实验。
 - 数据算子来自本地 registry，执行过程是确定性的。
 - `train_llamafactory` 和 `eval_model` 是固定 runtime stage，不是 LLM
   计划出来的 operator。
@@ -42,8 +42,8 @@ uv sync --extra eval
 uv run dataos operators list
 
 uv run dataos train \
-  --task dataos/templates/sft_v1.json \
-  --dataset tatsu-lab/alpaca_eval,openai/gsm8k \
+  --task dataos/templates/alpaca_gsm8k_stub_v1.json \
+  --dataset datasets/alpaca_eval,datasets/gsm8k \
   --workspace workspace
 ```
 
@@ -54,6 +54,9 @@ export DASHSCOPE_BASE_URL="your-base-url"
 export DASHSCOPE_API_KEY="your-api-key"
 export DASHSCOPE_MODEL="your-model"
 ```
+
+实验目录结构和落盘文件说明单独放在
+[docs/experiment_layout_zh.md](docs/experiment_layout_zh.md)。
 
 ## 校验
 
