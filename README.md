@@ -48,7 +48,8 @@ from dataos.runtime import run_task
 result = run_task(
     task_template=Path("dataos/templates/sft_v1.json"),
     datasets=[
-        Path("/path/to/hf_dataset"),
+        "alpaca-eval",
+        "gsm8k",
     ],
     workspace_dir=Path("workspace"),
 )
@@ -64,7 +65,7 @@ dataos operators list
 
 dataos train \
   --task dataos/templates/sft_v1.json \
-  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+  --dataset alpaca-eval,gsm8k \
   --workspace workspace
 ```
 
@@ -75,7 +76,7 @@ python3 -m dataos.cli operators list
 
 python3 -m dataos.cli train \
   --task dataos/templates/sft_v1.json \
-  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+  --dataset alpaca-eval,gsm8k \
   --workspace workspace
 ```
 
