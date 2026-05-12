@@ -27,13 +27,7 @@ The operator catalog is documented in [docs/operators_zh.md](docs/operators_zh.m
 
 ## Install
 
-If `uv` is installed under `~/.local/bin`, add it to your shell first:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-Then sync the project environment:
+Sync the project environment:
 
 ```bash
 uv sync --extra dev
@@ -49,8 +43,6 @@ uv sync --extra eval
 ## CLI
 
 ```bash
-set_proxy
-
 uv run dataos operators list
 
 uv run dataos train \
@@ -63,9 +55,9 @@ If you want planning and review to use DashScope, export the runtime variables
 before `uv run`:
 
 ```bash
-export DASHSCOPE_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+export DASHSCOPE_BASE_URL="your-base-url"
 export DASHSCOPE_API_KEY="your-api-key"
-export DASHSCOPE_MODEL="deepseek-v3"
+export DASHSCOPE_MODEL="your-model"
 ```
 
 ## Validation

@@ -23,13 +23,7 @@ evaluator / generator 算子可以选择调用 OpenAI-compatible 模型。
 
 ## 安装
 
-如果 `uv` 装在 `~/.local/bin` 下面，先把它加到当前 shell 的 `PATH`：
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-然后同步项目环境：
+同步项目环境：
 
 ```bash
 uv sync --extra dev
@@ -45,8 +39,6 @@ uv sync --extra eval
 ## CLI
 
 ```bash
-set_proxy
-
 uv run dataos operators list
 
 uv run dataos train \
@@ -58,9 +50,9 @@ uv run dataos train \
 如果你希望 planning / review 走 DashScope，在 `uv run` 之前先导出环境变量：
 
 ```bash
-export DASHSCOPE_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+export DASHSCOPE_BASE_URL="your-base-url"
 export DASHSCOPE_API_KEY="your-api-key"
-export DASHSCOPE_MODEL="deepseek-v3"
+export DASHSCOPE_MODEL="your-model"
 ```
 
 ## 校验
