@@ -14,7 +14,7 @@
 如果运行命令里只传 `--workspace workspace`，不额外传 `--sandbox`，那么每次实验默认会创建：
 
 ```text
-workspace/experiments/<exp_id>/
+workspace/<exp_id>/
 ```
 
 其中 `<exp_id>` 是运行时自动生成的唯一实验 ID，所以同一个 `workspace` 连续跑多次也不会冲突。
@@ -25,8 +25,7 @@ workspace/experiments/<exp_id>/
 
 ```text
 workspace/
-  experiments/
-    exp-20260512.../
+  exp-20260512.../
       inputs/
         dataset-.../
       artifacts/
@@ -122,9 +121,9 @@ uv run dataos train \
 这条命令多跑几次时，会得到：
 
 ```text
-workspace/experiments/exp-a.../
-workspace/experiments/exp-b.../
-workspace/experiments/exp-c.../
+workspace/exp-a.../
+workspace/exp-b.../
+workspace/exp-c.../
 ```
 
 所以共享同一个 `workspace` 没问题，真正区分不同实验的是自动生成的 `exp_id`。
