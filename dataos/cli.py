@@ -37,7 +37,7 @@ def _add_train_commands(subparsers) -> None:
     train.add_argument(
         "--sandbox",
         default=None,
-        help="Optional experiment dir (defaults to <workspace>/experiments/<exp_id>)",
+        help="Optional experiment dir (defaults to <workspace>/<exp_id>)",
     )
     train.set_defaults(func=_cmd_train)
 

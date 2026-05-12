@@ -43,7 +43,7 @@ def run_task(
 
     task = _load_task(task_template)
     exp_id = make_artifact_id("exp")
-    sandbox_path = Path(sandbox_root) if sandbox_root is not None else store.experiments_root / exp_id
+    sandbox_path = Path(sandbox_root) if sandbox_root is not None else Path(workspace_dir) / exp_id
     sandbox = Sandbox(sandbox_path)
     sandbox.prepare()
 
