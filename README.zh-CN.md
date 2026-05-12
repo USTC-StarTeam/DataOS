@@ -64,6 +64,24 @@ dataos train \
   --workspace workspace
 ```
 
+如果当前 shell 里没有 `dataos` 命令，可以直接运行模块入口：
+
+```bash
+python3 -m dataos.cli operators list
+
+python3 -m dataos.cli train \
+  --task dataos/templates/sft_v1.json \
+  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+  --workspace workspace
+```
+
+如果你希望不依赖 `uv` 也能直接使用 `dataos ...`，先把项目安装到当前
+Python 环境里：
+
+```bash
+pip install -e .
+```
+
 ## 校验
 
 ```bash

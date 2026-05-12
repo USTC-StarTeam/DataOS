@@ -68,6 +68,24 @@ dataos train \
   --workspace workspace
 ```
 
+If `dataos` is not available in your shell, run the CLI module directly:
+
+```bash
+python3 -m dataos.cli operators list
+
+python3 -m dataos.cli train \
+  --task dataos/templates/sft_v1.json \
+  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+  --workspace workspace
+```
+
+To make `dataos ...` available as a direct command without `uv`, install the
+project into your current Python environment:
+
+```bash
+pip install -e .
+```
+
 ## Validation
 
 ```bash
