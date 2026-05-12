@@ -116,6 +116,21 @@ dataos train \
   --workspace workspace
 ```
 
+If the script entrypoint is not installed in the current shell, the equivalent
+module form is:
+
+```bash
+python3 -m dataos.cli operators list
+
+python3 -m dataos.cli train \
+  --task dataos/templates/sft_v1.json \
+  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+  --workspace workspace
+```
+
+To make `dataos ...` available directly without `uv`, install the project into
+the current Python environment with `pip install -e .`.
+
 End-to-end experiment execution should use the Python API:
 
 ```python
