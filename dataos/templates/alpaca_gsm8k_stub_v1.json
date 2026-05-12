@@ -1,0 +1,45 @@
+{
+  "task_id": "alpaca-gsm8k-stub-v1",
+  "name": "AlpacaEval + GSM8K Stub Pipeline",
+  "goal": "Run a single-round SFT-oriented data pipeline over materialized AlpacaEval and GSM8K datasets with real data operators and stub train/eval stages.",
+  "input_description": "Two local Hugging Face Dataset or DatasetDict save_to_disk directories materialized from the official sources tatsu-lab/alpaca_eval and openai/gsm8k.",
+  "output_description": "Produce cleaned dataset artifacts, a stub model artifact, a stub eval artifact, and an experiment report.",
+  "constraints": {
+    "dataset_format": "hf_datasets",
+    "llm_role": [
+      "plan",
+      "review"
+    ],
+    "execution_mode": "fixed_runtime"
+  },
+  "budget": {
+    "max_experiments": 1,
+    "notes": "Data operators run for real; training and evaluation stay in stub mode."
+  },
+  "max_rounds": 1,
+  "pipeline_hint": [
+    "map_to_alpaca",
+    "filter_exact_dedup",
+    "evaluate_text_quality",
+    "select_top_by_score"
+  ],
+  "train_config": {
+    "mode": "stub"
+  },
+  "eval_config": {
+    "provider": "stub",
+    "provider_config": {
+      "score": 0.0
+    },
+    "tasks": [
+      "gsm8k",
+      "ifeval"
+    ],
+    "limit": 100,
+    "num_fewshot": 0,
+    "batch_size": 8,
+    "max_new_tokens": 256,
+    "apply_chat_template": true,
+    "adapter": "transformers"
+  }
+}

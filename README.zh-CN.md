@@ -35,6 +35,8 @@ export PATH="$HOME/.local/bin:$PATH"
 uv sync --extra dev
 ```
 
+下面示例里使用的官方数据集来源是 `tatsu-lab/alpaca_eval` 和 `openai/gsm8k`。先把它们 materialize 到本地 `datasets/` 目录，再把本地路径传给 DataOS。
+
 可选训练 / 评测依赖：
 
 ```bash
@@ -50,10 +52,10 @@ from pathlib import Path
 from dataos.runtime import run_task
 
 result = run_task(
-    task_template=Path("dataos/templates/sft_v1.json"),
+    task_template=Path("dataos/templates/alpaca_gsm8k_stub_v1.json"),
     datasets=[
-        "alpaca-eval",
-        "gsm8k",
+        "datasets/tatsu_lab__alpaca_eval",
+        "datasets/openai__gsm8k_main",
     ],
     workspace_dir=Path("workspace"),
 )
@@ -67,9 +69,37 @@ print(result.review)
 ```bash
 uv run dataos operators list
 
+uv run python - <<'PY'
+from pathlib import Path
+import shutil
+
+from datasets import load_dataset
+from huggingface_hub import hf_hub_download
+
+root = Path("datasets")
+root.mkdir(parents=True, exist_ok=True)
+
+gsm8k = load_dataset("openai/gsm8k", "main")
+gsm8k_dir = root / "openai__gsm8k_main"
+if gsm8k_dir.exists():
+    shutil.rmtree(gsm8k_dir)
+gsm8k.save_to_disk(str(gsm8k_dir))
+
+alpaca_json = hf_hub_download(
+    repo_id="tatsu-lab/alpaca_eval",
+    repo_type="dataset",
+    filename="alpaca_eval.json",
+)
+alpaca = load_dataset("json", data_files=alpaca_json)
+alpaca_dir = root / "tatsu_lab__alpaca_eval"
+if alpaca_dir.exists():
+    shutil.rmtree(alpaca_dir)
+alpaca.save_to_disk(str(alpaca_dir))
+PY
+
 uv run dataos train \
-  --task dataos/templates/sft_v1.json \
-  --dataset alpaca-eval,gsm8k \
+  --task dataos/templates/alpaca_gsm8k_stub_v1.json \
+  --dataset datasets/tatsu_lab__alpaca_eval,datasets/openai__gsm8k_main \
   --workspace workspace
 ```
 
