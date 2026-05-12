@@ -16,7 +16,7 @@ The operator catalog is documented in [docs/operators_zh.md](docs/operators_zh.m
 
 - Hugging Face `Dataset` / `DatasetDict` `save_to_disk` directories are the
   internal dataset format.
-- `run_task()` executes one experiment inside a local sandbox.
+- `run_task()` executes one experiment inside a local experiment directory.
 - Data operators are deterministic and registered locally.
 - `train_llamafactory` and `eval_model` are fixed runtime stages, not planned
   operators.
@@ -46,8 +46,8 @@ uv sync --extra eval
 uv run dataos operators list
 
 uv run dataos train \
-  --task dataos/templates/sft_v1.json \
-  --dataset tatsu-lab/alpaca_eval,openai/gsm8k \
+  --task dataos/templates/alpaca_gsm8k_stub_v1.json \
+  --dataset datasets/alpaca_eval,datasets/gsm8k \
   --workspace workspace
 ```
 
@@ -59,6 +59,9 @@ export DASHSCOPE_BASE_URL="your-base-url"
 export DASHSCOPE_API_KEY="your-api-key"
 export DASHSCOPE_MODEL="your-model"
 ```
+
+For the experiment directory layout and saved files, see
+[docs/experiment_layout_zh.md](docs/experiment_layout_zh.md).
 
 ## Validation
 

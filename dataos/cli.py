@@ -37,7 +37,7 @@ def _add_train_commands(subparsers) -> None:
     train.add_argument(
         "--sandbox",
         default=None,
-        help="Optional sandbox dir (defaults to <workspace>/sandboxes/<exp_id>)",
+        help="Optional experiment dir (defaults to <workspace>/experiments/<exp_id>)",
     )
     train.set_defaults(func=_cmd_train)
 
@@ -71,10 +71,9 @@ def _cmd_train(args) -> dict[str, object]:
         "task_id": result.task.task_id,
         "experiment_id": result.experiment.exp_id,
         "status": result.experiment.status,
-        "sandbox": str(result.experiment.sandbox.root),
+        "experiment_root": str(result.experiment.sandbox.root),
         "initial_artifact_ids": [artifact.artifact_id for artifact in result.initial_artifacts],
         "experiment_artifact_id": result.experiment_artifact.artifact_id,
-        "archived_experiment_artifact_id": result.archived_experiment_artifact.artifact_id,
         "review": result.review,
     }
 
