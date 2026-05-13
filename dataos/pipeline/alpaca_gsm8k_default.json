@@ -1,0 +1,35 @@
+{
+  "name": "alpaca_gsm8k_default",
+  "description": "Deterministic fallback pipeline for the AlpacaEval + GSM8K stub task.",
+  "steps": [
+    {
+      "operator_name": "map_to_alpaca",
+      "params": {
+        "keep_other_columns": false
+      }
+    },
+    {
+      "operator_name": "filter_exact_dedup",
+      "params": {
+        "keys": [
+          "instruction"
+        ]
+      }
+    },
+    {
+      "operator_name": "evaluate_text_quality",
+      "params": {
+        "score_column": "quality_score",
+        "reason_column": "quality_reason"
+      }
+    },
+    {
+      "operator_name": "select_top_by_score",
+      "params": {
+        "score_column": "quality_score",
+        "max_rows": 500,
+        "descending": true
+      }
+    }
+  ]
+}
