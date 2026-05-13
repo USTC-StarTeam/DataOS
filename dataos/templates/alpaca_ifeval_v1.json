@@ -6,12 +6,16 @@
   "output_description": "Trained LoRA adapter and an lm-eval ifeval EvalArtifact with prompt-strict instruction-following accuracy.",
   "constraints": {
     "dataset_format": "hf_datasets",
-    "llm_role": ["plan", "review"],
+    "llm_role": [
+      "plan",
+      "review"
+    ],
     "execution_mode": "fixed_runtime"
   },
-  "budget": {"max_experiments": 1},
+  "budget": {
+    "max_experiments": 1
+  },
   "max_rounds": 1,
-  "pipeline_hint": ["map_to_alpaca", "filter_exact_dedup", "evaluate_text_quality"],
   "train_config": {
     "mode": "llamafactory",
     "model_name_or_path": "/home/hcgu/data/hf-home/hub/models--Qwen--Qwen2.5-0.5B-Instruct/snapshots/main",
@@ -31,7 +35,9 @@
     }
   },
   "eval_config": {
-    "tasks": ["ifeval"],
+    "tasks": [
+      "ifeval"
+    ],
     "limit": 100,
     "num_fewshot": 0,
     "batch_size": 8,

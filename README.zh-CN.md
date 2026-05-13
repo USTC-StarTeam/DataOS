@@ -14,7 +14,7 @@ evaluator / generator 算子可以选择调用 OpenAI-compatible 模型。
 
 - 数据工件统一使用 Hugging Face `Dataset` / `DatasetDict` 的
   `save_to_disk` 目录。
-- `run_task()` 在本地 sandbox 中执行一次实验。
+- `run_task()` 在本地实验目录中执行一次实验。
 - 数据算子来自本地 registry，执行过程是确定性的。
 - `train_llamafactory` 和 `eval_model` 是固定 runtime stage，不是 LLM
   计划出来的 operator。
@@ -22,6 +22,8 @@ evaluator / generator 算子可以选择调用 OpenAI-compatible 模型。
 - 不再维护 research 层、daemon loop、project queue 或异步 agent 控制面。
 
 ## 安装
+
+同步项目环境：
 
 ```bash
 uv sync --extra dev
@@ -34,35 +36,37 @@ uv sync --extra train
 uv sync --extra eval
 ```
 
-## 最小入口
-
-```python
-from pathlib import Path
-
-from dataos.runtime import run_task
-
-result = run_task(
-    task_template=Path("dataos/templates/sft_v1.json"),
-    datasets=[
-        Path("/path/to/hf_dataset"),
-    ],
-    workspace_dir=Path("workspace"),
-)
-
-print(result.experiment.status)
-print(result.review)
-```
-
 ## CLI
 
 ```bash
-dataos operators list
+uv run dataos operators list
 
-dataos train \
-  --task dataos/templates/sft_v1.json \
-  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+uv run dataos train \
+  --task dataos/templates/alpaca_gsm8k_stub_v1.json \
+  --dataset datasets/alpaca_eval,datasets/gsm8k \
   --workspace workspace
 ```
+
+如果你希望 planning / review 走 DashScope，在 `uv run` 之前先导出环境变量：
+
+```bash
+export DASHSCOPE_BASE_URL="your-base-url"
+export DASHSCOPE_API_KEY="your-api-key"
+export DASHSCOPE_MODEL="your-model"
+```
+
+如果还会用到 `evaluate_llm_pair`，请单独配置 evaluator 接口：
+
+```bash
+export EVALUATOR_BASE_URL="your-evaluator-base-url"
+export EVALUATOR_API_KEY="your-evaluator-api-key"
+export EVALUATOR_MODEL="your-evaluator-model"
+```
+
+多数据集混合运行时，默认的对话样本格式是 ShareGPT 风格的 `conversations` 行。
+
+实验目录结构和落盘文件说明单独放在
+[docs/experiment_layout_zh.md](docs/experiment_layout_zh.md)。
 
 ## 校验
 

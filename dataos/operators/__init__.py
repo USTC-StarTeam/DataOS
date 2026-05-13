@@ -6,6 +6,7 @@ from dataos.operators.evaluator import EvaluateLLMPairOperator, EvaluateTextQual
 from dataos.operators.filter import FilterByTextLengthOperator, FilterExactDedupOperator
 from dataos.operators.generator import GenerateRewrittenAnswerOperator, GenerateRewrittenQueryOperator
 from dataos.operators.mapper import MapToAlpacaOperator, MapToShareGPTOperator
+from dataos.operators.mix import MergeDatasetsOperator
 from dataos.operators.selector import SelectRandomSubsetOperator, SelectTopByScoreOperator
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "GenerateRewrittenQueryOperator",
     "MapToAlpacaOperator",
     "MapToShareGPTOperator",
+    "MergeDatasetsOperator",
     "SelectRandomSubsetOperator",
     "SelectTopByScoreOperator",
     "builtin_operators",

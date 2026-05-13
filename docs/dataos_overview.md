@@ -11,7 +11,7 @@ workflows. The stable architecture is intentionally narrow:
 
 - Hugging Face `Dataset` / `DatasetDict` directories are the internal dataset
   artifact format.
-- `run_task()` executes one experiment inside a local sandbox.
+- `run_task()` executes one experiment inside a local experiment directory.
 - The runtime planning agent plans operator steps and reviews the finished
   experiment.
 - Operators execute deterministically in local Python and emit typed artifacts.
@@ -31,7 +31,7 @@ DataOS keeps one agent-like component:
 
 | Component | Location | Scope | Owns |
 |---|---|---|---|
-| Runtime planning agent | `dataos/core/agent.py` | One experiment | `plan()`, `review()`, `plan.json`, `review.json`, operator-step selection |
+| Runtime planning agent | `dataos/core/agent.py` | One experiment | `plan()`, `review()`, and operator-step selection |
 
 The agent does not own projects, queues, resources, leases, background workers,
 or persistent control-plane state.
@@ -40,7 +40,7 @@ or persistent control-plane state.
 
 The authoritative experiment entrypoint is `dataos.runtime.run_task()`.
 
-1. Materialize one or more dataset inputs into sandbox-managed Hugging Face dataset directories.
+1. Materialize one or more dataset inputs into experiment-managed Hugging Face dataset directories.
 2. Ask `LLMPlanningAgent` for operator steps.
 3. Execute registered data operators deterministically.
 4. Run fixed runtime stages:
@@ -48,7 +48,7 @@ The authoritative experiment entrypoint is `dataos.runtime.run_task()`.
    - `eval_model`
 5. Finalize the experiment artifact.
 6. Ask the same runtime agent for a structured review.
-7. Archive the experiment through `LocalArtifactStore`.
+7. Persist the final report and artifacts inside the same experiment directory.
 
 The LLM plans and reviews only. Execution stays in local code.
 
@@ -80,14 +80,14 @@ outside the registry as fixed runtime stages.
 
 | Path | Role |
 |---|---|
-| `dataos/core/` | Artifact model, sandbox, experiment state, task schema, operator interface, planning agent. |
+| `dataos/core/` | Artifact model, experiment directory layout, experiment state, task schema, operator interface, planning agent. |
 | `dataos/runtime/` | `run_task()` orchestration and fixed runtime stage wiring. |
 | `dataos/operators/` | Category-organized dataset operators plus shared operator helpers. |
 | `dataos/train/` | LLaMA-Factory training runtime stage. |
 | `dataos/eval/` | lm-eval bridge, adapters, eval config, NL-to-lm-eval helper. |
 | `dataos/llm/` | LLM client interfaces and OpenAI-compatible implementation. |
 | `dataos/prompts/` | Planning and review prompt builders. |
-| `dataos/templates/` | Example task templates and import specs. |
+| `dataos/templates/` | Example task templates. |
 | `dataos/cli.py` | CLI entrypoints for operator inspection and `dataos train`. |
 
 ## Eval Scope
@@ -108,26 +108,12 @@ agent.
 The CLI is intentionally small:
 
 ```bash
-dataos operators list
+uv run dataos operators list
 
-dataos train \
-  --task dataos/templates/sft_v1.json \
-  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+uv run dataos train \
+  --task dataos/templates/alpaca_gsm8k_stub_v1.json \
+  --dataset datasets/alpaca_eval,datasets/gsm8k \
   --workspace workspace
-```
-
-End-to-end experiment execution should use the Python API:
-
-```python
-from dataos.runtime import run_task
-
-result = run_task(
-    task_template="dataos/templates/sft_v1.json",
-    datasets=[
-        "/path/to/hf_dataset",
-    ],
-    workspace_dir="workspace",
-)
 ```
 
 ## Stable Paper Framing
@@ -135,7 +121,7 @@ result = run_task(
 The stable framing for the paper is:
 
 1. DataOS standardizes local SFT experiment artifacts around Hugging Face
-   datasets, typed artifacts, and sandboxed experiment directories.
+   datasets, typed artifacts, and single-root experiment directories.
 2. Planning and review are still the main LLM boundary, while a small subset of
    evaluator / generator operators can optionally call OpenAI-compatible
    endpoints when the task explicitly requires it.

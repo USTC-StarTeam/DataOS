@@ -28,6 +28,55 @@ class PlanStep:
         return {"operator_name": self.operator_name, "params": self.params}
 
 
+def execute_plan_steps(
+    *,
+    steps: list[PlanStep],
+    registry: OperatorRegistry,
+    task: TaskTemplate,
+    experiment: Experiment,
+    initial_artifacts: list[Artifact],
+) -> None:
+    current_artifacts = list(initial_artifacts)
+    for step in steps:
+        operator = registry.get(step.operator_name)
+        input_ids = [artifact.artifact_id for artifact in current_artifacts]
+        try:
+            result = operator.run(
+                current_artifacts,
+                sandbox=experiment.sandbox,
+                task=task,
+                experiment=experiment,
+                **step.params,
+            )
+            output_artifacts = result if isinstance(result, list) else [result]
+            output_ids: list[str] = []
+            next_artifacts: list[Artifact] = []
+            for artifact in output_artifacts:
+                artifact.save_meta()
+                experiment.add_artifact(artifact)
+                next_artifacts.append(artifact)
+                output_ids.append(artifact.artifact_id)
+            current_artifacts = next_artifacts
+            experiment.record_step(
+                operator_name=step.operator_name,
+                input_artifact_ids=input_ids,
+                output_artifact_ids=output_ids,
+                params=step.params,
+                status="completed",
+            )
+        except Exception as exc:
+            experiment.record_step(
+                operator_name=step.operator_name,
+                input_artifact_ids=input_ids,
+                output_artifact_ids=[],
+                params=step.params,
+                status="failed",
+                error=str(exc),
+            )
+            experiment.fail(exc)
+            raise
+
+
 @dataclass(slots=True)
 class LLMPlanningAgent:
     """Single-experiment planner and reviewer used by ``run_task``."""
@@ -59,16 +108,10 @@ class LLMPlanningAgent:
         try:
             payload = self.llm_client.generate_json(system_prompt, user_prompt, temperature=0.0)
             normalized = validate_plan_payload(payload, operator_lookup, max_steps=self.max_steps)
-            self.last_plan_payload = normalized
-            return [PlanStep(**step) for step in normalized["steps"]]
         except Exception as exc:
-            fallback = self._fallback_plan(task)
-            self.last_plan_payload = {
-                "steps": [step.to_record() for step in fallback],
-                "reasoning_summary": f"Fallback plan used because LLM output was invalid: {exc}",
-                "expected_gain": "Run the default data-operator pipeline safely before fixed runtime stages.",
-            }
-            return fallback
+            raise RuntimeError(f"Agent planning failed: {exc}") from exc
+        self.last_plan_payload = normalized
+        return [PlanStep(**step) for step in normalized["steps"]]
 
     def run_experiment(
         self,
@@ -78,48 +121,27 @@ class LLMPlanningAgent:
         history_summaries: list[dict[str, Any]] | None = None,
     ) -> list[PlanStep]:
         history_summaries = history_summaries or []
-        experiment.start()
-        current_artifacts = list(initial_artifacts)
         initial_summaries = [artifact.summary() for artifact in initial_artifacts]
-        steps = self.plan(
-            task=task,
-            initial_artifact_summaries=initial_summaries,
-            history_summaries=history_summaries,
-            operator_descriptions=self.registry.describe_all(),
-        )
+        try:
+            steps = self.plan(
+                task=task,
+                initial_artifact_summaries=initial_summaries,
+                history_summaries=history_summaries,
+                operator_descriptions=self.registry.describe_all(),
+            )
+        except Exception as exc:
+            experiment.fail(exc)
+            raise
         if self.last_plan_payload is not None:
+            experiment.set_plan(self.last_plan_payload)
             experiment.sandbox.write_json("plan.json", self.last_plan_payload)
-
-        for step in steps:
-            operator = self.registry.get(step.operator_name)
-            input_ids = [artifact.artifact_id for artifact in current_artifacts]
-            try:
-                result = operator.run(current_artifacts, sandbox=experiment.sandbox, task=task, experiment=experiment, **step.params)
-                output_artifacts = result if isinstance(result, list) else [result]
-                output_ids: list[str] = []
-                for artifact in output_artifacts:
-                    artifact.save_meta()
-                    experiment.add_artifact(artifact)
-                    current_artifacts.append(artifact)
-                    output_ids.append(artifact.artifact_id)
-                experiment.record_step(
-                    operator_name=step.operator_name,
-                    input_artifact_ids=input_ids,
-                    output_artifact_ids=output_ids,
-                    params=step.params,
-                    status="completed",
-                )
-            except Exception as exc:
-                experiment.record_step(
-                    operator_name=step.operator_name,
-                    input_artifact_ids=input_ids,
-                    output_artifact_ids=[],
-                    params=step.params,
-                    status="failed",
-                    error=str(exc),
-                )
-                experiment.fail(exc)
-                raise
+        execute_plan_steps(
+            steps=steps,
+            registry=self.registry,
+            task=task,
+            experiment=experiment,
+            initial_artifacts=initial_artifacts,
+        )
         return steps
 
     def review(self, task: TaskTemplate, experiment: Experiment) -> dict[str, Any]:
@@ -140,20 +162,6 @@ class LLMPlanningAgent:
                 "recommended_changes": ["Review the experiment report before starting another round."],
             }
         self.last_review_payload = normalized
+        experiment.set_review(normalized)
         experiment.sandbox.write_json("review.json", normalized)
         return normalized
-
-    def _fallback_plan(self, task: TaskTemplate) -> list[PlanStep]:
-        available = {operator.name: operator for operator in self.registry.list()}
-        if not available:
-            raise ValueError("Registry does not contain any fallback data operators")
-        hinted_steps: list[PlanStep] = []
-        for operator_name in task.pipeline_hint:
-            operator = available.get(operator_name)
-            if operator is None:
-                continue
-            hinted_steps.append(PlanStep(operator_name, operator.default_params()))
-        if hinted_steps:
-            return hinted_steps[: self.max_steps]
-        first = next(iter(available.values()))
-        return [PlanStep(first.name, first.default_params())]

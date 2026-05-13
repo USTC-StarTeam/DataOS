@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from datasets import Dataset, DatasetDict
 
@@ -15,14 +16,27 @@ from dataos.operators._dataset_utils import (
     restore_dataset_type,
     save_dataset_artifact,
 )
-from dataos.operators._llm_utils import build_operator_llm_client
+from dataos.llm.openai_compat import DASHSCOPE_BASE_URL, DEFAULT_MODEL, OpenAICompatLLMClient
+
+
+def _build_evaluator_llm_client(*, base_url: str | None = None, api_key: str | None = None, model: str | None = None) -> OpenAICompatLLMClient:
+    resolved_api_key = api_key or os.environ.get("EVALUATOR_API_KEY")
+    if not resolved_api_key:
+        raise ValueError("evaluate_llm_pair requires EVALUATOR_API_KEY")
+    resolved_base_url = base_url or os.environ.get("EVALUATOR_BASE_URL") or DASHSCOPE_BASE_URL
+    resolved_model = model or os.environ.get("EVALUATOR_MODEL") or DEFAULT_MODEL
+    return OpenAICompatLLMClient(
+        api_key=resolved_api_key,
+        base_url=resolved_base_url,
+        model=resolved_model,
+    )
 
 
 class EvaluateLLMPairOperator(Operator):
     name = "evaluate_llm_pair"
     category = "evaluator"
-    description = "Use an OpenAI-compatible LLM to score prompt-answer pairs and attach the results."
-    chinese_description = "调用 OpenAI-compatible 大模型为问答对打分，并把分数写回数据集。"
+    description = "Use the evaluator LLM endpoint to score prompt-answer pairs and attach the results."
+    chinese_description = "调用 evaluator 专用大模型接口为问答对打分，并把分数写回数据集。"
     parameter_specs = [
         OperatorParameter(
             name="score_column",
@@ -45,7 +59,7 @@ class EvaluateLLMPairOperator(Operator):
         OperatorParameter(
             name="model",
             type="str",
-            description="Optional OpenAI-compatible model override.",
+            description="Optional evaluator model override.",
             default="",
         ),
     ]
@@ -59,7 +73,7 @@ class EvaluateLLMPairOperator(Operator):
         if max_rows < 0:
             raise ValueError("evaluate_llm_pair: max_rows must be >= 0")
 
-        client = build_operator_llm_client(model=model)
+        client = _build_evaluator_llm_client(model=model)
         dataset_obj = source.load()
         dataset_dict, was_dict = ensure_dataset_dict(dataset_obj)
         transformed: dict[str, Dataset] = {}

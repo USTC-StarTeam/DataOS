@@ -6,12 +6,16 @@
   "output_description": "Trained LoRA adapter and IFEval EvalArtifact with prompt_strict / instruction_strict accuracy on a held-out IFEval slice.",
   "constraints": {
     "dataset_format": "hf_datasets",
-    "llm_role": ["plan", "review"],
+    "llm_role": [
+      "plan",
+      "review"
+    ],
     "execution_mode": "fixed_runtime"
   },
-  "budget": {"max_experiments": 1},
+  "budget": {
+    "max_experiments": 1
+  },
   "max_rounds": 1,
-  "pipeline_hint": ["map_to_alpaca", "evaluate_text_quality", "select_top_by_score"],
   "train_config": {
     "mode": "llamafactory",
     "model_name_or_path": "/home/hcgu/data/hf-home/hub/models--Qwen--Qwen2.5-0.5B-Instruct/snapshots/main",
@@ -31,12 +35,20 @@
   },
   "eval_config": {
     "provider": "native",
-    "task": {"name": "ifeval"},
+    "task": {
+      "name": "ifeval"
+    },
     "data": {
       "split": "train",
       "path": "/home/hcgu/data/DataOS-smoke/ifeval-dataset"
     },
-    "adapter": {"name": "transformers"},
-    "request": {"type": "generate_until", "batch_size": 8, "max_new_tokens": 1024}
+    "adapter": {
+      "name": "transformers"
+    },
+    "request": {
+      "type": "generate_until",
+      "batch_size": 8,
+      "max_new_tokens": 1024
+    }
   }
 }
