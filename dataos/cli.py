@@ -39,11 +39,6 @@ def _add_train_commands(subparsers) -> None:
         default=None,
         help="Optional experiment dir (defaults to <workspace>/<exp_id>)",
     )
-    train.add_argument(
-        "--pipeline",
-        default=None,
-        help="Optional pipeline JSON path. When set, bypass agent planning and run the selected pipeline.",
-    )
     train.set_defaults(func=_cmd_train)
 
 
@@ -71,7 +66,6 @@ def _cmd_train(args) -> dict[str, object]:
         datasets=datasets,
         workspace_dir=args.workspace,
         sandbox_root=args.sandbox,
-        pipeline_path=args.pipeline,
     )
     return {
         "task_id": result.task.task_id,

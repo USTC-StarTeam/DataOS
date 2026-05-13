@@ -9,6 +9,7 @@ from dataos.operators._dataset_utils import (
     ensure_dataset_dict,
     find_latest_dataset,
     normalize_text,
+    resolve_text_key,
     restore_dataset_type,
     save_dataset_artifact,
 )
@@ -37,19 +38,21 @@ class FilterExactDedupOperator(Operator):
         transformed: dict[str, Dataset] = {}
         removed_counts: dict[str, int] = {}
         for split, dataset in dataset_dict.items():
-            for key in keys:
-                if key not in dataset.column_names:
-                    raise ValueError(f"filter_exact_dedup: column '{key}' not found in split '{split}'")
             seen: set[str] = set()
             rows: list[dict] = []
             removed = 0
+            columns = list(dataset.column_names)
             for row in dataset:
-                dedup_key = "\x1f".join(normalize_text(row.get(key)).lower() for key in keys)
+                row_dict = dict(row)
+                dedup_key = "\x1f".join(
+                    normalize_text(resolve_text_key(row_dict, key, columns, source.meta)).lower()
+                    for key in keys
+                )
                 if dedup_key in seen:
                     removed += 1
                     continue
                 seen.add(dedup_key)
-                rows.append(dict(row))
+                rows.append(row_dict)
             transformed[split] = Dataset.from_list(rows)
             removed_counts[split] = removed
 

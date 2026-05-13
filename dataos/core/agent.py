@@ -50,11 +50,13 @@ def execute_plan_steps(
             )
             output_artifacts = result if isinstance(result, list) else [result]
             output_ids: list[str] = []
+            next_artifacts: list[Artifact] = []
             for artifact in output_artifacts:
                 artifact.save_meta()
                 experiment.add_artifact(artifact)
-                current_artifacts.append(artifact)
+                next_artifacts.append(artifact)
                 output_ids.append(artifact.artifact_id)
+            current_artifacts = next_artifacts
             experiment.record_step(
                 operator_name=step.operator_name,
                 input_artifact_ids=input_ids,
@@ -119,7 +121,6 @@ class LLMPlanningAgent:
         history_summaries: list[dict[str, Any]] | None = None,
     ) -> list[PlanStep]:
         history_summaries = history_summaries or []
-        experiment.start()
         initial_summaries = [artifact.summary() for artifact in initial_artifacts]
         try:
             steps = self.plan(

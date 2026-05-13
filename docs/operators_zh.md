@@ -104,21 +104,4 @@ plan agent 拿到的是完整 schema，而不是只有名字的列表；因此�
   `save_to_disk` 目录作为 `DatasetArtifact`。
 - `map_to_alpaca` 产出 `instruction / input / output`
 - `map_to_sharegpt` 产出 `conversations`
-- 训练阶段会把两种表示都转换成可训练的 Alpaca 导出格式
-
-## 当前建议的基础流水线
-
-对于常见 SFT 数据，推荐把 `pipeline_hint` 写成下面这种顺序：
-
-1. `map_to_alpaca`
-2. `filter_exact_dedup`
-3. `evaluate_text_quality`
-4. `select_top_by_score`
-
-如果目标是构造对话数据，可以用：
-
-1. `map_to_sharegpt`
-2. `filter_by_text_length`
-3. `generate_rewritten_query`
-
-这两条都只是默认建议；真正执行时仍由 plan agent 根据任务目标和可用算子决定。
+- 训练阶段消费 `map_to_alpaca` 等数据算子已经产出的 Alpaca-like 数据。
