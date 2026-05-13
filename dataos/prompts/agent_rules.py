@@ -15,6 +15,9 @@ PLAN_RULES = [
     "Treat all datasets as Hugging Face datasets artifacts, never JSONL.",
     "Use dataset summaries based on hf_object_type, splits, num_rows, columns, and features.",
     "Use only parameters that appear in the operator schema; fill required parameters and prefer defaults when the task does not constrain them.",
+    "Operators always consume the latest upstream dataset artifact. Plan a sequence that is executable in order.",
+    "If the latest upstream dataset does not already have Alpaca-style columns like instruction/input/output, use a mapper such as map_to_alpaca before filters or evaluators that rely on those columns.",
+    "When a filter or selector references specific columns, make sure those columns exist on the dataset produced by the previous step.",
 ]
 
 REVIEW_RULES = [
@@ -33,7 +36,7 @@ def build_plan_system_prompt(max_steps: int = PLAN_MAX_STEPS) -> str:
         f"{joined_rules}\n"
         "Output schema:\n"
         '{\n'
-        '  "steps": [{"operator_name": "filter_exact_dedup", "params": {"keys": ["instruction"]}}],\n'
+        '  "steps": [{"operator_name": "map_to_alpaca", "params": {"keep_other_columns": false}}, {"operator_name": "filter_exact_dedup", "params": {"keys": ["instruction"]}}],\n'
         '  "reasoning_summary": "short string",\n'
         '  "expected_gain": "short string"\n'
         '}'
@@ -51,6 +54,7 @@ def build_plan_user_prompt(
         "initial_artifacts": initial_artifacts,
         "history": history,
         "available_operators": operators,
+        "execution_note": "Each operator runs against the latest upstream dataset artifact, which is initially the last dataset in initial_artifacts.",
     }
     return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
 

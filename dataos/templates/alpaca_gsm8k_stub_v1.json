@@ -17,12 +17,6 @@
     "notes": "Data operators run for real; training and evaluation stay in stub mode."
   },
   "max_rounds": 1,
-  "pipeline_hint": [
-    "map_to_alpaca",
-    "filter_exact_dedup",
-    "evaluate_text_quality",
-    "select_top_by_score"
-  ],
   "train_config": {
     "mode": "stub"
   },

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 import os
 
-from dataos.core.agent import LLMPlanningAgent
+from dataos.core.agent import LLMPlanningAgent, execute_plan_steps
 from dataos.core.artifact import DatasetArtifact, ExperimentArtifact, make_artifact_id
 from dataos.core.experiment import Experiment
 from dataos.core.sandbox import Sandbox
@@ -18,6 +18,7 @@ from dataos.llm.openai_compat import (
     OpenAICompatLLMClient,
 )
 from dataos.operators import build_default_registry
+from dataos.pipeline import load_pipeline
 from dataos.train import run_train_stage
 
 
@@ -37,6 +38,7 @@ def run_task(
     workspace_dir: str | Path = "workspace",
     sandbox_root: str | Path | None = None,
     history_summaries: list[dict[str, Any]] | None = None,
+    pipeline_path: str | Path | None = None,
 ) -> RunTaskResult:
     store = LocalArtifactStore(workspace_dir)
     store.prepare()
@@ -57,12 +59,28 @@ def run_task(
     experiment = Experiment(exp_id=exp_id, task=task, sandbox=sandbox)
     for artifact in initial_artifacts:
         experiment.add_artifact(artifact)
-    agent.run_experiment(
-        task=task,
-        experiment=experiment,
-        initial_artifacts=initial_artifacts,
-        history_summaries=history_summaries,
-    )
+
+    if pipeline_path is None:
+        agent.run_experiment(
+            task=task,
+            experiment=experiment,
+            initial_artifacts=initial_artifacts,
+            history_summaries=history_summaries,
+        )
+    else:
+        pipeline = load_pipeline(pipeline_path, registry)
+        experiment.start()
+        plan_payload = pipeline.to_plan_record()
+        experiment.set_plan(plan_payload)
+        experiment.sandbox.write_json("plan.json", plan_payload)
+        execute_plan_steps(
+            steps=pipeline.steps,
+            registry=registry,
+            task=task,
+            experiment=experiment,
+            initial_artifacts=initial_artifacts,
+        )
+
     _run_training_stage(task=task, experiment=experiment)
     _run_eval_stage(task=task, experiment=experiment)
     review = agent.review(task, experiment)

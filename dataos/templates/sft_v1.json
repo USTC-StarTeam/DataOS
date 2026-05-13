@@ -17,17 +17,13 @@
     "notes": "V0.1 only runs one experiment round."
   },
   "max_rounds": 1,
-  "pipeline_hint": [
-    "map_to_alpaca",
-    "filter_exact_dedup",
-    "evaluate_text_quality",
-    "select_top_by_score"
-  ],
   "train_config": {
     "mode": "stub"
   },
   "eval_config": {
-    "tasks": ["gsm8k"],
+    "tasks": [
+      "gsm8k"
+    ],
     "limit": 50,
     "num_fewshot": 0,
     "batch_size": 8,

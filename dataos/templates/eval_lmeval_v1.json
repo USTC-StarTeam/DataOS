@@ -9,12 +9,17 @@
     "llm_role": [],
     "execution_mode": "fixed_runtime"
   },
-  "budget": {"max_experiments": 1},
+  "budget": {
+    "max_experiments": 1
+  },
   "max_rounds": 1,
-  "pipeline_hint": [],
-  "train_config": {"mode": "stub"},
+  "train_config": {
+    "mode": "stub"
+  },
   "eval_config": {
-    "tasks": ["gsm8k"],
+    "tasks": [
+      "gsm8k"
+    ],
     "limit": 50,
     "num_fewshot": 0,
     "batch_size": 8,
