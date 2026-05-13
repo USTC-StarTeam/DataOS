@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any
 import os
 
-from dataos.core.agent import LLMPlanningAgent, execute_plan_steps
-from dataos.core.artifact import DatasetArtifact, ExperimentArtifact, make_artifact_id
+from dataos.core.agent import LLMPlanningAgent
+from datasets import Dataset, DatasetDict
+
+from dataos.core.artifact import DatasetArtifact, ExperimentArtifact, make_artifact_id, select_working_dataset
 from dataos.core.experiment import Experiment
 from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
@@ -18,7 +20,7 @@ from dataos.llm.openai_compat import (
     OpenAICompatLLMClient,
 )
 from dataos.operators import build_default_registry
-from dataos.pipeline import load_pipeline
+from dataos.operators.mix import MergeDatasetsOperator
 from dataos.train import run_train_stage
 
 
@@ -38,7 +40,6 @@ def run_task(
     workspace_dir: str | Path = "workspace",
     sandbox_root: str | Path | None = None,
     history_summaries: list[dict[str, Any]] | None = None,
-    pipeline_path: str | Path | None = None,
 ) -> RunTaskResult:
     store = LocalArtifactStore(workspace_dir)
     store.prepare()
@@ -59,27 +60,15 @@ def run_task(
     experiment = Experiment(exp_id=exp_id, task=task, sandbox=sandbox)
     for artifact in initial_artifacts:
         experiment.add_artifact(artifact)
+    experiment.start()
+    working_artifacts = _build_working_artifacts(initial_artifacts, experiment)
 
-    if pipeline_path is None:
-        agent.run_experiment(
-            task=task,
-            experiment=experiment,
-            initial_artifacts=initial_artifacts,
-            history_summaries=history_summaries,
-        )
-    else:
-        pipeline = load_pipeline(pipeline_path, registry)
-        experiment.start()
-        plan_payload = pipeline.to_plan_record()
-        experiment.set_plan(plan_payload)
-        experiment.sandbox.write_json("plan.json", plan_payload)
-        execute_plan_steps(
-            steps=pipeline.steps,
-            registry=registry,
-            task=task,
-            experiment=experiment,
-            initial_artifacts=initial_artifacts,
-        )
+    agent.run_experiment(
+        task=task,
+        experiment=experiment,
+        initial_artifacts=working_artifacts,
+        history_summaries=history_summaries,
+    )
 
     _run_training_stage(task=task, experiment=experiment)
     _run_eval_stage(task=task, experiment=experiment)
@@ -129,9 +118,49 @@ def _materialize_initial_datasets(dataset_sources: list[str], sandbox: Sandbox) 
             producer="run_task",
         )
         artifact.materialize()
+        dataset_obj = artifact.load()
+        if isinstance(dataset_obj, DatasetDict):
+            working_dataset, selected_split, available_splits = select_working_dataset(dataset_obj)
+            artifact.meta["source"] = str(source)
+            artifact.meta["source_selected_split"] = selected_split
+            artifact.meta["source_available_splits"] = available_splits
+            artifact.save(working_dataset)
+        elif isinstance(dataset_obj, Dataset):
+            artifact.meta.setdefault("source", str(source))
+            artifact.meta.setdefault("source_selected_split", "train")
+            artifact.meta.setdefault("source_available_splits", ["train"])
+            artifact.save_meta()
         artifact.save_meta()
         artifacts.append(artifact)
     return artifacts
+
+
+def _build_working_artifacts(initial_artifacts: list[DatasetArtifact], experiment: Experiment) -> list[DatasetArtifact]:
+    operator = MergeDatasetsOperator()
+    input_artifact_ids = [artifact.artifact_id for artifact in initial_artifacts]
+    try:
+        merged_artifact = operator.run(initial_artifacts, sandbox=experiment.sandbox)
+        merged_artifact.save_meta()
+        experiment.add_artifact(merged_artifact)
+        experiment.record_step(
+            operator_name=operator.name,
+            input_artifact_ids=input_artifact_ids,
+            output_artifact_ids=[merged_artifact.artifact_id],
+            params={},
+            status="completed",
+        )
+        return [merged_artifact]
+    except Exception as exc:
+        experiment.record_step(
+            operator_name=operator.name,
+            input_artifact_ids=input_artifact_ids,
+            output_artifact_ids=[],
+            params={},
+            status="failed",
+            error=str(exc),
+        )
+        experiment.fail(exc)
+        raise
 
 
 def _run_training_stage(task: TaskTemplate, experiment: Experiment) -> None:
@@ -200,21 +229,12 @@ def _run_runtime_stage(
 
 
 def _build_client_from_env() -> OpenAICompatLLMClient:
-    api_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("STARTEAM_API_KEY")
+    api_key = os.environ.get("DASHSCOPE_API_KEY")
     if not api_key:
         raise ValueError(
             "Missing LLM API key. "
-            "Set DASHSCOPE_API_KEY (or legacy STARTEAM_API_KEY); "
-            "optional DASHSCOPE_BASE_URL / DASHSCOPE_MODEL override the defaults."
+            "Set DASHSCOPE_API_KEY; optional DASHSCOPE_BASE_URL / DASHSCOPE_MODEL override the defaults."
         )
-    base_url = (
-        os.environ.get("DASHSCOPE_BASE_URL")
-        or os.environ.get("STARTEAM_BASE_URL")
-        or DASHSCOPE_BASE_URL
-    )
-    model = (
-        os.environ.get("DASHSCOPE_MODEL")
-        or os.environ.get("STARTEAM_MODEL")
-        or DEFAULT_MODEL
-    )
+    base_url = os.environ.get("DASHSCOPE_BASE_URL") or DASHSCOPE_BASE_URL
+    model = os.environ.get("DASHSCOPE_MODEL") or DEFAULT_MODEL
     return OpenAICompatLLMClient(api_key=api_key, base_url=base_url, model=model)

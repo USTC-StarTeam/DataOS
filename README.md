@@ -51,14 +51,23 @@ uv run dataos train \
   --workspace workspace
 ```
 
-If you want planning and review to use DashScope, export the runtime variables
-before `uv run`:
+If you want planning / review to use DashScope, export these variables before `uv run`:
 
 ```bash
 export DASHSCOPE_BASE_URL="your-base-url"
 export DASHSCOPE_API_KEY="your-api-key"
 export DASHSCOPE_MODEL="your-model"
 ```
+
+If you also use `evaluate_llm_pair`, configure the evaluator endpoint separately:
+
+```bash
+export EVALUATOR_BASE_URL="your-evaluator-base-url"
+export EVALUATOR_API_KEY="your-evaluator-api-key"
+export EVALUATOR_MODEL="your-evaluator-model"
+```
+
+For mixed-dataset runs, the default conversational dataset shape is ShareGPT-style `conversations` rows.
 
 For the experiment directory layout and saved files, see
 [docs/experiment_layout_zh.md](docs/experiment_layout_zh.md).

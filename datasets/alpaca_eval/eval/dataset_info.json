@@ -1,17 +1,6 @@
 {
-  "builder_name": "json",
   "citation": "",
-  "config_name": "default",
-  "dataset_name": "json",
-  "dataset_size": 554496,
   "description": "",
-  "download_checksums": {
-    "/home/xyzhi/.cache/huggingface/hub/datasets--tatsu-lab--alpaca_eval/snapshots/2edc6fad8be6b14ea7230aabfd08188da6b8b814/alpaca_eval.json": {
-      "num_bytes": 620778,
-      "checksum": null
-    }
-  },
-  "download_size": 620778,
   "features": {
     "dataset": {
       "dtype": "string",
@@ -28,23 +17,21 @@
     "generator": {
       "dtype": "string",
       "_type": "Value"
+    },
+    "conversations": {
+      "feature": {
+        "from": {
+          "dtype": "string",
+          "_type": "Value"
+        },
+        "value": {
+          "dtype": "string",
+          "_type": "Value"
+        }
+      },
+      "_type": "List"
     }
   },
   "homepage": "",
-  "license": "",
-  "size_in_bytes": 1175274,
-  "splits": {
-    "eval": {
-      "name": "eval",
-      "num_bytes": 554496,
-      "num_examples": 805,
-      "dataset_name": "json"
-    }
-  },
-  "version": {
-    "version_str": "0.0.0",
-    "major": 0,
-    "minor": 0,
-    "patch": 0
-  }
+  "license": ""
 }

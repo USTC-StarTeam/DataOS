@@ -66,6 +66,20 @@ def _dataset_fingerprint(dataset_obj: Dataset | DatasetDict) -> str | None:
     return getattr(dataset_obj, "_fingerprint", None)
 
 
+def select_working_dataset(dataset_obj: Dataset | DatasetDict) -> tuple[Dataset, str, list[str]]:
+    if isinstance(dataset_obj, Dataset):
+        return dataset_obj, "train", ["train"]
+    split_names = list(dataset_obj.keys())
+    if "train" in dataset_obj:
+        return dataset_obj["train"], "train", split_names
+    if len(split_names) == 1:
+        split_name = split_names[0]
+        return dataset_obj[split_name], split_name, split_names
+    raise ValueError(
+        "DatasetArtifact source must provide a 'train' split, or exactly one split if 'train' is absent"
+    )
+
+
 @dataclass(slots=True)
 class Artifact(ABC):
     artifact_id: str
@@ -191,8 +205,11 @@ class DatasetArtifact(Artifact):
             )
 
         dataset_obj = _load_dataset_source(self.source)
+        working_dataset, selected_split, available_splits = select_working_dataset(dataset_obj)
         self.meta["source"] = str(self.source)
-        self.save(dataset_obj)
+        self.meta["source_selected_split"] = selected_split
+        self.meta["source_available_splits"] = available_splits
+        self.save(working_dataset)
 
     def summary(self) -> dict[str, Any]:
         if not self.meta:
