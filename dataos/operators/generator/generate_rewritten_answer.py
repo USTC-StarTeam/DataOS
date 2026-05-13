@@ -15,6 +15,7 @@ from dataos.operators._dataset_utils import (
     ensure_dataset_dict,
     extract_text_pair,
     find_latest_dataset,
+    preserve_context_fields,
     restore_dataset_type,
     save_dataset_artifact,
 )
@@ -65,7 +66,8 @@ class GenerateRewrittenAnswerOperator(Operator):
             for index, row in enumerate(dataset):
                 if max_rows and index >= max_rows:
                     break
-                prompt, answer, system = extract_text_pair(dict(row), list(dataset.column_names), source.meta)
+                source_row = dict(row)
+                prompt, answer, system = extract_text_pair(source_row, list(dataset.column_names), source.meta)
                 payload = client.generate_json(
                     system_prompt=(
                         "Improve the answer for SFT augmentation. Keep it faithful, clearer, and slightly stronger. "
@@ -81,6 +83,7 @@ class GenerateRewrittenAnswerOperator(Operator):
                 if not rewritten_answer:
                     continue
                 new_row = build_row_for_format(dataset_format, prompt, rewritten_answer, system=system)
+                preserve_context_fields(source_row, new_row, keep_other_columns=False)
                 new_row["dataos_generated"] = True
                 new_row["dataos_generator"] = self.name
                 new_row["dataos_source_row"] = index

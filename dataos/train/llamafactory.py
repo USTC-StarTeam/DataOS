@@ -352,9 +352,9 @@ def _write_alpaca_dataset(dataset: Dataset, target: Path) -> dict[str, str]:
         "prompt": "instruction",
         "response": "output",
     }
-    if "input" in dataset.column_names:
+    if any("input" in record for record in records):
         column_mapping["query"] = "input"
-    if "system" in dataset.column_names:
+    if any("system" in record for record in records):
         column_mapping["system"] = "system"
     if "history" in dataset.column_names:
         column_mapping["history"] = "history"
@@ -366,43 +366,12 @@ def _extract_training_pair(
     columns: list[str],
     index: int,
 ) -> tuple[str, str, str, str]:
-    if "conversations" in columns:
-        prompt_parts: list[str] = []
-        response = ""
-        for message in row.get("conversations") or []:
-            if not isinstance(message, dict):
-                continue
-            role = str(message.get("from") or message.get("role") or "").lower()
-            content = _coerce_optional_string(
-                message.get("value") or message.get("content"),
-                "conversation_content",
-                index,
-            )
-            if role in {"human", "user"} and content:
-                prompt_parts.append(content)
-            elif role in {"assistant", "gpt"} and content:
-                response = content
-        prompt = "\n".join(part for part in prompt_parts if part).strip()
-        if not prompt or not response:
-            raise ValueError(f"Row {index} could not be converted from ShareGPT conversations to Alpaca")
-        instruction, _, user_input = prompt.partition("\n")
-        system = _coerce_optional_string(row.get("system"), "system", index)
-        return instruction.strip(), user_input.strip(), response, system
-
     instruction_column = "instruction" if "instruction" in columns else "prompt" if "prompt" in columns else None
-    response_column = (
-        "response"
-        if "response" in columns
-        else "output"
-        if "output" in columns
-        else "answer"
-        if "answer" in columns
-        else None
-    )
+    response_column = "response" if "response" in columns else "output" if "output" in columns else None
     if instruction_column is None or response_column is None:
         joined = ", ".join(columns)
         raise ValueError(
-            "llamafactory mode requires Alpaca-like columns or ShareGPT conversations; "
+            "llamafactory mode requires Alpaca-like columns produced by data operators; "
             f"found: {joined}"
         )
     instruction = _coerce_optional_string(row.get(instruction_column), instruction_column, index, required=True)

@@ -16,7 +16,7 @@ The operator catalog is documented in [docs/operators_zh.md](docs/operators_zh.m
 
 - Hugging Face `Dataset` / `DatasetDict` `save_to_disk` directories are the
   internal dataset format.
-- `run_task()` executes one experiment inside a local sandbox.
+- `run_task()` executes one experiment inside a local experiment directory.
 - Data operators are deterministic and registered locally.
 - `train_llamafactory` and `eval_model` are fixed runtime stages, not planned
   operators.
@@ -26,6 +26,8 @@ The operator catalog is documented in [docs/operators_zh.md](docs/operators_zh.m
   control plane.
 
 ## Install
+
+Sync the project environment:
 
 ```bash
 uv sync --extra dev
@@ -38,35 +40,37 @@ uv sync --extra train
 uv sync --extra eval
 ```
 
-## Quick Start
-
-```python
-from pathlib import Path
-
-from dataos.runtime import run_task
-
-result = run_task(
-    task_template=Path("dataos/templates/sft_v1.json"),
-    datasets=[
-        Path("/path/to/hf_dataset"),
-    ],
-    workspace_dir=Path("workspace"),
-)
-
-print(result.experiment.status)
-print(result.review)
-```
-
 ## CLI
 
 ```bash
-dataos operators list
+uv run dataos operators list
 
-dataos train \
-  --task dataos/templates/sft_v1.json \
-  --dataset tatsu-lab/alpaca,/path/to/hf_dataset \
+uv run dataos train \
+  --task dataos/templates/alpaca_gsm8k_stub_v1.json \
+  --dataset datasets/alpaca_eval,datasets/gsm8k \
   --workspace workspace
 ```
+
+If you want planning / review to use DashScope, export these variables before `uv run`:
+
+```bash
+export DASHSCOPE_BASE_URL="your-base-url"
+export DASHSCOPE_API_KEY="your-api-key"
+export DASHSCOPE_MODEL="your-model"
+```
+
+If you also use `evaluate_llm_pair`, configure the evaluator endpoint separately:
+
+```bash
+export EVALUATOR_BASE_URL="your-evaluator-base-url"
+export EVALUATOR_API_KEY="your-evaluator-api-key"
+export EVALUATOR_MODEL="your-evaluator-model"
+```
+
+For mixed-dataset runs, the default conversational dataset shape is ShareGPT-style `conversations` rows.
+
+For the experiment directory layout and saved files, see
+[docs/experiment_layout_zh.md](docs/experiment_layout_zh.md).
 
 ## Validation
 

@@ -16,7 +16,6 @@ class TaskTemplate:
     constraints: dict[str, Any]
     budget: dict[str, Any]
     max_rounds: int
-    pipeline_hint: list[str]
     train_config: dict[str, Any]
     eval_config: dict[str, Any]
 
@@ -31,7 +30,6 @@ class TaskTemplate:
             "constraints",
             "budget",
             "max_rounds",
-            "pipeline_hint",
             "train_config",
             "eval_config",
         ]
@@ -48,7 +46,6 @@ class TaskTemplate:
             constraints=dict(data["constraints"]),
             budget=dict(data["budget"]),
             max_rounds=int(data["max_rounds"]),
-            pipeline_hint=list(data["pipeline_hint"]),
             train_config=dict(data["train_config"]),
             eval_config=dict(data["eval_config"]),
         )
@@ -67,7 +64,6 @@ class TaskTemplate:
             "constraints": self.constraints,
             "budget": self.budget,
             "max_rounds": self.max_rounds,
-            "pipeline_hint": self.pipeline_hint,
             "train_config": self.train_config,
             "eval_config": self.eval_config,
         }

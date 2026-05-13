@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from dataos.core.artifact import Artifact, EvalArtifact, ExperimentArtifact, make_artifact_id, utc_now_iso
+from dataos.core.artifact import Artifact, EvalArtifact, ExperimentArtifact, utc_now_iso
 from dataos.core.sandbox import Sandbox
 from dataos.core.task import TaskTemplate
 
@@ -22,6 +21,8 @@ class Experiment:
     created_at: str = field(default_factory=utc_now_iso)
     started_at: str | None = None
     finished_at: str | None = None
+    plan: dict[str, Any] | None = None
+    review: dict[str, Any] | None = None
 
     def start(self) -> None:
         self.sandbox.prepare()
@@ -30,6 +31,12 @@ class Experiment:
 
     def add_artifact(self, artifact: Artifact) -> None:
         self.artifacts.append(artifact)
+
+    def set_plan(self, plan: dict[str, Any]) -> None:
+        self.plan = plan
+
+    def set_review(self, review: dict[str, Any]) -> None:
+        self.review = review
 
     def record_step(
         self,
@@ -62,19 +69,16 @@ class Experiment:
         self.score = self._infer_score()
         report = self.to_record()
         self.sandbox.write_json("report.json", report)
-        artifact_dir = self.sandbox.artifact_dir("experiment", self.exp_id)
-        report_copy = artifact_dir / "report.json"
-        report_copy.write_text(json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
         artifact = ExperimentArtifact(
             artifact_id=self.exp_id,
             name=f"experiment-{self.exp_id}",
-            path=artifact_dir,
+            path=self.sandbox.root,
             meta={
                 "status": self.status,
                 "score": self.score,
                 "task_id": self.task.task_id,
                 "num_steps": len(self.steps),
-                "report_path": str(report_copy),
+                "report_path": str(self.sandbox.report_path()),
             },
             parent_ids=[artifact.artifact_id for artifact in self.artifacts],
             producer="experiment.finalize",
@@ -92,15 +96,17 @@ class Experiment:
         return {
             "exp_id": self.exp_id,
             "task": self.task.to_record(),
-            "sandbox": str(self.sandbox.root),
+            "experiment_root": str(self.sandbox.root),
             "artifacts": [artifact.to_record() for artifact in self.artifacts],
             "steps": self.steps,
             "status": self.status,
-            "score": self.score,
+            "score": self.score if self.score is not None else self._infer_score(),
             "error": self.error,
             "created_at": self.created_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "plan": self.plan,
+            "review": self.review,
         }
 
     def _infer_score(self) -> float | None:
@@ -108,7 +114,3 @@ class Experiment:
             if isinstance(artifact, EvalArtifact) and artifact.meta.get("score") is not None:
                 return float(artifact.meta["score"])
         return self.score
-
-
-def new_experiment(task: TaskTemplate, sandbox: Sandbox) -> Experiment:
-    return Experiment(exp_id=make_artifact_id("exp"), task=task, sandbox=sandbox)

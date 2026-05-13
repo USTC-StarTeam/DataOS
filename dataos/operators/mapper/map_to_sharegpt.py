@@ -10,6 +10,7 @@ from dataos.operators._dataset_utils import (
     ensure_dataset_dict,
     extract_text_pair,
     find_latest_dataset,
+    preserve_context_fields,
     restore_dataset_type,
     save_dataset_artifact,
 )
@@ -40,12 +41,10 @@ class MapToShareGPTOperator(Operator):
         for split, dataset in dataset_dict.items():
             rows: list[dict] = []
             for row in dataset:
-                prompt, answer, system = extract_text_pair(dict(row), list(dataset.column_names), source.meta)
+                source_row = dict(row)
+                prompt, answer, system = extract_text_pair(source_row, list(dataset.column_names), source.meta)
                 new_row = build_sharegpt_row(prompt, answer, system=system)
-                if keep_other_columns:
-                    for key, value in dict(row).items():
-                        if key not in new_row:
-                            new_row[key] = value
+                preserve_context_fields(source_row, new_row, keep_other_columns=keep_other_columns)
                 rows.append(new_row)
             transformed[split] = Dataset.from_list(rows)
             row_counts[split] = len(rows)
