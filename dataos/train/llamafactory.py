@@ -85,6 +85,7 @@ def run_train_stage(inputs: list[Artifact], sandbox: Sandbox, **kwargs) -> Model
     training_config = {
         "mode": effective_config["mode"],
         "dataset_artifact_id": dataset_artifact.artifact_id,
+        "dataset_format": exported["dataset_format"],
         "train_split": train_split,
         "selected_rows": train_dataset.num_rows,
         "eval_split": eval_split,
@@ -122,6 +123,7 @@ def run_train_stage(inputs: list[Artifact], sandbox: Sandbox, **kwargs) -> Model
         meta={
             "mode": effective_config["mode"],
             "source_dataset_id": dataset_artifact.artifact_id,
+            "dataset_format": exported["dataset_format"],
             "base_model": effective_config["model_name_or_path"],
             "template": effective_config["template"],
             "finetuning_type": effective_config["finetuning_type"],
@@ -293,18 +295,15 @@ def _export_datasets_for_llamafactory(
     export_root = sandbox.tmp_dir / "llamafactory" / dataset_artifact.artifact_id / "data"
     export_root.mkdir(parents=True, exist_ok=True)
     dataset_prefix = dataset_artifact.artifact_id.replace("-", "_")
+    dataset_format = _detect_training_dataset_format(dataset_artifact, train_dataset)
 
     train_name = f"{dataset_prefix}_{train_split}"
     train_file = export_root / f"{train_name}.json"
-    train_columns = _write_alpaca_dataset(train_dataset, train_file)
-    dataset_info: dict[str, Any] = {
-        train_name: {
-            "file_name": train_file.name,
-            "columns": train_columns,
-        }
-    }
+    train_entry = _write_dataset_for_llamafactory(train_dataset, train_file, dataset_format)
+    dataset_info: dict[str, Any] = {train_name: train_entry}
     exported: dict[str, Any] = {
         "dataset_dir": str(export_root),
+        "dataset_format": dataset_format,
         "train_dataset_name": train_name,
         "train_path": str(train_file),
         "train_split": train_split,
@@ -313,11 +312,11 @@ def _export_datasets_for_llamafactory(
     if eval_dataset is not None and eval_split is not None:
         eval_name = f"{dataset_prefix}_{eval_split}"
         eval_file = export_root / f"{eval_name}.json"
-        eval_columns = _write_alpaca_dataset(eval_dataset, eval_file)
-        dataset_info[eval_name] = {
-            "file_name": eval_file.name,
-            "columns": eval_columns,
-        }
+        dataset_info[eval_name] = _write_dataset_for_llamafactory(
+            eval_dataset,
+            eval_file,
+            dataset_format,
+        )
         exported["eval_dataset_name"] = eval_name
         exported["eval_path"] = str(eval_file)
         exported["eval_split"] = eval_split
@@ -329,6 +328,31 @@ def _export_datasets_for_llamafactory(
     )
     exported["dataset_info_path"] = str(dataset_info_path)
     return exported
+
+
+def _detect_training_dataset_format(dataset_artifact: DatasetArtifact, dataset: Dataset) -> str:
+    explicit_format = dataset_artifact.meta.get("dataset_format")
+    if explicit_format in {"alpaca", "sharegpt"}:
+        return str(explicit_format)
+    if "conversations" in dataset.column_names:
+        return "sharegpt"
+    return "alpaca"
+
+
+def _write_dataset_for_llamafactory(dataset: Dataset, target: Path, dataset_format: str) -> dict[str, Any]:
+    if dataset_format == "sharegpt":
+        columns, tags = _write_sharegpt_dataset(dataset, target)
+        return {
+            "file_name": target.name,
+            "formatting": "sharegpt",
+            "columns": columns,
+            "tags": tags,
+        }
+    columns = _write_alpaca_dataset(dataset, target)
+    return {
+        "file_name": target.name,
+        "columns": columns,
+    }
 
 
 def _write_alpaca_dataset(dataset: Dataset, target: Path) -> dict[str, str]:
@@ -359,6 +383,76 @@ def _write_alpaca_dataset(dataset: Dataset, target: Path) -> dict[str, str]:
     if "history" in dataset.column_names:
         column_mapping["history"] = "history"
     return column_mapping
+
+
+def _write_sharegpt_dataset(dataset: Dataset, target: Path) -> tuple[dict[str, str], dict[str, str]]:
+    records: list[dict[str, Any]] = []
+    has_system = False
+    has_tools = False
+    for index, row in enumerate(dataset):
+        conversations = _normalize_sharegpt_conversations(row.get("conversations"), index)
+        record: dict[str, Any] = {"conversations": conversations}
+        system = _coerce_optional_string(row.get("system"), "system", index)
+        if system:
+            record["system"] = system
+            has_system = True
+        if "tools" in dataset.column_names:
+            tools = row.get("tools")
+            if tools not in (None, "", []):
+                record["tools"] = tools
+                has_tools = True
+        records.append(record)
+
+    target.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
+    column_mapping = {"messages": "conversations"}
+    if has_system:
+        column_mapping["system"] = "system"
+    if has_tools:
+        column_mapping["tools"] = "tools"
+    tags = {
+        "role_tag": "from",
+        "content_tag": "value",
+        "user_tag": "human",
+        "assistant_tag": "gpt",
+        "observation_tag": "observation",
+        "function_tag": "function_call",
+    }
+    return column_mapping, tags
+
+
+def _normalize_sharegpt_conversations(value: Any, index: int) -> list[dict[str, str]]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"Row {index} field 'conversations' must be a non-empty list")
+    normalized: list[dict[str, str]] = []
+    for turn_index, message in enumerate(value):
+        if not isinstance(message, dict):
+            raise ValueError(f"Row {index} conversation turn {turn_index} must be a dict")
+        raw_role = str(message.get("from") or message.get("role") or "").lower()
+        role = _normalize_sharegpt_role(raw_role, index, turn_index)
+        content = _coerce_optional_string(
+            message.get("value") or message.get("content"),
+            "conversation_content",
+            index,
+            required=True,
+        )
+        normalized.append({"from": role, "value": content})
+    if not any(message["from"] == "human" for message in normalized):
+        raise ValueError(f"Row {index} ShareGPT conversations must include a human turn")
+    if not any(message["from"] == "gpt" for message in normalized):
+        raise ValueError(f"Row {index} ShareGPT conversations must include a gpt turn")
+    return normalized
+
+
+def _normalize_sharegpt_role(role: str, row_index: int, turn_index: int) -> str:
+    if role in {"human", "user"}:
+        return "human"
+    if role in {"gpt", "assistant"}:
+        return "gpt"
+    if role in {"observation", "function_call", "system"}:
+        return role
+    raise ValueError(
+        f"Row {row_index} conversation turn {turn_index} has unsupported ShareGPT role: {role!r}"
+    )
 
 
 def _extract_training_pair(
