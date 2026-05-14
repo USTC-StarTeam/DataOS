@@ -1,0 +1,394 @@
+{
+  "conversion": {
+    "lossless_from_processed_pool": true,
+    "native_format": "alpaca_like",
+    "notes": "Derived from normalized instruction/input/output/system fields; native multi-turn structure is not recovered."
+  },
+  "description": "ShareGPT conversation view of posttrainbench_fixed_pool_v1_full. Each source remains independent and preserves provenance columns.",
+  "excluded_raw_sources": [
+    {
+      "hf_repo": "bigbio/pubmed_qa",
+      "reason": "Raw duplicate/alternate packaging of PubMedQA. The v1 full pool uses qiaojin/PubMedQA configs to avoid duplicate PubMedQA examples."
+    }
+  ],
+  "format": {
+    "columns": [
+      "conversations",
+      "system",
+      "source_id",
+      "source_repo",
+      "source_config",
+      "source_split",
+      "source_row_index",
+      "raw_id",
+      "domain_tags",
+      "benchmark_tags",
+      "license",
+      "contamination_notes",
+      "conversion_native_format",
+      "conversion_turn_count",
+      "conversion_lossless",
+      "conversion_notes"
+    ],
+    "conversation_tags": {
+      "assistant_tag": "gpt",
+      "content_tag": "value",
+      "role_tag": "from",
+      "user_tag": "human"
+    },
+    "split": "train",
+    "storage": "one_huggingface_datasetdict_save_to_disk_per_source"
+  },
+  "name": "PostTrainBench Fixed Full Source Pool (ShareGPT View)",
+  "notes": [
+    "This manifest intentionally does not define a capped or merged dataset.",
+    "The main paper setting should keep training data inside this fixed source registry, while allowing DataOS to perform source/example selection inside it.",
+    "Rows are stored as single-turn ShareGPT conversations plus system/provenance columns; the source view remains per-dataset rather than capped or merged."
+  ],
+  "num_sources": 16,
+  "policy": {
+    "allowed": "DataOS may choose sources, examples, filtering rules, mixture weights, and schedules within this registry.",
+    "disallowed": [
+      "Training on benchmark evaluation data",
+      "Using benchmark questions with replacement answers",
+      "Using unclear sources where benchmark overlap cannot be ruled out",
+      "Downloading additional training datasets outside this registry for the main setting"
+    ],
+    "setting": "fixed_source_pool"
+  },
+  "pool_id": "posttrainbench_fixed_pool_v1_full_sharegpt",
+  "processed_on": "2026-05-13",
+  "processed_root": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt",
+  "raw_root": "/data/hcgu/dataos_fixed_pools/raw",
+  "sharegpt_view_of": "posttrainbench_fixed_pool_v1_full",
+  "sources": [
+    {
+      "benchmark_tags": [
+        "gpqa"
+      ],
+      "contamination_notes": "Science-adjacent pool; GPQA eval items must remain excluded.",
+      "domain_tags": [
+        "science",
+        "reasoning"
+      ],
+      "hf_repo": "allenai/ai2_arc",
+      "license": "cc-by-sa-4.0",
+      "num_rows": 1119,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/ai2_arc_challenge_train",
+      "raw_rows_seen": 1119,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/ai2_arc_challenge_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "ARC-Challenge",
+      "source_id": "ai2_arc_challenge_train",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gpqa"
+      ],
+      "contamination_notes": "Science-adjacent pool; GPQA eval items must remain excluded.",
+      "domain_tags": [
+        "science",
+        "reasoning"
+      ],
+      "hf_repo": "allenai/ai2_arc",
+      "license": "cc-by-sa-4.0",
+      "num_rows": 2251,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/ai2_arc_easy_train",
+      "raw_rows_seen": 2251,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/ai2_arc_easy_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "ARC-Easy",
+      "source_id": "ai2_arc_easy_train",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "humaneval"
+      ],
+      "contamination_notes": "Code-adjacent pool; HumanEval tasks and derived items must remain excluded.",
+      "domain_tags": [
+        "code"
+      ],
+      "hf_repo": "codeparrot/apps",
+      "license": "mit",
+      "num_rows": 5000,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/apps_train",
+      "raw_rows_seen": 5000,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/apps_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "apps_train",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "bfcl"
+      ],
+      "contamination_notes": "Tool-adjacent backup pool; BFCL eval data must remain excluded.",
+      "domain_tags": [
+        "tool",
+        "function_calling"
+      ],
+      "hf_repo": "glaiveai/glaive-function-calling-v2",
+      "license": "apache-2.0",
+      "num_rows": 112960,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/glaive_function_calling_v2",
+      "raw_rows_seen": 112960,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/glaive_function_calling_v2",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "glaive_function_calling_v2",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "humaneval"
+      ],
+      "contamination_notes": "Code-adjacent pool; HumanEval tasks and derived items must remain excluded.",
+      "domain_tags": [
+        "code"
+      ],
+      "hf_repo": "ise-uiuc/Magicoder-OSS-Instruct-75K",
+      "license": "mit",
+      "num_rows": 75197,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/magicoder_oss_instruct_75k",
+      "raw_rows_seen": 75197,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/magicoder_oss_instruct_75k",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "magicoder_oss_instruct_75k",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "healthbench"
+      ],
+      "contamination_notes": "Medical-adjacent pool; HealthBench conversations and rubrics must remain excluded.",
+      "domain_tags": [
+        "health",
+        "medical",
+        "science"
+      ],
+      "hf_repo": "openlifescienceai/medmcqa",
+      "license": "mit",
+      "num_rows": 182822,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/medmcqa_train",
+      "raw_rows_seen": 182822,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/medmcqa_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "medmcqa_train",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gsm8k",
+        "aime2025"
+      ],
+      "contamination_notes": "Full math-adjacent train split; GSM8K test and AIME 2025 items must remain excluded.",
+      "domain_tags": [
+        "math",
+        "reasoning"
+      ],
+      "hf_repo": "AI-MO/NuminaMath-CoT",
+      "license": "cc-by-nc-4.0",
+      "num_rows": 859494,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/numinamath_cot",
+      "raw_rows_seen": 859494,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/numinamath_cot",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "numinamath_cot",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gsm8k",
+        "aime2025"
+      ],
+      "contamination_notes": "Full math-adjacent train split; GSM8K test and AIME 2025 items must remain excluded.",
+      "domain_tags": [
+        "math",
+        "reasoning"
+      ],
+      "hf_repo": "nvidia/OpenMathInstruct-2",
+      "license": "cc-by-4.0",
+      "num_rows": 13972791,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/openmathinstruct2_train",
+      "raw_rows_seen": 13972791,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/openmathinstruct2_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "openmathinstruct2_train",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "healthbench"
+      ],
+      "contamination_notes": "Medical-adjacent pool; HealthBench conversations and rubrics must remain excluded.",
+      "domain_tags": [
+        "health",
+        "medical",
+        "science"
+      ],
+      "hf_repo": "qiaojin/PubMedQA",
+      "license": "mit",
+      "num_rows": 211269,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/pubmedqa_artificial",
+      "raw_rows_seen": 211269,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/pubmedqa_artificial",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "pqa_artificial",
+      "source_id": "pubmedqa_artificial",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "healthbench"
+      ],
+      "contamination_notes": "Medical-adjacent pool; HealthBench conversations and rubrics must remain excluded.",
+      "domain_tags": [
+        "health",
+        "medical",
+        "science"
+      ],
+      "hf_repo": "qiaojin/PubMedQA",
+      "license": "mit",
+      "num_rows": 1000,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/pubmedqa_labeled",
+      "raw_rows_seen": 1000,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/pubmedqa_labeled",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "pqa_labeled",
+      "source_id": "pubmedqa_labeled",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "healthbench"
+      ],
+      "contamination_notes": "Medical-adjacent pool with long answers but no final yes/no label; HealthBench conversations and rubrics must remain excluded.",
+      "domain_tags": [
+        "health",
+        "medical",
+        "science"
+      ],
+      "hf_repo": "qiaojin/PubMedQA",
+      "license": "mit",
+      "num_rows": 61249,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/pubmedqa_unlabeled",
+      "raw_rows_seen": 61249,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/pubmedqa_unlabeled",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "pqa_unlabeled",
+      "source_id": "pubmedqa_unlabeled",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gpqa"
+      ],
+      "contamination_notes": "Text-only rendering of ScienceQA train rows; image bytes are not included in DataOS text SFT artifacts. GPQA eval items must remain excluded.",
+      "domain_tags": [
+        "science",
+        "reasoning"
+      ],
+      "hf_repo": "derek-thomas/ScienceQA",
+      "license": "mit",
+      "num_rows": 12726,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/scienceqa_train",
+      "raw_rows_seen": 12726,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/scienceqa_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "scienceqa_train",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gpqa"
+      ],
+      "contamination_notes": "Science-adjacent pool; GPQA eval items must remain excluded.",
+      "domain_tags": [
+        "science",
+        "instruction"
+      ],
+      "hf_repo": "allenai/SciRIFF-train-mix",
+      "license": "odc-by-1.0",
+      "num_rows": 70705,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/sciriff_train_mix",
+      "raw_rows_seen": 70705,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/sciriff_train_mix",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "sciriff_train_mix",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "arenahardwriting"
+      ],
+      "contamination_notes": "Benchmark-adjacent writing/instruction data; ArenaHard prompts must remain excluded.",
+      "domain_tags": [
+        "general",
+        "writing",
+        "instruction"
+      ],
+      "hf_repo": "HuggingFaceH4/ultrachat_200k",
+      "license": "mit",
+      "num_rows": 207865,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/ultrachat_200k_sft",
+      "raw_rows_seen": 207865,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/ultrachat_200k_sft",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "train_sft",
+      "source_id": "ultrachat_200k_sft",
+      "source_split": "train_sft"
+    },
+    {
+      "benchmark_tags": [
+        "arenahardwriting"
+      ],
+      "contamination_notes": "Benchmark-adjacent writing/preference data; ArenaHard prompts must remain excluded.",
+      "domain_tags": [
+        "general",
+        "writing",
+        "preference",
+        "instruction"
+      ],
+      "hf_repo": "HuggingFaceH4/ultrafeedback_binarized",
+      "license": "mit",
+      "num_rows": 61115,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/ultrafeedback_binarized_sft",
+      "raw_rows_seen": 61115,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/ultrafeedback_binarized_sft",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "train_sft",
+      "source_id": "ultrafeedback_binarized_sft",
+      "source_split": "train_sft"
+    },
+    {
+      "benchmark_tags": [
+        "bfcl"
+      ],
+      "contamination_notes": "Tool-adjacent pool; BFCL eval data must remain excluded.",
+      "domain_tags": [
+        "tool",
+        "function_calling"
+      ],
+      "hf_repo": "Salesforce/xlam-function-calling-60k",
+      "license": "cc-by-4.0",
+      "num_rows": 60000,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/xlam_function_calling_60k",
+      "raw_rows_seen": 60000,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/xlam_function_calling_60k",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "xlam_function_calling_60k",
+      "source_split": "train"
+    }
+  ],
+  "total_rows": 15897563
+}

@@ -207,7 +207,7 @@ def build_sharegpt_row(prompt: str, answer: str, system: str = "") -> dict[str, 
     row: dict[str, Any] = {
         "conversations": [
             {"from": "human", "value": prompt.strip()},
-            {"from": "assistant", "value": answer.strip()},
+            {"from": "gpt", "value": answer.strip()},
         ]
     }
     if system.strip():
