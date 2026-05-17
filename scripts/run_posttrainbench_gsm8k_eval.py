@@ -111,7 +111,7 @@ class _Task:
             "fewshot_as_multiturn": False,
             "num_fewshot": 0,
             "batch_size": args.batch_size,
-            "limit": args.limit,
+            "limit": _normalize_limit(args.limit),
             "gen_kwargs": {"max_gen_toks": args.max_gen_toks},
             "log_samples": True,
             "metadata": {
@@ -121,6 +121,12 @@ class _Task:
                 "display_scale": "accuracy_fraction; multiply by 100 for scores.json",
             },
         }
+
+
+def _normalize_limit(limit: int | None) -> int | None:
+    if limit is None or limit < 0:
+        return None
+    return limit
 
 
 def _posttrainbench_gsm8k_system_instruction() -> str:
