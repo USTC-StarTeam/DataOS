@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -19,17 +20,20 @@ class TaskSpec:
     default_max_tokens: int
     default_max_connections: int
     default_gpu_memory: float
+    default_max_model_len: int
     requires_api_key: bool = False
 
 
 TASKS: dict[str, TaskSpec] = {
-    "aime2025": TaskSpec("aime2025", "aime_k32", 30000, 6, 0.8),
-    "arenahardwriting": TaskSpec("arenahardwriting", "posttrainbench_script", 16384, 1, 0.8, True),
-    "bfcl": TaskSpec("bfcl", "posttrainbench_script", 16000, 6, 0.8),
-    "gpqamain": TaskSpec("gpqamain", "posttrainbench_script", 16000, 6, 0.8),
-    "gsm8k": TaskSpec("gsm8k", "dataos_lmeval_native", 4000, 2, 0.3),
-    "healthbench": TaskSpec("healthbench", "posttrainbench_script", 16384, 1, 0.8, True),
-    "humaneval": TaskSpec("humaneval", "posttrainbench_script", 4000, 1, 0.3),
+    "aime2025": TaskSpec("aime2025", "dataos_lmeval_native", 16000, 6, 0.8, 32768),
+    "arenahardwriting": TaskSpec(
+        "arenahardwriting", "dataos_lmeval_native", 16384, 1, 0.8, 32768, True
+    ),
+    "bfcl": TaskSpec("bfcl", "dataos_lmeval_native", 16000, 1, 0.8, 32768),
+    "gpqamain": TaskSpec("gpqamain", "direct_vllm_lmeval", 16000, 6, 0.8, 32768),
+    "gsm8k": TaskSpec("gsm8k", "gsm8k_vllm_native", 4000, 2, 0.5, 32768),
+    "healthbench": TaskSpec("healthbench", "dataos_lmeval_native", 16384, 1, 0.8, 32768, True),
+    "humaneval": TaskSpec("humaneval", "direct_vllm_lmeval", 4000, 1, 0.3, 8192),
 }
 
 INSPECT_SERVER_RUNNERS = {"aime_k32", "posttrainbench_script"}
@@ -37,7 +41,7 @@ INSPECT_SERVER_RUNNERS = {"aime_k32", "posttrainbench_script"}
 
 def main() -> None:
     args = parse_args()
-    spec = TASKS[args.task]
+    spec = _resolve_spec(args)
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = output_dir / "metrics.json"
@@ -46,6 +50,28 @@ def main() -> None:
     stderr_path = output_dir / "stderr.log"
 
     env = _build_env(args)
+    if args.task in {"arenahardwriting", "healthbench"}:
+        env.setdefault("POSTTRAINBENCH_JUDGE_MODEL", "qwen3.5-plus")
+        env.setdefault("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    if args.task == "arenahardwriting":
+        env.setdefault(
+            "POSTTRAINBENCH_ARENA_JUDGE_LOG",
+            str(output_dir / "arena_judge_events.jsonl"),
+        )
+        env.setdefault("POSTTRAINBENCH_ARENA_JUDGE_MAX_RETRIES", "5")
+        env.setdefault("POSTTRAINBENCH_ARENA_JUDGE_RETRY_SLEEP", "2")
+        env.setdefault("POSTTRAINBENCH_ARENA_JUDGE_MAX_TOKENS", "16000")
+        env.setdefault("POSTTRAINBENCH_ARENA_JUDGE_CONCURRENCY", "1")
+    if args.task == "healthbench":
+        env.setdefault(
+            "POSTTRAINBENCH_HEALTHBENCH_JUDGE_LOG",
+            str(output_dir / "healthbench_judge_events.jsonl"),
+        )
+        env.setdefault("POSTTRAINBENCH_HEALTHBENCH_JUDGE_MAX_RETRIES", "5")
+        env.setdefault("POSTTRAINBENCH_HEALTHBENCH_JUDGE_RETRY_SLEEP", "2")
+        env.setdefault("POSTTRAINBENCH_HEALTHBENCH_JUDGE_MAX_TOKENS", "512")
+        env.setdefault("POSTTRAINBENCH_HEALTHBENCH_JUDGE_CONCURRENCY", "4")
+        env.setdefault("POSTTRAINBENCH_HEALTHBENCH_CRITERIA_WORKERS", "8")
     command = _build_command(args, spec, metrics_path, output_dir)
     protocol = {
         "benchmark": "PostTrainBench",
@@ -53,23 +79,39 @@ def main() -> None:
         "model_name": args.model_name,
         "model_path": args.model_path,
         "runner": spec.runner,
+        "runner_override": args.runner_override,
         "limit": args.limit,
         "epochs": args.epochs if args.task == "aime2025" else None,
         "max_tokens": args.max_tokens,
+        "max_model_len": args.max_model_len,
         "max_connections": args.max_connections,
+        "vllm_generation_config": "vllm",
+        "task_generation_kwargs": _task_generation_kwargs(args.task, args.max_tokens),
         "gpu_memory_utilization": args.gpu_memory_utilization,
         "posttrainbench_eval_src": args.posttrainbench_eval_src,
         "benchmarks_dir": args.benchmarks_dir,
         "inspect_pkgs": args.inspect_pkgs,
+        "gpqa_shuffle_seed": env.get("POSTTRAINBENCH_GPQA_SHUFFLE_SEED")
+        if args.task == "gpqamain"
+        else None,
+        "gpqa_frozen_jsonl": env.get("POSTTRAINBENCH_GPQA_FROZEN_JSONL")
+        if args.task == "gpqamain"
+        else None,
+        "judge_policy": _judge_policy(args.task, env, output_dir),
+        "aime_policy": _aime_policy(args) if args.task == "aime2025" else None,
         "requires_api_key": spec.requires_api_key,
         "command": command,
-        "env_keys": sorted(k for k in env if k.startswith(("HF_", "POSTTRAIN", "VLLM_", "PYTHON"))),
+        "env_keys": sorted(
+            k
+            for k in env
+            if k.startswith(("DASHSCOPE", "HF_", "OPENAI", "POSTTRAIN", "VLLM_", "PYTHON"))
+        ),
     }
     protocol_path.write_text(json.dumps(protocol, indent=2, sort_keys=True), encoding="utf-8")
 
-    if spec.requires_api_key and not env.get("OPENAI_API_KEY"):
+    if spec.requires_api_key and not _has_judge_credentials(env):
         raise SystemExit(
-            f"{args.task} requires OPENAI_API_KEY for its judge path. "
+            f"{args.task} requires OPENAI-compatible judge credentials for its judge path. "
             f"Protocol was written to {protocol_path}."
         )
 
@@ -113,7 +155,7 @@ def main() -> None:
         "stdout_path": str(stdout_path),
         "stderr_path": str(stderr_path),
     }
-    if not metrics_path.exists() and spec.runner == "dataos_lmeval_native":
+    if not metrics_path.exists() and spec.runner in {"dataos_lmeval_native", "gsm8k_vllm_native"}:
         _write_metrics_from_dataos_artifact(output_dir, metrics_path)
     if metrics_path.exists():
         summary["metrics"] = json.loads(metrics_path.read_text(encoding="utf-8"))
@@ -158,18 +200,69 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=-1)
     parser.add_argument("--epochs", type=int, default=32)
     parser.add_argument("--max-tokens", type=int, default=None)
+    parser.add_argument("--max-model-len", type=int, default=None)
     parser.add_argument("--max-connections", type=int, default=None)
     parser.add_argument("--gpu-memory-utilization", type=float, default=None)
     parser.add_argument("--batch-size", default="auto")
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--vllm-port", type=int, default=None)
+    parser.add_argument(
+        "--runner-override",
+        choices=[
+            "aime_k32",
+            "dataos_lmeval_native",
+            "direct_vllm_lmeval",
+            "gsm8k_vllm_native",
+            "posttrainbench_script",
+        ],
+        default=None,
+    )
     parser.add_argument("--python", default=sys.executable)
     args = parser.parse_args()
-    spec = TASKS[args.task]
+    spec = _resolve_spec(args)
     args.max_tokens = args.max_tokens or spec.default_max_tokens
+    args.max_model_len = args.max_model_len or spec.default_max_model_len
     args.max_connections = args.max_connections or spec.default_max_connections
-    args.gpu_memory_utilization = args.gpu_memory_utilization or spec.default_gpu_memory
+    args.gpu_memory_utilization = args.gpu_memory_utilization or _default_gpu_memory(args, spec)
     return args
+
+
+def _resolve_spec(args: argparse.Namespace) -> TaskSpec:
+    spec = TASKS[args.task]
+    if args.runner_override:
+        return replace(spec, runner=args.runner_override)
+    return spec
+
+
+def _default_gpu_memory(args: argparse.Namespace, spec: TaskSpec) -> float:
+    if args.task == "gsm8k":
+        lowered = f"{args.model_name} {args.model_path}".lower()
+        if "qwen3-1.7b" in lowered:
+            return 0.3
+        return 0.5
+    return spec.default_gpu_memory
+
+
+def _task_generation_kwargs(task: str, max_tokens: int) -> dict[str, Any]:
+    if task == "bfcl":
+        return {
+            "max_gen_toks": max_tokens,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "until": ["<|im_end|>", "<|eot_id|>"],
+        }
+    if task == "aime2025":
+        return {
+            "max_gen_toks": max_tokens,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "dataos_omit_seed": True,
+        }
+    if task == "gpqamain":
+        return {"max_gen_toks": max_tokens, "temperature": 1.0}
+    if task in {"arenahardwriting", "healthbench"}:
+        return {"max_gen_toks": max_tokens, "dataos_official_chat_payload": True}
+    return {"max_gen_toks": max_tokens}
 
 
 def _build_env(args: argparse.Namespace) -> dict[str, str]:
@@ -190,7 +283,152 @@ def _build_env(args: argparse.Namespace) -> dict[str, str]:
     env["PYTHONPATH"] = ":".join(part for part in pythonpath if part)
     bin_dir = str(Path(args.python).parent)
     env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    if args.task == "gpqamain":
+        frozen = Path(args.benchmarks_dir) / "local" / "gpqa_main_choice_order_20260512.jsonl"
+        if frozen.exists():
+            env.setdefault("POSTTRAINBENCH_GPQA_FROZEN_JSONL", str(frozen))
+        env.setdefault("POSTTRAINBENCH_GPQA_SHUFFLE_SEED", "42")
+    if args.task == "aime2025":
+        env.setdefault(
+            "POSTTRAINBENCH_AIME_EXTRACTION_LOG",
+            str(Path(args.output_dir).resolve() / "aime_extraction_events.jsonl"),
+        )
+    _configure_judge_env(env)
     return env
+
+
+def _aime_policy(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "protocol_name": "dataos_fixed_k32",
+        "dataset_path": "math-ai/aime25",
+        "split": "test",
+        "num_questions": 30,
+        "repeats": 32,
+        "max_tokens": args.max_tokens,
+        "max_connections": args.max_connections,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "prompt_template": "inspect_evals.aime2025 USER_PROMPT_TEMPLATE",
+        "seed_policy": "omit OpenAI-compatible seed so K32 repeats are independent samples",
+        "scorer": "numeric match after last boxed answer or final ANSWER line",
+        "evidence_log": str(Path(args.output_dir).resolve() / "aime_extraction_events.jsonl"),
+        "note": "K32 is the DataOS fixed protocol for PostTrainBench AIME; do not mix it with single-sample scores.",
+    }
+
+
+def _configure_judge_env(env: dict[str, str]) -> None:
+    judge_model = env.get("POSTTRAINBENCH_JUDGE_MODEL") or env.get("BAILIAN_JUDGE_MODEL")
+    if not judge_model and (env.get("DASHSCOPE_API_KEY") or env.get("BAILIAN_API_KEY")):
+        judge_model = "qwen3.5-plus"
+    if judge_model and not env.get("POSTTRAINBENCH_JUDGE_MODEL"):
+        env["POSTTRAINBENCH_JUDGE_MODEL"] = judge_model
+
+    judge_api_key = (
+        env.get("OPENAI_API_KEY")
+        or env.get("POSTTRAINBENCH_JUDGE_API_KEY")
+        or env.get("DASHSCOPE_API_KEY")
+        or env.get("BAILIAN_API_KEY")
+    )
+    if judge_api_key and not env.get("OPENAI_API_KEY"):
+        env["OPENAI_API_KEY"] = judge_api_key
+
+    judge_base_url = (
+        env.get("OPENAI_BASE_URL")
+        or env.get("POSTTRAINBENCH_JUDGE_BASE_URL")
+        or env.get("DASHSCOPE_BASE_URL")
+    )
+    if judge_base_url and not env.get("OPENAI_BASE_URL"):
+        env["OPENAI_BASE_URL"] = judge_base_url
+    elif (
+        env.get("POSTTRAINBENCH_JUDGE_MODEL", "").lower().startswith("qwen")
+        and not env.get("OPENAI_BASE_URL")
+    ):
+        env["OPENAI_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+def _has_judge_credentials(env: dict[str, str]) -> bool:
+    return bool(env.get("OPENAI_API_KEY"))
+
+
+def _judge_policy(task: str, env: dict[str, str], output_dir: Path) -> dict[str, Any] | None:
+    if task not in {"healthbench", "arenahardwriting"}:
+        return None
+    policy: dict[str, Any] = {
+        "model": env.get("POSTTRAINBENCH_JUDGE_MODEL") or "gpt-5-mini",
+        "base_url": env.get("OPENAI_BASE_URL") or "openai_default",
+        "api_key_env": "OPENAI_API_KEY" if env.get("OPENAI_API_KEY") else None,
+    }
+    if task == "arenahardwriting":
+        policy.update(
+            {
+                "official_judge_model": "gpt-5-mini",
+                "dataos_judge_model": env.get("POSTTRAINBENCH_JUDGE_MODEL") or "gpt-5-mini",
+                "official_pairwise_prompt": "arena-hard-v2.0.yaml prompt_template plus category system prompt",
+                "baseline_policy": "Qwen3-1.7B for creative_writing; o3-mini-2025-01-31 for hard_prompt/coding/math",
+                "judge_games_per_sample": 2,
+                "official_judge_workers": 64,
+                "dataos_judge_concurrency": int(
+                    env.get("POSTTRAINBENCH_ARENA_JUDGE_CONCURRENCY", "1")
+                ),
+                "max_retries": int(env.get("POSTTRAINBENCH_ARENA_JUDGE_MAX_RETRIES", "5")),
+                "retry_sleep_seconds": float(
+                    env.get("POSTTRAINBENCH_ARENA_JUDGE_RETRY_SLEEP", "2")
+                ),
+                "temperature_for_non_gpt_judge": 0,
+                "official_config_max_tokens": 16000,
+                "max_tokens_for_non_gpt_judge": int(
+                    env.get("POSTTRAINBENCH_ARENA_JUDGE_MAX_TOKENS", "16000")
+                ),
+                "max_completion_tokens_for_gpt_o_series": int(
+                    env.get("POSTTRAINBENCH_ARENA_JUDGE_GPT_MAX_COMPLETION_TOKENS", "49152")
+                ),
+                "failure_policy": (
+                    "retry judge requests; abort on 401/429/billing/quota/rate-limit or "
+                    "exhausted retries"
+                ),
+                "evidence_log": str(output_dir / "arena_judge_events.jsonl"),
+                "strict_reproduction_note": (
+                    "Official PostTrainBench uses gpt-5-mini; DataOS uses the configured "
+                    "OpenAI-compatible judge for this project and records the difference."
+                ),
+            }
+        )
+        return policy
+    if task == "healthbench":
+        policy.update(
+            {
+                "official_judge_model": "gpt-5-mini",
+                "dataos_judge_model": env.get("POSTTRAINBENCH_JUDGE_MODEL") or "gpt-5-mini",
+                "max_retries": int(
+                    env.get("POSTTRAINBENCH_HEALTHBENCH_JUDGE_MAX_RETRIES", "5")
+                ),
+                "retry_sleep_seconds": float(
+                    env.get("POSTTRAINBENCH_HEALTHBENCH_JUDGE_RETRY_SLEEP", "2")
+                ),
+                "temperature_for_non_gpt_judge": 0,
+                "max_tokens_for_non_gpt_judge": int(
+                    env.get("POSTTRAINBENCH_HEALTHBENCH_JUDGE_MAX_TOKENS", "512")
+                ),
+                "max_completion_tokens_for_gpt_o_series": int(
+                    env.get(
+                        "POSTTRAINBENCH_HEALTHBENCH_GPT_MAX_COMPLETION_TOKENS",
+                        "49152",
+                    )
+                ),
+                "criteria_workers": int(
+                    env.get("POSTTRAINBENCH_HEALTHBENCH_CRITERIA_WORKERS", "8")
+                ),
+                "max_concurrent_requests": int(
+                    env.get("POSTTRAINBENCH_HEALTHBENCH_JUDGE_CONCURRENCY", "4")
+                ),
+                "failure_policy": (
+                    "retry judge requests; abort on 401/429/billing/quota/rate-limit or "
+                    "exhausted retries"
+                ),
+                "evidence_log": str(output_dir / "healthbench_judge_events.jsonl"),
+            }
+        )
+    return policy
 
 
 def _start_vllm_server(
@@ -223,6 +461,8 @@ def _start_vllm_server(
         str(args.gpu_memory_utilization),
         "--tensor-parallel-size",
         str(args.tensor_parallel_size),
+        "--generation-config",
+        "vllm",
     ]
     if args.task == "bfcl":
         command.extend(
@@ -325,7 +565,67 @@ def _build_command(
 ) -> list[str]:
     eval_src = Path(args.posttrainbench_eval_src)
     templates_dir = eval_src / "templates"
+    if spec.runner == "direct_vllm_lmeval":
+        return [
+            args.python,
+            str(Path(__file__).with_name("run_posttrainbench_direct_lmeval_task.py")),
+            "--task",
+            args.task,
+            "--model-path",
+            args.model_path,
+            "--model-name",
+            args.model_name,
+            "--output-dir",
+            str(output_dir),
+            "--limit",
+            str(args.limit),
+            "--batch-size",
+            args.batch_size,
+            "--max-tokens",
+            str(args.max_tokens),
+            "--max-model-len",
+            str(args.max_model_len),
+            "--gpu-memory-utilization",
+            str(args.gpu_memory_utilization),
+            "--tensor-parallel-size",
+            str(args.tensor_parallel_size),
+            "--chat-template",
+            "auto",
+            "--json-output-file",
+            str(metrics_path),
+        ]
     if spec.runner == "dataos_lmeval_native":
+        return [
+            args.python,
+            str(Path(__file__).with_name("run_posttrainbench_lmeval_task.py")),
+            "--task",
+            args.task,
+            "--model-path",
+            args.model_path,
+            "--model-name",
+            args.model_name,
+            "--output-dir",
+            str(output_dir),
+            "--limit",
+            str(args.limit),
+            "--batch-size",
+            args.batch_size,
+            "--max-tokens",
+            str(args.max_tokens),
+            "--num-concurrent",
+            str(args.max_connections),
+            "--max-model-len",
+            str(args.max_model_len),
+            "--gpu-memory-utilization",
+            str(args.gpu_memory_utilization),
+            "--tensor-parallel-size",
+            str(args.tensor_parallel_size),
+            "--posttrainbench-eval-src",
+            args.posttrainbench_eval_src,
+            "--benchmarks-dir",
+            args.benchmarks_dir,
+        ]
+    if spec.runner == "gsm8k_vllm_native":
         return [
             args.python,
             str(Path(__file__).with_name("run_posttrainbench_gsm8k_eval.py")),
@@ -334,7 +634,7 @@ def _build_command(
             "--model-name",
             args.model_name,
             "--output-dir",
-            str(output_dir / "dataos_artifact"),
+            str(output_dir),
             "--backend",
             "vllm",
             "--limit",
@@ -342,13 +642,15 @@ def _build_command(
             "--batch-size",
             args.batch_size,
             "--max-model-len",
-            "32768",
+            str(args.max_model_len),
             "--gpu-memory-utilization",
             str(args.gpu_memory_utilization),
-            "--tensor-parallel-size",
-            str(args.tensor_parallel_size),
             "--max-gen-toks",
             str(args.max_tokens),
+            "--tensor-parallel-size",
+            str(args.tensor_parallel_size),
+            "--json-output-file",
+            str(metrics_path),
         ]
     if spec.runner == "aime_k32":
         return [
