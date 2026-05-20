@@ -12,6 +12,8 @@ from dataos.eval.config import EvalConfig
 def run_lm_eval_native(model_artifact: ModelArtifact, config: EvalConfig) -> LmEvalRunOutput:
     """Run lm-eval by delegating model loading/inference to lm-eval itself."""
 
+    _register_dataos_lm_eval_extensions()
+
     from lm_eval import simple_evaluate
 
     model_name = config.model or "hf"
@@ -216,6 +218,11 @@ def _looks_like_lora_adapter(model_artifact: ModelArtifact) -> bool:
     if str(model_artifact.meta.get("finetuning_type", "")).lower() == "lora":
         return True
     return (Path(model_artifact.path) / "adapter_config.json").exists()
+
+
+def _register_dataos_lm_eval_extensions() -> None:
+    """Register DataOS-owned lm-eval model backends before resolution."""
+    import dataos.eval.models  # noqa: F401
 
 
 def _resolve_seeds(config: EvalConfig) -> dict[str, int | None]:

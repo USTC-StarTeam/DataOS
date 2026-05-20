@@ -37,6 +37,19 @@ def main() -> None:
     artifact = run_eval_stage([model_artifact], sandbox, task=_Task(args, model_source))
     summary = dict(artifact[0].meta)
     protocol = json.loads((artifact[0].path / "protocol.json").read_text(encoding="utf-8"))
+    if args.json_output_file:
+        output = {
+            "accuracy": summary.get("score"),
+            "results": summary.get("results", {}),
+            "artifact": str(artifact[0].path),
+            "source_results_json": str(artifact[0].path / "results.json"),
+            "source_protocol_json": str(artifact[0].path / "protocol.json"),
+            "task_protocol": "gsm8k_10shot_seed42_chat_template_numeric_accuracy",
+        }
+        Path(args.json_output_file).write_text(
+            json.dumps(output, indent=2, sort_keys=True, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
     print("ARTIFACT", artifact[0].path)
     print(
         "SUMMARY",
@@ -69,6 +82,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.3)
     parser.add_argument("--max-gen-toks", type=int, default=4000)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
+    parser.add_argument("--json-output-file", default=None)
     parser.add_argument(
         "--chat-template",
         default="auto",

@@ -43,9 +43,10 @@
   "notes": [
     "This manifest intentionally does not define a capped or merged dataset.",
     "The main paper setting should keep training data inside this fixed source registry, while allowing DataOS to perform source/example selection inside it.",
+    "Extended on 2026-05-20 with additional HumanEval and GPQA candidate sources; previous per-source artifacts preserved.",
     "Rows are stored as single-turn ShareGPT conversations plus system/provenance columns; the source view remains per-dataset rather than capped or merged."
   ],
-  "num_sources": 16,
+  "num_sources": 24,
   "policy": {
     "allowed": "DataOS may choose sources, examples, filtering rules, mixture weights, and schedules within this registry.",
     "disallowed": [
@@ -57,7 +58,7 @@
     "setting": "fixed_source_pool"
   },
   "pool_id": "posttrainbench_fixed_pool_v1_full_sharegpt",
-  "processed_on": "2026-05-13",
+  "processed_on": "2026-05-20",
   "processed_root": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt",
   "raw_root": "/data/hcgu/dataos_fixed_pools/raw",
   "sharegpt_view_of": "posttrainbench_fixed_pool_v1_full",
@@ -75,6 +76,9 @@
       "license": "cc-by-sa-4.0",
       "num_rows": 1119,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/ai2_arc_challenge_train",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/allenai_ai2_arc/ARC-Challenge/train-00000-of-00001.parquet"
+      ],
       "raw_rows_seen": 1119,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/ai2_arc_challenge_train",
       "skipped_empty_instruction_or_output": 0,
@@ -95,6 +99,9 @@
       "license": "cc-by-sa-4.0",
       "num_rows": 2251,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/ai2_arc_easy_train",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/allenai_ai2_arc/ARC-Easy/train-00000-of-00001.parquet"
+      ],
       "raw_rows_seen": 2251,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/ai2_arc_easy_train",
       "skipped_empty_instruction_or_output": 0,
@@ -114,11 +121,63 @@
       "license": "mit",
       "num_rows": 5000,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/apps_train",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/codeparrot_apps/train.jsonl"
+      ],
       "raw_rows_seen": 5000,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/apps_train",
       "skipped_empty_instruction_or_output": 0,
       "source_config": "default",
       "source_id": "apps_train",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gpqa"
+      ],
+      "builder": "scripts/build_posttrainbench_extended_fixed_pool.py",
+      "contamination_notes": "Chemistry reasoning instruction pool; GPQA evaluation items must remain excluded.",
+      "domain_tags": [
+        "science",
+        "chemistry",
+        "reasoning",
+        "instruction"
+      ],
+      "hf_repo": "jablonkagroup/ChemPile-Instruction",
+      "license": "cc-by-4.0",
+      "num_rows": 51315,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/chempile_instruction_reasoning",
+      "processed_at": "2026-05-20T07:47:09.876720+00:00",
+      "raw_rows_seen": 51315,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/chempile_instruction_reasoning",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "chempile-reasoning",
+      "source_id": "chempile_instruction_reasoning",
+      "source_repo": "jablonkagroup/ChemPile-Instruction",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "humaneval"
+      ],
+      "builder": "scripts/build_posttrainbench_extended_fixed_pool.py",
+      "contamination_notes": "Python function/docstring pool; HumanEval tasks and derived items must remain excluded.",
+      "domain_tags": [
+        "code",
+        "python",
+        "docstring"
+      ],
+      "hf_repo": "code_search_net",
+      "license": "other",
+      "num_rows": 412178,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/codesearchnet_python_train",
+      "processed_at": "2026-05-20T07:31:04.750783+00:00",
+      "raw_rows_seen": 412178,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/codesearchnet_python_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "python",
+      "source_id": "codesearchnet_python_train",
+      "source_repo": "code_search_net",
       "source_split": "train"
     },
     {
@@ -134,11 +193,37 @@
       "license": "apache-2.0",
       "num_rows": 112960,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/glaive_function_calling_v2",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/glaiveai_glaive-function-calling-v2/glaive-function-calling-v2.json"
+      ],
       "raw_rows_seen": 112960,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/glaive_function_calling_v2",
       "skipped_empty_instruction_or_output": 0,
       "source_config": "default",
       "source_id": "glaive_function_calling_v2",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "humaneval"
+      ],
+      "builder": "scripts/build_posttrainbench_extended_fixed_pool.py",
+      "contamination_notes": "Code instruction pool; HumanEval prompts/solutions and derived items must remain excluded.",
+      "domain_tags": [
+        "code",
+        "instruction"
+      ],
+      "hf_repo": "ise-uiuc/Magicoder-Evol-Instruct-110K",
+      "license": "apache-2.0",
+      "num_rows": 111179,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/magicoder_evol_instruct_110k",
+      "processed_at": "2026-05-20T07:32:08.905414+00:00",
+      "raw_rows_seen": 111179,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/magicoder_evol_instruct_110k",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "magicoder_evol_instruct_110k",
+      "source_repo": "ise-uiuc/Magicoder-Evol-Instruct-110K",
       "source_split": "train"
     },
     {
@@ -153,6 +238,9 @@
       "license": "mit",
       "num_rows": 75197,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/magicoder_oss_instruct_75k",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/ise-uiuc_Magicoder-OSS-Instruct-75K/data-oss_instruct-decontaminated.jsonl"
+      ],
       "raw_rows_seen": 75197,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/magicoder_oss_instruct_75k",
       "skipped_empty_instruction_or_output": 0,
@@ -174,11 +262,38 @@
       "license": "mit",
       "num_rows": 182822,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/medmcqa_train",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/openlifescienceai_medmcqa/data/train-00000-of-00001.parquet"
+      ],
       "raw_rows_seen": 182822,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/medmcqa_train",
       "skipped_empty_instruction_or_output": 0,
       "source_config": "default",
       "source_id": "medmcqa_train",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gpqa"
+      ],
+      "builder": "scripts/build_posttrainbench_extended_fixed_pool.py",
+      "contamination_notes": "Science reasoning pool; GPQA evaluation items must remain excluded.",
+      "domain_tags": [
+        "science",
+        "reasoning",
+        "textbook"
+      ],
+      "hf_repo": "MegaScience/TextbookReasoning",
+      "license": "cc-by-nc-sa-4.0",
+      "num_rows": 651840,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/megascience_textbook_reasoning",
+      "processed_at": "2026-05-20T07:46:25.708025+00:00",
+      "raw_rows_seen": 651840,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/megascience_textbook_reasoning",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "megascience_textbook_reasoning",
+      "source_repo": "MegaScience/TextbookReasoning",
       "source_split": "train"
     },
     {
@@ -195,11 +310,42 @@
       "license": "cc-by-nc-4.0",
       "num_rows": 859494,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/numinamath_cot",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/AI-MO_NuminaMath-CoT/data/train-00000-of-00005.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/AI-MO_NuminaMath-CoT/data/train-00001-of-00005.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/AI-MO_NuminaMath-CoT/data/train-00002-of-00005.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/AI-MO_NuminaMath-CoT/data/train-00003-of-00005.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/AI-MO_NuminaMath-CoT/data/train-00004-of-00005.parquet"
+      ],
       "raw_rows_seen": 859494,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/numinamath_cot",
       "skipped_empty_instruction_or_output": 0,
       "source_config": "default",
       "source_id": "numinamath_cot",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gpqa"
+      ],
+      "builder": "scripts/build_posttrainbench_extended_fixed_pool.py",
+      "contamination_notes": "Open-book science QA pool; GPQA evaluation items must remain excluded.",
+      "domain_tags": [
+        "science",
+        "reasoning",
+        "qa"
+      ],
+      "hf_repo": "allenai/openbookqa",
+      "license": "unknown",
+      "num_rows": 4957,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/openbookqa_train",
+      "processed_at": "2026-05-20T07:28:40.081474+00:00",
+      "raw_rows_seen": 4957,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/openbookqa_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "main",
+      "source_id": "openbookqa_train",
+      "source_repo": "allenai/openbookqa",
       "source_split": "train"
     },
     {
@@ -216,6 +362,40 @@
       "license": "cc-by-4.0",
       "num_rows": 13972791,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/openmathinstruct2_train",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00000-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00001-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00002-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00003-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00004-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00005-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00006-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00007-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00008-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00009-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00010-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00011-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00012-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00013-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00014-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00015-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00016-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00017-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00018-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00019-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00020-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00021-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00022-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00023-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00024-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00025-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00026-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00027-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00028-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00029-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00030-of-00032.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/nvidia_OpenMathInstruct-2/data/train-00031-of-00032.parquet"
+      ],
       "raw_rows_seen": 13972791,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/openmathinstruct2_train",
       "skipped_empty_instruction_or_output": 0,
@@ -237,6 +417,9 @@
       "license": "mit",
       "num_rows": 211269,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/pubmedqa_artificial",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/qiaojin_PubMedQA/pqa_artificial/train-00000-of-00001.parquet"
+      ],
       "raw_rows_seen": 211269,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/pubmedqa_artificial",
       "skipped_empty_instruction_or_output": 0,
@@ -258,6 +441,9 @@
       "license": "mit",
       "num_rows": 1000,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/pubmedqa_labeled",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/qiaojin_PubMedQA/pqa_labeled/train-00000-of-00001.parquet"
+      ],
       "raw_rows_seen": 1000,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/pubmedqa_labeled",
       "skipped_empty_instruction_or_output": 0,
@@ -279,11 +465,38 @@
       "license": "mit",
       "num_rows": 61249,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/pubmedqa_unlabeled",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/qiaojin_PubMedQA/pqa_unlabeled/train-00000-of-00001.parquet"
+      ],
       "raw_rows_seen": 61249,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/pubmedqa_unlabeled",
       "skipped_empty_instruction_or_output": 0,
       "source_config": "pqa_unlabeled",
       "source_id": "pubmedqa_unlabeled",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gpqa"
+      ],
+      "builder": "scripts/build_posttrainbench_extended_fixed_pool.py",
+      "contamination_notes": "Multi-hop science QA pool; GPQA evaluation items must remain excluded.",
+      "domain_tags": [
+        "science",
+        "reasoning",
+        "qa"
+      ],
+      "hf_repo": "allenai/qasc",
+      "license": "cc-by-4.0",
+      "num_rows": 8134,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/qasc_train",
+      "processed_at": "2026-05-20T07:28:49.860505+00:00",
+      "raw_rows_seen": 8134,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/qasc_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "qasc_train",
+      "source_repo": "allenai/qasc",
       "source_split": "train"
     },
     {
@@ -299,11 +512,38 @@
       "license": "mit",
       "num_rows": 12726,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/scienceqa_train",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/derek-thomas_ScienceQA/data/train-00000-of-00001-1028f23e353fbe3e.parquet"
+      ],
       "raw_rows_seen": 12726,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/scienceqa_train",
       "skipped_empty_instruction_or_output": 0,
       "source_config": "default",
       "source_id": "scienceqa_train",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "gpqa"
+      ],
+      "builder": "scripts/build_posttrainbench_extended_fixed_pool.py",
+      "contamination_notes": "Science QA pool; GPQA evaluation items must remain excluded.",
+      "domain_tags": [
+        "science",
+        "reasoning",
+        "qa"
+      ],
+      "hf_repo": "allenai/sciq",
+      "license": "cc-by-nc-3.0",
+      "num_rows": 11679,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/sciq_train",
+      "processed_at": "2026-05-20T07:28:31.452782+00:00",
+      "raw_rows_seen": 11679,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/sciq_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "sciq_train",
+      "source_repo": "allenai/sciq",
       "source_split": "train"
     },
     {
@@ -319,11 +559,38 @@
       "license": "odc-by-1.0",
       "num_rows": 70705,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/sciriff_train_mix",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/allenai_SciRIFF-train-mix/data/train-00000-of-00001.parquet"
+      ],
       "raw_rows_seen": 70705,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/sciriff_train_mix",
       "skipped_empty_instruction_or_output": 0,
       "source_config": "default",
       "source_id": "sciriff_train_mix",
+      "source_split": "train"
+    },
+    {
+      "benchmark_tags": [
+        "humaneval"
+      ],
+      "builder": "scripts/build_posttrainbench_extended_fixed_pool.py",
+      "contamination_notes": "Programming problem pool; HumanEval prompts/solutions and derived items must remain excluded.",
+      "domain_tags": [
+        "code",
+        "algorithm",
+        "programming_contest"
+      ],
+      "hf_repo": "BAAI/TACO",
+      "license": "apache-2.0",
+      "num_rows": 19493,
+      "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/taco_train",
+      "processed_at": "2026-05-20T07:43:22.406005+00:00",
+      "raw_rows_seen": 19493,
+      "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/taco_train",
+      "skipped_empty_instruction_or_output": 0,
+      "source_config": "default",
+      "source_id": "taco_train",
+      "source_repo": "BAAI/TACO",
       "source_split": "train"
     },
     {
@@ -340,6 +607,11 @@
       "license": "mit",
       "num_rows": 207865,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/ultrachat_200k_sft",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/HuggingFaceH4_ultrachat_200k/data/train_sft-00000-of-00003-a3ecf92756993583.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/HuggingFaceH4_ultrachat_200k/data/train_sft-00001-of-00003-0a1804bcb6ae68c6.parquet",
+        "/data/hcgu/dataos_fixed_pools/raw/HuggingFaceH4_ultrachat_200k/data/train_sft-00002-of-00003-ee46ed25cfae92c6.parquet"
+      ],
       "raw_rows_seen": 207865,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/ultrachat_200k_sft",
       "skipped_empty_instruction_or_output": 0,
@@ -362,6 +634,9 @@
       "license": "mit",
       "num_rows": 61115,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/ultrafeedback_binarized_sft",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/HuggingFaceH4_ultrafeedback_binarized/data/train_sft-00000-of-00001.parquet"
+      ],
       "raw_rows_seen": 61115,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/ultrafeedback_binarized_sft",
       "skipped_empty_instruction_or_output": 0,
@@ -382,6 +657,9 @@
       "license": "cc-by-4.0",
       "num_rows": 60000,
       "path": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full_sharegpt/xlam_function_calling_60k",
+      "raw_files": [
+        "/data/hcgu/dataos_fixed_pools/raw/Salesforce_xlam-function-calling-60k/xlam_function_calling_60k.json"
+      ],
       "raw_rows_seen": 60000,
       "sharegpt_view_of": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full/xlam_function_calling_60k",
       "skipped_empty_instruction_or_output": 0,
@@ -390,5 +668,5 @@
       "source_split": "train"
     }
   ],
-  "total_rows": 15897563
+  "total_rows": 17168338
 }

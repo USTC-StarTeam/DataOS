@@ -88,6 +88,35 @@ ssh bdaa_5090-1 'hostname && nvidia-smi -L'
 ssh bdaa_5090-2 'hostname && nvidia-smi -L'
 ```
 
+### Lab H100 Runtime
+
+PostTrainBench-style training runs should use the lab H100 Slurm cluster when
+the user asks for H100 execution.
+
+- SSH alias: `hcgu_h100`
+- Login user: `hcgu`
+- Persistent workspace root: `/data/hcgu`
+- Default DataOS agent-run root:
+  `/data/hcgu/dataos_agent_runs`
+- Fixed-pool processed root:
+  `/data/hcgu/dataos_fixed_pools/processed`
+- PostTrainBench containers:
+  `/data/hcgu/posttrainbench_containers`
+- Base-model cache:
+  `/data/hcgu/hf_cache`
+
+Important operating rules:
+
+- The login node is for orchestration only; do not run GPU training or full
+  evaluation directly on it.
+- Submit GPU work through Slurm, and prefer `gpu04` unless the user explicitly
+  chooses another node.
+- Keep each agent experiment under
+  `/data/hcgu/dataos_agent_runs/<setting>/<coding_agent>/<base_model>/<task>/<run_id>`.
+- Do not store tokens, API keys, or private keys in run manifests.
+- For fixed-pool PostTrainBench experiments, training data must come only from
+  the DataOS fixed-pool manifest recorded in the run directory.
+
 Agent guidance for remote execution:
 
 - Prefer `bdaa_5090-1` for jobs that benefit from 3 GPUs; use `bdaa_5090-2`
