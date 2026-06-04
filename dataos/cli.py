@@ -21,6 +21,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.set_defaults(func=lambda args: parser.print_help())
     subparsers = parser.add_subparsers(dest="command")
     _add_train_commands(subparsers)
+    _add_run_prepared_commands(subparsers)
     _add_operator_commands(subparsers)
     return parser
 
@@ -40,6 +41,26 @@ def _add_train_commands(subparsers) -> None:
         help="Optional experiment dir (defaults to <workspace>/<exp_id>)",
     )
     train.set_defaults(func=_cmd_train)
+
+
+def _add_run_prepared_commands(subparsers) -> None:
+    run_prepared = subparsers.add_parser(
+        "run-prepared",
+        help="Run fixed stub train+eval+report over an already-prepared dataset (no agent, no LLM key)",
+    )
+    run_prepared.add_argument("--task", required=True, help="Task template JSON path")
+    run_prepared.add_argument(
+        "--dataset",
+        required=True,
+        help="Path to the prepared training set (Alpaca/ShareGPT jsonl/json/csv or HF save_to_disk dir)",
+    )
+    run_prepared.add_argument("--workspace", default="workspace", help="Workspace root")
+    run_prepared.add_argument(
+        "--sandbox",
+        default=None,
+        help="Optional experiment dir (defaults to <workspace>/<exp_id>)",
+    )
+    run_prepared.set_defaults(func=_cmd_run_prepared)
 
 
 def _add_operator_commands(subparsers) -> None:
@@ -75,6 +96,33 @@ def _cmd_train(args) -> dict[str, object]:
         "initial_artifact_ids": [artifact.artifact_id for artifact in result.initial_artifacts],
         "experiment_artifact_id": result.experiment_artifact.artifact_id,
         "review": result.review,
+    }
+
+
+def _cmd_run_prepared(args) -> dict[str, object]:
+    from dataos.runtime.prepared import run_prepared
+
+    result = run_prepared(
+        task_template=args.task,
+        dataset_path=args.dataset,
+        workspace_dir=args.workspace,
+        sandbox_root=args.sandbox,
+    )
+    experiment = result.experiment
+    model_artifacts = [a.artifact_id for a in experiment.artifacts if a.type == "model"]
+    eval_artifacts = [a.artifact_id for a in experiment.artifacts if a.type == "eval"]
+    return {
+        "task_id": result.task.task_id,
+        "experiment_id": experiment.exp_id,
+        "status": experiment.status,
+        "score": experiment.score,
+        "experiment_root": str(experiment.sandbox.root),
+        "report_path": str(experiment.sandbox.report_path()),
+        "dataset_artifact_id": result.dataset_artifact.artifact_id,
+        "model_artifact_ids": model_artifacts,
+        "eval_artifact_ids": eval_artifacts,
+        "experiment_artifact_id": result.experiment_artifact.artifact_id,
+        "num_steps": len(experiment.steps),
     }
 
 

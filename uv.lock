@@ -1032,6 +1032,7 @@ name = "dataos"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "dataos-operator" },
     { name = "datasets" },
     { name = "httpx" },
     { name = "prompt-toolkit" },
@@ -1045,10 +1046,12 @@ dev = [
 ]
 eval = [
     { name = "accelerate" },
+    { name = "evaluate" },
     { name = "immutabledict" },
     { name = "langdetect" },
     { name = "lm-eval" },
     { name = "nltk" },
+    { name = "openai" },
     { name = "transformers" },
 ]
 train = [
@@ -1062,13 +1065,16 @@ vllm = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'eval'", specifier = ">=0.34" },
+    { name = "dataos-operator", git = "https://github.com/USTC-StarTeam/DataOS-Operator.git?rev=jsonl2HF" },
     { name = "datasets", specifier = ">=2.19.0" },
+    { name = "evaluate", marker = "extra == 'eval'", specifier = ">=0.4.0" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
     { name = "immutabledict", marker = "extra == 'eval'" },
     { name = "langdetect", marker = "extra == 'eval'" },
     { name = "llamafactory", extras = ["metrics"], marker = "extra == 'train'", specifier = ">=0.9.4,<0.10" },
     { name = "lm-eval", marker = "extra == 'eval'", specifier = ">=0.4.9" },
     { name = "nltk", marker = "extra == 'eval'" },
+    { name = "openai", marker = "extra == 'eval'", specifier = ">=1.0.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.43" },
     { name = "pyarrow", specifier = ">=15.0.0" },
     { name = "pyclean", specifier = ">=3.5.0" },
@@ -1078,6 +1084,14 @@ requires-dist = [
     { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.8.0" },
 ]
 provides-extras = ["dev", "train", "eval", "vllm"]
+
+[[package]]
+name = "dataos-operator"
+version = "0.1.0"
+source = { git = "https://github.com/USTC-StarTeam/DataOS-Operator.git?rev=jsonl2HF#cf4a1031b137a22a2ac136b20c306072eaf43f3c" }
+dependencies = [
+    { name = "datasets" },
+]
 
 [[package]]
 name = "dataproperty"
@@ -3457,7 +3471,7 @@ name = "nvidia-cudnn-cu13"
 version = "9.19.0.56"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "nvidia-cublas", marker = "sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/84/26025437c1e6b61a707442184fa0c03d083b661adf3a3eecfd6d21677740/nvidia_cudnn_cu13-9.19.0.56-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:6ed29ffaee1176c612daf442e4dd6cfeb6a0caa43ddcbeb59da94953030b1be4", size = 433781201, upload-time = "2026-02-03T20:40:53.805Z" },
