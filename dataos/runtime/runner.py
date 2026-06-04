@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import os
 
-from dataos.core.agent import LLMPlanningAgent
+from dataos.core.agent import LLMPlanningAgent, build_agent_from_env
 from datasets import Dataset, DatasetDict
 
 from dataos.core.artifact import DatasetArtifact, ExperimentArtifact, make_artifact_id, select_working_dataset
@@ -14,11 +13,6 @@ from dataos.core.sandbox import Sandbox
 from dataos.core.store import LocalArtifactStore
 from dataos.core.task import TaskTemplate
 from dataos.eval import run_eval_stage
-from dataos.llm.openai_compat import (
-    DASHSCOPE_BASE_URL,
-    DEFAULT_MODEL,
-    OpenAICompatLLMClient,
-)
 from dataos.operators import build_default_registry
 from dataos.operators.mix import MergeDatasetsOperator
 from dataos.train import run_train_stage
@@ -40,6 +34,7 @@ def run_task(
     workspace_dir: str | Path = "workspace",
     sandbox_root: str | Path | None = None,
     history_summaries: list[dict[str, Any]] | None = None,
+    agent_provider: str | None = None,
 ) -> RunTaskResult:
     store = LocalArtifactStore(workspace_dir)
     store.prepare()
@@ -54,8 +49,11 @@ def run_task(
     initial_artifacts = _materialize_initial_datasets(dataset_sources, sandbox)
 
     registry = build_default_registry()
-    llm = _build_client_from_env()
-    agent = LLMPlanningAgent(llm_client=llm, registry=registry)
+    planning_agent = build_agent_from_env(
+        provider=agent_provider,
+        workspace=str(sandbox.tmp_dir / "agent"),
+    )
+    agent = LLMPlanningAgent(agent=planning_agent, registry=registry)
 
     experiment = Experiment(exp_id=exp_id, task=task, sandbox=sandbox)
     for artifact in initial_artifacts:
@@ -226,15 +224,3 @@ def _run_runtime_stage(
         )
         experiment.fail(exc)
         raise
-
-
-def _build_client_from_env() -> OpenAICompatLLMClient:
-    api_key = os.environ.get("DASHSCOPE_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "Missing LLM API key. "
-            "Set DASHSCOPE_API_KEY; optional DASHSCOPE_BASE_URL / DASHSCOPE_MODEL override the defaults."
-        )
-    base_url = os.environ.get("DASHSCOPE_BASE_URL") or DASHSCOPE_BASE_URL
-    model = os.environ.get("DASHSCOPE_MODEL") or DEFAULT_MODEL
-    return OpenAICompatLLMClient(api_key=api_key, base_url=base_url, model=model)

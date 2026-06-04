@@ -15,6 +15,7 @@ dependencies = [
   "pyarrow>=15.0.0",
   "prompt_toolkit>=3.0.43",
   "pyclean>=3.5.0",
+  "dataos-agent[openai] @ git+https://github.com/USTC-StarTeam/DataOS-Agent.git",
 ]
 
 [project.optional-dependencies]
