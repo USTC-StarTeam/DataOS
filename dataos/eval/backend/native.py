@@ -4,9 +4,9 @@ import inspect
 from pathlib import Path
 from typing import Any
 
-from dataos.core.artifact import ModelArtifact
 from dataos.eval.backend.runner import LmEvalRunOutput
 from dataos.eval.config import EvalConfig
+from dataos.eval.types import ModelLike as ModelArtifact
 
 
 def run_lm_eval_native(model_artifact: ModelArtifact, config: EvalConfig) -> LmEvalRunOutput:

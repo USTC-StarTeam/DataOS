@@ -4,9 +4,14 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from lm_eval.api.model import LM
 
-from dataos.core.artifact import ModelArtifact
 from dataos.eval.adapters.base import EvalLoglikelihoodAdapter
-from dataos.eval.types import AdapterCallContext, EvalAdapterConfig, EvalRequest, EvalRequestConfig
+from dataos.eval.types import (
+    AdapterCallContext,
+    EvalAdapterConfig,
+    EvalRequest,
+    EvalRequestConfig,
+    ModelLike as ModelArtifact,
+)
 
 if TYPE_CHECKING:
     from lm_eval.api.instance import Instance

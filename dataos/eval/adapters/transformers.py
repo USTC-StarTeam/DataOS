@@ -4,8 +4,12 @@ import importlib.util
 from pathlib import Path
 from typing import Any
 
-from dataos.core.artifact import ModelArtifact
-from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
+from dataos.eval.types import (
+    AdapterCallContext,
+    EvalRequest,
+    ModelLike as ModelArtifact,
+    ModelResponse,
+)
 
 
 class TransformersAdapter:

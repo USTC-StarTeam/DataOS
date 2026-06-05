@@ -1,7 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class ModelLike(Protocol):
+    """Structural type for a trained model the eval subsystem consumes.
+
+    The eval backend/adapters only read these four attributes, so any object
+    exposing them (the new :class:`dataos.experiment.Model`, or the legacy
+    ``ModelArtifact``) is accepted. Importing this Protocol instead of a
+    concrete ``ModelArtifact`` also breaks the eval -> core.artifact import
+    cycle without touching any function body.
+    """
+
+    path: Path
+    meta: dict[str, Any]
+    artifact_id: str
+    producer: str
 
 
 @dataclass(slots=True)

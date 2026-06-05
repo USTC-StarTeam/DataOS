@@ -1,67 +1,71 @@
-"""Drive the lm-evaluation-harness bridge from the runtime stage.
+"""Drive the lm-evaluation-harness bridge from the eval stage.
 
 ``run_eval_stage`` is the single entry point. It builds an
-:class:`EvalConfig` from ``task.eval_config`` and routes either to the
+:class:`EvalConfig` from the open ``config`` dict and routes either to the
 original DataOSLM adapter bridge or to lm-eval's native model backends.
-The :class:`LmEvalRunOutput` is then packaged into one :class:`EvalArtifact`
+The :class:`LmEvalRunOutput` is then packaged into one :class:`Eval`
 whose meta carries the per-task results, the headline score, a protocol
 snapshot, and a budget-trimmed copy of the raw lm-eval payload. Legacy
-``provider="stub"`` configs still emit a local stub eval artifact for smoke
-tests and dry runs.
+``provider="stub"`` configs still emit a local stub eval for smoke tests and
+dry runs.
+
+The model argument is any :class:`dataos.experiment.Model` (structurally a
+``ModelLike``): the runner only reads ``.path`` / ``.meta`` / ``.artifact_id``
+/ ``.producer``.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from dataos.core.artifact import Artifact, EvalArtifact, ModelArtifact, make_artifact_id
-from dataos.core.sandbox import Sandbox
 from dataos.eval.config import EvalConfig
+from dataos._experiment import Eval, Model, _make_id
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from dataos.workspace import Workspace
 
 _RAW_TRIM_MAX_KEYS = 50
 
 
 def run_eval_stage(
-    artifacts: list[Artifact],
-    sandbox: Sandbox,
+    model: Model,
+    config: dict[str, Any] | None,
     *,
-    task: Any,
-    experiment: Any | None = None,
-    **_unused: Any,
-) -> list[EvalArtifact]:
-    """Run an lm-eval task suite and emit a single :class:`EvalArtifact`."""
-    del experiment, _unused
-    eval_config = dict(task.eval_config)
-    model = _latest_model_artifact(artifacts)
+    workspace: "Workspace",
+) -> Eval:
+    """Run an lm-eval task suite and emit a single :class:`Eval`."""
+    eval_config = dict(config or {})
     if eval_config.get("provider") == "stub":
-        artifact = _stub_eval_artifact(sandbox, model, eval_config)
-        sandbox.log(
+        evaluation = _stub_eval_artifact(workspace, model, eval_config)
+        workspace.log(
             "eval_model",
-            _build_stub_log_message(model, artifact, eval_config),
+            _build_stub_log_message(model, evaluation, eval_config),
         )
-        return [artifact]
-    config = EvalConfig(**eval_config)
-    mode = config.normalized_mode()
+        return evaluation
+    eval_config.pop("provider", None)
+    eval_config.pop("provider_config", None)
+    config_obj = EvalConfig(**eval_config)
+    mode = config_obj.normalized_mode()
     if mode == "lm_eval_native":
-        output = _run_lm_eval_native(model, config)
+        output = _run_lm_eval_native(model, config_obj)
     else:
-        adapter = _make_adapter(config.adapter, config.adapter_config)
-        output = _run_lm_eval(model, adapter, config)
-    artifact = _eval_output_to_artifact(output, sandbox, model, config)
-    sandbox.log("eval_model", _build_log_message(model, artifact, output, config))
-    return [artifact]
+        adapter = _make_adapter(config_obj.adapter, config_obj.adapter_config)
+        output = _run_lm_eval(model, adapter, config_obj)
+    evaluation = _eval_output_to_artifact(output, workspace, model, config_obj)
+    workspace.log("eval_model", _build_log_message(model, evaluation, output, config_obj))
+    return evaluation
 
 
 def _stub_eval_artifact(
-    sandbox: Sandbox,
-    model: ModelArtifact,
+    workspace: "Workspace",
+    model: Model,
     eval_config: dict[str, Any],
-) -> EvalArtifact:
+) -> Eval:
     provider_config = dict(eval_config.get("provider_config", {}))
     score = float(provider_config.get("score", eval_config.get("score", 0.0)))
-    artifact_id = make_artifact_id("eval")
-    eval_dir = sandbox.artifact_dir("eval", artifact_id)
+    eval_id = _make_id("eval")
+    eval_dir = workspace.artifact_dir("eval", eval_id)
     summary: dict[str, Any] = {
         "backend": "stub",
         "provider": "stub",
@@ -75,21 +79,14 @@ def _stub_eval_artifact(
         json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=False, default=str),
         encoding="utf-8",
     )
-    return EvalArtifact(
-        artifact_id=artifact_id,
-        name=f"eval-{model.artifact_id}",
+    return Eval(
+        eval_id=eval_id,
         path=eval_dir,
-        parent_ids=[model.artifact_id],
-        producer="eval_model",
+        metrics={},
+        score=score,
         meta=summary,
+        producer="eval_model",
     )
-
-
-def _latest_model_artifact(artifacts: list[Artifact]) -> ModelArtifact:
-    for artifact in reversed(artifacts):
-        if isinstance(artifact, ModelArtifact):
-            return artifact
-    raise ValueError("run_eval_stage requires at least one ModelArtifact input")
 
 
 def _make_adapter(name: str, adapter_config: dict[str, Any]) -> Any:
@@ -105,7 +102,7 @@ def _make_adapter(name: str, adapter_config: dict[str, Any]) -> Any:
     raise ValueError(f"Unknown eval adapter {name!r}; expected 'transformers' or 'openai_compatible'")
 
 
-def _run_lm_eval(model: ModelArtifact, adapter: Any, config: EvalConfig):
+def _run_lm_eval(model: Model, adapter: Any, config: EvalConfig):
     from dataos.eval.backend import run_lm_eval
 
     return run_lm_eval(
@@ -122,7 +119,7 @@ def _run_lm_eval(model: ModelArtifact, adapter: Any, config: EvalConfig):
     )
 
 
-def _run_lm_eval_native(model: ModelArtifact, config: EvalConfig):
+def _run_lm_eval_native(model: Model, config: EvalConfig):
     from dataos.eval.backend import run_lm_eval_native
 
     return run_lm_eval_native(model, config)
@@ -130,12 +127,12 @@ def _run_lm_eval_native(model: ModelArtifact, config: EvalConfig):
 
 def _eval_output_to_artifact(
     output: Any,
-    sandbox: Sandbox,
-    model: ModelArtifact,
+    workspace: "Workspace",
+    model: Model,
     config: EvalConfig,
-) -> EvalArtifact:
-    artifact_id = make_artifact_id("eval")
-    eval_dir = sandbox.artifact_dir("eval", artifact_id)
+) -> Eval:
+    eval_id = _make_id("eval")
+    eval_dir = workspace.artifact_dir("eval", eval_id)
     metrics = _flatten_metrics(output.results)
     headline = _pick_headline(metrics, config.tasks)
     protocol = _protocol_snapshot(output, model, config)
@@ -173,13 +170,13 @@ def _eval_output_to_artifact(
             with (eval_dir / f"samples-{safe}.jsonl").open("w", encoding="utf-8") as handle:
                 for record in samples:
                     handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
-    return EvalArtifact(
-        artifact_id=artifact_id,
-        name=f"eval-{model.artifact_id}",
+    return Eval(
+        eval_id=eval_id,
         path=eval_dir,
-        parent_ids=[model.artifact_id],
-        producer="eval_model",
+        metrics=metrics,
+        score=headline,
         meta=summary,
+        producer="eval_model",
     )
 
 
@@ -226,7 +223,7 @@ def _trim_raw(raw: dict[str, Any]) -> dict[str, Any]:
     return trimmed
 
 
-def _protocol_snapshot(output: Any, model: ModelArtifact, config: EvalConfig) -> dict[str, Any]:
+def _protocol_snapshot(output: Any, model: Model, config: EvalConfig) -> dict[str, Any]:
     return {
         "eval_config": config.to_record(),
         "source_model": {
@@ -241,22 +238,22 @@ def _protocol_snapshot(output: Any, model: ModelArtifact, config: EvalConfig) ->
 
 
 def _build_log_message(
-    model: ModelArtifact,
-    artifact: EvalArtifact,
+    model: Model,
+    evaluation: Eval,
     output: Any,
     config: EvalConfig,
 ) -> str:
-    headline = artifact.meta.get("headline_score")
+    headline = evaluation.meta.get("headline_score")
     lines = [
         f"model={model.artifact_id}",
-        f"eval={artifact.artifact_id}",
+        f"eval={evaluation.artifact_id}",
         "backend=lm_eval",
         f"mode={config.normalized_mode()}",
         f"tasks={','.join(config.tasks)}",
         f"score={headline if headline is not None else 'n/a'}",
     ]
     if config.normalized_mode() == "lm_eval_native":
-        lines.append(f"lm_eval_model={artifact.meta.get('model') or config.model or 'hf'}")
+        lines.append(f"lm_eval_model={evaluation.meta.get('model') or config.model or 'hf'}")
     else:
         lines.append(f"adapter={config.adapter}")
     if config.limit is not None:
@@ -265,14 +262,14 @@ def _build_log_message(
 
 
 def _build_stub_log_message(
-    model: ModelArtifact,
-    artifact: EvalArtifact,
+    model: Model,
+    evaluation: Eval,
     eval_config: dict[str, Any],
 ) -> str:
-    score = artifact.meta.get("score")
+    score = evaluation.meta.get("score")
     lines = [
         f"model={model.artifact_id}",
-        f"eval={artifact.artifact_id}",
+        f"eval={evaluation.artifact_id}",
         "backend=stub",
         f"score={score if score is not None else 'n/a'}",
     ]

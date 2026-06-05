@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import httpx
 
-from dataos.core.artifact import ModelArtifact
-from dataos.eval.types import AdapterCallContext, EvalRequest, ModelResponse
+from dataos.eval.types import (
+    AdapterCallContext,
+    EvalRequest,
+    ModelLike as ModelArtifact,
+    ModelResponse,
+)
 
 
 class OpenAICompatibleAdapter:

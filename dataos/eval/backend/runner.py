@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from dataos.core.artifact import ModelArtifact
 from dataos.eval.backend.lm import DataOSLM, _GenerateUntilAdapter
+from dataos.eval.types import ModelLike as ModelArtifact
 
 
 @dataclass(slots=True)

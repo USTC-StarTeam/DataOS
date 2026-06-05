@@ -1,3 +1,20 @@
+"""Open-config LLaMA-Factory training executor.
+
+``run_train`` is the single entry point used by ``Experiment.train``. It is a
+deterministic glue layer: it materializes the external
+``dataos_operator.Dataset``, exports it to LLaMA-Factory's on-disk format,
+assembles an *open* YAML payload (any LLaMA-Factory key the caller passes
+through ``config`` is forwarded verbatim — there is no allowlist), runs
+``llamafactory-cli train``, validates the outputs, and returns a :class:`Model`.
+
+The export / write / validate helpers are ported from the previous runtime
+unchanged in body; only their parameters changed from ``Sandbox`` /
+``DatasetArtifact`` to plain ``Path`` / explicit args. Heavy dependencies
+(torch, llamafactory-cli) are guarded and only touched on the real training
+path, so the stub path and ``import dataos`` need only ``datasets`` +
+``dataos_operator``.
+"""
+
 from __future__ import annotations
 
 import importlib.util
@@ -5,12 +22,16 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from datasets import Dataset, DatasetDict
+from datasets import Dataset
 
-from dataos.core.artifact import Artifact, DatasetArtifact, ModelArtifact, make_artifact_id
-from dataos.core.sandbox import Sandbox
+from dataos._experiment import Model, _make_id
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from dataos_operator import Dataset as OperatorDataset
+
+    from dataos.workspace import Workspace
 
 RESERVED_CONFIG_KEYS = {
     "stage",
@@ -22,282 +43,190 @@ RESERVED_CONFIG_KEYS = {
     "overwrite_output_dir",
 }
 SUPPORTED_FINETUNING_TYPES = {"lora", "full", "freeze"}
-ALLOWED_EXTRA_ARGS = {
-    "bf16",
-    "cutoff_len",
-    "fp16",
-    "gradient_accumulation_steps",
-    "learning_rate",
-    "logging_steps",
-    "lr_scheduler_type",
-    "max_samples",
-    "num_train_epochs",
-    "per_device_train_batch_size",
-    "preprocessing_num_workers",
-    "save_steps",
-    "val_size",
-    "warmup_ratio",
-}
-ALLOWED_STEP_OVERRIDE_KEYS = ALLOWED_EXTRA_ARGS | {"finetuning_type", "lora_target", "mode"}
-EVAL_SPLIT_CANDIDATES = ("validation", "eval", "dev")
 
 
-def run_train_stage(inputs: list[Artifact], sandbox: Sandbox, **kwargs) -> ModelArtifact:
-    task = kwargs.get("task")
-    dataset_artifact = _find_latest_dataset(inputs)
-    dataset_obj = dataset_artifact.load()
-    effective_config = _resolve_train_config(getattr(task, "train_config", {}), kwargs)
+def run_train(
+    dataset: "OperatorDataset",
+    config: dict[str, Any] | None,
+    *,
+    workspace: "Workspace",
+    task: Any = None,
+    exp_id: str | None = None,
+) -> Model:
+    """Train a model from a ``dataos_operator.Dataset`` and return a :class:`Model`."""
+    del exp_id  # workspace already scopes the experiment directory
+    if config is None or config.get("mode") == "stub":
+        return _run_stub_training(dataset, workspace=workspace, task=task)
 
-    if effective_config["mode"] == "stub":
-        return _run_stub_training(
-            dataset_artifact=dataset_artifact,
-            dataset_obj=dataset_obj,
-            sandbox=sandbox,
-            task=task,
-            mode=effective_config["mode"],
-        )
+    # Materialize the external Dataset for provenance, then operate on the flat
+    # single-split HF Dataset directly (no DatasetDict, so no split selection).
+    dataset.save_to_disk(workspace.dataset_dir)
+    hf_train: Dataset = dataset.hf_dataset
 
-    artifact_id = make_artifact_id("model")
-    model_dir = sandbox.artifact_dir("model", artifact_id)
-    train_dataset, train_split, eval_dataset, eval_split = _select_dataset_splits(dataset_obj)
+    model_id = _make_id("model")
+    model_dir = workspace.artifact_dir("model", model_id)
+    explicit_format = dict(getattr(dataset, "metadata", {}) or {}).get("dataset_format")
     exported = _export_datasets_for_llamafactory(
-        dataset_artifact=dataset_artifact,
-        train_dataset=train_dataset,
-        train_split=train_split,
-        eval_dataset=eval_dataset,
-        eval_split=eval_split,
-        sandbox=sandbox,
+        export_root=workspace.tmp_dir / "data",
+        train_dataset=hf_train,
+        train_split="train",
+        eval_dataset=None,
+        eval_split=None,
+        explicit_format=explicit_format,
     )
-    training_payload = _build_training_payload(
-        effective_config=effective_config,
-        exported=exported,
-        model_dir=model_dir,
-    )
-    config_path = sandbox.code_dir / "llamafactory" / artifact_id / "train.yaml"
+    training_payload = _build_open_payload(config, exported, model_dir)
+    config_path = workspace.tmp_dir / "train.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         json.dumps(training_payload, indent=2, sort_keys=True, ensure_ascii=False),
         encoding="utf-8",
     )
-    command = _run_llamafactory_train(config_path=config_path, sandbox=sandbox)
+    log_path = workspace.logs_dir / "train_llamafactory.log"
+    command = _run_llamafactory_train(
+        config_path=config_path,
+        cwd=workspace.exp_dir,
+        log_path=log_path,
+    )
     _validate_training_outputs(model_dir)
 
-    training_config = {
-        "mode": effective_config["mode"],
-        "dataset_artifact_id": dataset_artifact.artifact_id,
+    base_model = training_payload["model_name_or_path"]
+    template = training_payload["template"]
+    finetuning_type = training_payload["finetuning_type"]
+    meta = {
+        "mode": "llamafactory",
         "dataset_format": exported["dataset_format"],
-        "train_split": train_split,
-        "selected_rows": train_dataset.num_rows,
-        "eval_split": eval_split,
-        "eval_rows": eval_dataset.num_rows if eval_dataset is not None else 0,
+        "base_model": base_model,
+        "template": template,
+        "finetuning_type": finetuning_type,
+        "lora_target": training_payload.get("lora_target"),
+        "train_split": "train",
+        "selected_rows": hf_train.num_rows,
         "task_id": getattr(task, "task_id", None),
-        "base_model": effective_config["model_name_or_path"],
-        "template": effective_config["template"],
-        "finetuning_type": effective_config["finetuning_type"],
-        "lora_target": effective_config.get("lora_target"),
-        "extra_args": effective_config["extra_args"],
+        "config_path": str(config_path),
+        "log_path": str(log_path),
     }
     (model_dir / "training_config.json").write_text(
-        json.dumps(training_config, indent=2, sort_keys=True, ensure_ascii=False),
+        json.dumps(training_payload, indent=2, sort_keys=True, ensure_ascii=False),
         encoding="utf-8",
     )
     manifest = {
         "command": command,
         "config_path": str(config_path),
-        "dataset_artifact_id": dataset_artifact.artifact_id,
         "exported_data": exported,
         "train_config": training_payload,
-        "log_path": str(sandbox.logs_dir / "train_llamafactory.log"),
+        "log_path": str(log_path),
     }
     (model_dir / "training_manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False),
         encoding="utf-8",
     )
 
-    model_artifact = ModelArtifact(
-        artifact_id=artifact_id,
-        name=f"model-{dataset_artifact.artifact_id}",
-        path=model_dir,
-        parent_ids=[dataset_artifact.artifact_id],
-        producer="train_llamafactory",
-        meta={
-            "mode": effective_config["mode"],
-            "source_dataset_id": dataset_artifact.artifact_id,
-            "dataset_format": exported["dataset_format"],
-            "base_model": effective_config["model_name_or_path"],
-            "template": effective_config["template"],
-            "finetuning_type": effective_config["finetuning_type"],
-            "lora_target": effective_config.get("lora_target"),
-            "train_split": train_split,
-            "selected_rows": train_dataset.num_rows,
-            "eval_split": eval_split,
-            "eval_rows": eval_dataset.num_rows if eval_dataset is not None else 0,
-            "task_id": getattr(task, "task_id", None),
-            "config_path": str(config_path),
-            "log_path": str(sandbox.logs_dir / "train_llamafactory.log"),
-        },
-    )
-    sandbox.log(
+    model = Model(model_id=model_id, path=model_dir, meta=meta, producer="train_llamafactory")
+    workspace.log(
         "train_llamafactory_summary",
         (
-            f"dataset={dataset_artifact.artifact_id}\n"
-            f"model={model_artifact.artifact_id}\n"
-            f"mode={effective_config['mode']}\n"
-            f"train_split={train_split}\n"
-            f"eval_split={eval_split or ''}\n"
+            f"model={model.model_id}\n"
+            f"mode=llamafactory\n"
+            f"base_model={base_model}\n"
+            f"template={template}\n"
+            f"finetuning_type={finetuning_type}\n"
+            f"rows={hf_train.num_rows}\n"
             f"config={config_path}\n"
         ),
     )
-    return model_artifact
-
-
-def _find_latest_dataset(inputs: list[Artifact]) -> DatasetArtifact:
-    for artifact in reversed(inputs):
-        if isinstance(artifact, DatasetArtifact):
-            return artifact
-    raise ValueError("train_llamafactory requires at least one DatasetArtifact input")
+    return model
 
 
 def _run_stub_training(
-    dataset_artifact: DatasetArtifact,
-    dataset_obj: Dataset | DatasetDict,
-    sandbox: Sandbox,
+    dataset: "OperatorDataset",
+    *,
+    workspace: "Workspace",
     task: Any,
-    mode: str,
-) -> ModelArtifact:
-    train_dataset, train_split, _, _ = _select_dataset_splits(dataset_obj)
-    artifact_id = make_artifact_id("model")
-    model_dir = sandbox.artifact_dir("model", artifact_id)
-    config = {
-        "mode": mode,
-        "dataset_artifact_id": dataset_artifact.artifact_id,
-        "train_split": train_split,
-        "selected_rows": train_dataset.num_rows,
+) -> Model:
+    hf_train: Dataset = dataset.hf_dataset
+    model_id = _make_id("model")
+    model_dir = workspace.artifact_dir("model", model_id)
+    meta = {
+        "mode": "stub",
+        "train_split": "train",
+        "selected_rows": hf_train.num_rows,
         "task_id": getattr(task, "task_id", None),
     }
     (model_dir / "training_config.json").write_text(
-        json.dumps(config, indent=2, sort_keys=True, ensure_ascii=False),
+        json.dumps(meta, indent=2, sort_keys=True, ensure_ascii=False),
         encoding="utf-8",
     )
     (model_dir / "weights.stub").write_text("stub model binary placeholder\n", encoding="utf-8")
-    model_artifact = ModelArtifact(
-        artifact_id=artifact_id,
-        name=f"model-{dataset_artifact.artifact_id}",
-        path=model_dir,
-        parent_ids=[dataset_artifact.artifact_id],
-        producer="train_llamafactory",
-        meta={
-            "mode": mode,
-            "source_dataset_id": dataset_artifact.artifact_id,
-            "train_split": train_split,
-            "selected_rows": train_dataset.num_rows,
-            "task_id": getattr(task, "task_id", None),
-        },
-    )
-    sandbox.log(
+    model = Model(model_id=model_id, path=model_dir, meta=meta, producer="train_llamafactory")
+    workspace.log(
         "train_llamafactory",
-        f"dataset={dataset_artifact.artifact_id}\nmodel={model_artifact.artifact_id}\nmode={mode}\n",
+        f"model={model.model_id}\nmode=stub\nrows={hf_train.num_rows}\n",
     )
-    return model_artifact
+    return model
 
 
-def _resolve_train_config(task_train_config: dict[str, Any], kwargs: dict[str, Any]) -> dict[str, Any]:
-    step_params = {key: value for key, value in kwargs.items() if key not in {"task", "experiment"}}
-    mode = str(step_params.get("mode", task_train_config.get("mode", "stub")))
-    if mode == "stub":
-        return {"mode": "stub"}
-    if mode != "llamafactory":
-        raise ValueError(f"Unsupported train_llamafactory mode: {mode}")
+def _build_open_payload(
+    config: dict[str, Any],
+    exported: dict[str, Any],
+    model_dir: Path,
+) -> dict[str, Any]:
+    """Build the LLaMA-Factory YAML payload, passing through every non-reserved key.
 
-    if not isinstance(task_train_config, dict):
-        raise ValueError("task.train_config must be a dict")
+    The caller owns every knob. We only: reject reserved keys (they are forced
+    from the export/output dir), validate ``finetuning_type``, require
+    ``model_name_or_path`` + ``template``, and forward everything else verbatim.
+    """
+    if not isinstance(config, dict):
+        raise ValueError("train config must be a dict")
+    payload = dict(config)
+    payload.pop("mode", None)
 
-    base_config = dict(task_train_config)
-    base_config.pop("mode", None)
-    extra_args = base_config.pop("extra_args", {})
-    if not isinstance(extra_args, dict):
-        raise ValueError("task.train_config.extra_args must be a dict")
-
-    unknown_task_keys = set(base_config) - {"model_name_or_path", "template", "finetuning_type", "lora_target"}
-    if unknown_task_keys:
-        keys = ", ".join(sorted(unknown_task_keys))
-        raise ValueError(f"Unsupported task.train_config keys for llamafactory mode: {keys}")
-
-    unknown_step_keys = set(step_params) - ALLOWED_STEP_OVERRIDE_KEYS
-    if unknown_step_keys:
-        keys = ", ".join(sorted(unknown_step_keys))
-        raise ValueError(f"Unsupported train_llamafactory step params: {keys}")
-
-    effective = {
-        "mode": mode,
-        "model_name_or_path": step_params.get("model_name_or_path", base_config.get("model_name_or_path")),
-        "template": step_params.get("template", base_config.get("template")),
-        "finetuning_type": str(step_params.get("finetuning_type", base_config.get("finetuning_type", "lora"))),
-        "extra_args": dict(extra_args),
-    }
-    if not effective["model_name_or_path"]:
-        raise ValueError("train_config.model_name_or_path is required for llamafactory mode")
-    if not effective["template"]:
-        raise ValueError("train_config.template is required for llamafactory mode")
-    if effective["finetuning_type"] not in SUPPORTED_FINETUNING_TYPES:
-        allowed = ", ".join(sorted(SUPPORTED_FINETUNING_TYPES))
-        raise ValueError(f"train_config.finetuning_type must be one of: {allowed}")
-
-    if "lora_target" in base_config:
-        effective["lora_target"] = base_config["lora_target"]
-    if "lora_target" in step_params:
-        effective["lora_target"] = step_params["lora_target"]
-    if effective["finetuning_type"] == "lora":
-        effective.setdefault("lora_target", "all")
-    elif "lora_target" in effective:
-        raise ValueError("lora_target can only be set when finetuning_type='lora'")
-
-    for key, value in step_params.items():
-        if key in {"mode", "finetuning_type", "lora_target"}:
-            continue
-        effective["extra_args"][key] = value
-
-    unknown_extra_args = set(effective["extra_args"]) - ALLOWED_EXTRA_ARGS
-    if unknown_extra_args:
-        keys = ", ".join(sorted(unknown_extra_args))
-        raise ValueError(f"Unsupported train_config.extra_args keys: {keys}")
-
-    reserved_keys = set(effective["extra_args"]) & RESERVED_CONFIG_KEYS
-    if reserved_keys:
-        keys = ", ".join(sorted(reserved_keys))
-        raise ValueError(f"Reserved LLaMA-Factory keys cannot be overridden: {keys}")
-
-    return effective
-
-
-def _select_dataset_splits(
-    dataset_obj: Dataset | DatasetDict,
-) -> tuple[Dataset, str, Dataset | None, str | None]:
-    if isinstance(dataset_obj, DatasetDict):
-        train_split = "train" if "train" in dataset_obj else next(iter(dataset_obj.keys()))
-        eval_split = next(
-            (candidate for candidate in EVAL_SPLIT_CANDIDATES if candidate in dataset_obj and candidate != train_split),
-            None,
+    reserved = set(payload) & RESERVED_CONFIG_KEYS
+    if reserved:
+        keys = ", ".join(sorted(reserved))
+        raise ValueError(
+            f"Reserved LLaMA-Factory keys cannot be set via config (DataOS owns them): {keys}"
         )
-        eval_dataset = dataset_obj[eval_split] if eval_split else None
-        return dataset_obj[train_split], train_split, eval_dataset, eval_split
-    return dataset_obj, "train", None, None
+
+    model_name_or_path = payload.get("model_name_or_path")
+    if not model_name_or_path:
+        raise ValueError("train config requires 'model_name_or_path'")
+    template = payload.get("template")
+    if not template:
+        raise ValueError("train config requires 'template'")
+
+    finetuning_type = str(payload.get("finetuning_type", "lora"))
+    if finetuning_type not in SUPPORTED_FINETUNING_TYPES:
+        allowed = ", ".join(sorted(SUPPORTED_FINETUNING_TYPES))
+        raise ValueError(f"train config finetuning_type must be one of: {allowed}")
+    payload["finetuning_type"] = finetuning_type
+
+    # Force the reserved keys from the export + output dir.
+    payload["stage"] = "sft"
+    payload["do_train"] = True
+    payload["dataset"] = exported["train_dataset_name"]
+    payload["dataset_dir"] = exported["dataset_dir"]
+    payload["output_dir"] = str(model_dir)
+    payload["overwrite_output_dir"] = True
+    if "eval_dataset_name" in exported:
+        payload["eval_dataset"] = exported["eval_dataset_name"]
+    if "eval_dataset" in payload and "val_size" in payload:
+        raise ValueError("config.val_size cannot be combined with an explicit eval split")
+    return payload
 
 
 def _export_datasets_for_llamafactory(
-    dataset_artifact: DatasetArtifact,
+    export_root: Path,
     train_dataset: Dataset,
     train_split: str,
     eval_dataset: Dataset | None,
     eval_split: str | None,
-    sandbox: Sandbox,
+    explicit_format: str | None = None,
 ) -> dict[str, Any]:
-    export_root = sandbox.tmp_dir / "llamafactory" / dataset_artifact.artifact_id / "data"
     export_root.mkdir(parents=True, exist_ok=True)
-    dataset_prefix = dataset_artifact.artifact_id.replace("-", "_")
-    dataset_format = _detect_training_dataset_format(dataset_artifact, train_dataset)
+    dataset_format = _detect_training_dataset_format(explicit_format, train_dataset)
 
-    train_name = f"{dataset_prefix}_{train_split}"
+    train_name = f"dataos_{train_split}"
     train_file = export_root / f"{train_name}.json"
     train_entry = _write_dataset_for_llamafactory(train_dataset, train_file, dataset_format)
     dataset_info: dict[str, Any] = {train_name: train_entry}
@@ -310,7 +239,7 @@ def _export_datasets_for_llamafactory(
     }
 
     if eval_dataset is not None and eval_split is not None:
-        eval_name = f"{dataset_prefix}_{eval_split}"
+        eval_name = f"dataos_{eval_split}"
         eval_file = export_root / f"{eval_name}.json"
         dataset_info[eval_name] = _write_dataset_for_llamafactory(
             eval_dataset,
@@ -330,8 +259,7 @@ def _export_datasets_for_llamafactory(
     return exported
 
 
-def _detect_training_dataset_format(dataset_artifact: DatasetArtifact, dataset: Dataset) -> str:
-    explicit_format = dataset_artifact.meta.get("dataset_format")
+def _detect_training_dataset_format(explicit_format: str | None, dataset: Dataset) -> str:
     if explicit_format in {"alpaca", "sharegpt"}:
         return str(explicit_format)
     if "conversations" in dataset.column_names:
@@ -501,33 +429,7 @@ def _normalize_history(value: Any, index: int) -> list[list[str]]:
     return normalized
 
 
-def _build_training_payload(
-    effective_config: dict[str, Any],
-    exported: dict[str, Any],
-    model_dir: Path,
-) -> dict[str, Any]:
-    payload = {
-        "model_name_or_path": effective_config["model_name_or_path"],
-        "stage": "sft",
-        "do_train": True,
-        "finetuning_type": effective_config["finetuning_type"],
-        "dataset": exported["train_dataset_name"],
-        "dataset_dir": exported["dataset_dir"],
-        "template": effective_config["template"],
-        "output_dir": str(model_dir),
-        "overwrite_output_dir": True,
-    }
-    if "lora_target" in effective_config:
-        payload["lora_target"] = effective_config["lora_target"]
-    if "eval_dataset_name" in exported:
-        payload["eval_dataset"] = exported["eval_dataset_name"]
-    payload.update(effective_config["extra_args"])
-    if "eval_dataset" in payload and "val_size" in payload:
-        raise ValueError("train_config.extra_args.val_size cannot be combined with an explicit eval split")
-    return payload
-
-
-def _run_llamafactory_train(config_path: Path, sandbox: Sandbox) -> list[str]:
+def _run_llamafactory_train(config_path: Path, cwd: Path, log_path: Path) -> list[str]:
     cli_path = shutil.which("llamafactory-cli")
     if cli_path is None:
         raise ValueError(
@@ -541,13 +443,13 @@ def _run_llamafactory_train(config_path: Path, sandbox: Sandbox) -> list[str]:
         )
 
     command = [cli_path, "train", str(config_path)]
-    log_path = sandbox.logs_dir / "train_llamafactory.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8") as log_file:
         log_file.write("COMMAND: " + " ".join(command) + "\n\n")
         log_file.flush()
         completed = subprocess.run(
             command,
-            cwd=sandbox.root,
+            cwd=cwd,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             check=False,

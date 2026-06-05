@@ -1,11 +1,19 @@
 """DataOS public package exports.
 
-Top-level names are exposed lazily (PEP 562 ``__getattr__``) so that importing a
-single submodule — for example the agent-less ``dataos.runtime.prepared``
-entrypoint — does not eagerly pull in the planning agent (``LLMPlanningAgent``)
-or the LLM client stack. The public API is unchanged: ``dataos.run_task``,
-``dataos.LLMPlanningAgent`` and friends still resolve on first access; they are
-just loaded on demand instead of at package import time.
+DataOS is a library of deterministic executors; the coding agent (Claude Code)
+is the orchestrator/planner. There is no embedded LLM or planning agent and no
+one-shot ``run()`` — the five stages (plan / data / train / eval / review) are
+called imperatively.
+
+Public surface (all resolved lazily via PEP 562 ``__getattr__`` so that
+``import dataos`` needs only ``datasets`` + ``dataos_operator``; torch / lm-eval
+/ llamafactory are imported on demand inside the stages that use them):
+
+* ``dataos.catalog()`` — discover ``dataos_operator`` operators + their params.
+* ``dataos.load(...)`` — load a dataset into a ``dataos_operator.Dataset``.
+* ``dataos.experiment(...)`` — start a staged :class:`Experiment`.
+* ``Experiment`` / ``Model`` / ``Eval`` — the three core types.
+* ``TaskTemplate`` — optional task metadata.
 """
 
 from __future__ import annotations
@@ -13,69 +21,31 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - import-time typing only
-    from dataos.core.agent import LLMPlanningAgent, PlanStep
-    from dataos.core.artifact import (
-        Artifact,
-        DatasetArtifact,
-        EvalArtifact,
-        ExperimentArtifact,
-        ModelArtifact,
-        ResultArtifact,
-    )
-    from dataos.core.experiment import Experiment
-    from dataos.core.operator import Operator, OperatorParameter
-    from dataos.core.registry import OperatorRegistry
-    from dataos.core.sandbox import Sandbox
-    from dataos.core.store import LocalArtifactStore
+    from dataos._catalog import catalog
+    from dataos._experiment import Eval, Experiment, Model, experiment
     from dataos.core.task import TaskTemplate
-    from dataos.llm.client import LLMClient
-    from dataos.llm.openai_compat import OpenAICompatLLMClient
-    from dataos.runtime.runner import run_task
+    from dataos.loading import load
 
 __all__ = [
-    "Artifact",
-    "DatasetArtifact",
-    "EvalArtifact",
+    "Eval",
     "Experiment",
-    "ExperimentArtifact",
-    "LLMClient",
-    "LLMPlanningAgent",
-    "LocalArtifactStore",
-    "ModelArtifact",
-    "Operator",
-    "OperatorParameter",
-    "OperatorRegistry",
-    "PlanStep",
-    "ResultArtifact",
-    "OpenAICompatLLMClient",
-    "Sandbox",
+    "Model",
     "TaskTemplate",
-    "run_task",
+    "catalog",
+    "experiment",
+    "load",
 ]
 
 __version__ = "0.1.0"
 
-# Map each lazily-exported name to the module that defines it. Grouped so that
-# touching one name only imports its own module (and its dependencies).
 _LAZY_EXPORTS: dict[str, str] = {
-    "LLMPlanningAgent": "dataos.core.agent",
-    "PlanStep": "dataos.core.agent",
-    "Artifact": "dataos.core.artifact",
-    "DatasetArtifact": "dataos.core.artifact",
-    "EvalArtifact": "dataos.core.artifact",
-    "ExperimentArtifact": "dataos.core.artifact",
-    "ModelArtifact": "dataos.core.artifact",
-    "ResultArtifact": "dataos.core.artifact",
-    "Experiment": "dataos.core.experiment",
-    "Operator": "dataos.core.operator",
-    "OperatorParameter": "dataos.core.operator",
-    "OperatorRegistry": "dataos.core.registry",
-    "Sandbox": "dataos.core.sandbox",
-    "LocalArtifactStore": "dataos.core.store",
+    "catalog": "dataos._catalog",
+    "load": "dataos.loading",
+    "experiment": "dataos._experiment",
+    "Experiment": "dataos._experiment",
+    "Model": "dataos._experiment",
+    "Eval": "dataos._experiment",
     "TaskTemplate": "dataos.core.task",
-    "LLMClient": "dataos.llm.client",
-    "OpenAICompatLLMClient": "dataos.llm.openai_compat",
-    "run_task": "dataos.runtime.runner",
 }
 
 
