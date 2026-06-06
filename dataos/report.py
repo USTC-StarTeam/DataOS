@@ -14,28 +14,17 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 
 def build_report(experiment: "Experiment") -> dict[str, Any]:
-    task = experiment.task
     return {
         "id": experiment.exp_id,
+        "name": experiment.name,
+        "spec": experiment.spec,
         "status": experiment.status,
         "created_at": experiment.created_at,
         "updated_at": experiment.updated_at,
-        "task": _task_section(task),
-        "plan": experiment.plan,
         "steps": [dict(step) for step in experiment.steps],
         "dataset": _dataset_section(experiment),
         "model": _model_section(experiment),
         "eval": _eval_section(experiment),
-    }
-
-
-def _task_section(task: Any) -> dict[str, Any] | None:
-    if task is None:
-        return None
-    return {
-        "id": getattr(task, "task_id", None),
-        "name": getattr(task, "name", None),
-        "goal": getattr(task, "goal", None),
     }
 
 

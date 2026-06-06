@@ -50,13 +50,10 @@ def run_train(
     config: dict[str, Any] | None,
     *,
     workspace: "Workspace",
-    task: Any = None,
-    exp_id: str | None = None,
 ) -> Model:
     """Train a model from a ``dataos_operator.Dataset`` and return a :class:`Model`."""
-    del exp_id  # workspace already scopes the experiment directory
     if config is None or config.get("mode") == "stub":
-        return _run_stub_training(dataset, workspace=workspace, task=task)
+        return _run_stub_training(dataset, workspace=workspace)
 
     # Materialize the external Dataset for provenance, then operate on the flat
     # single-split HF Dataset directly (no DatasetDict, so no split selection).
@@ -101,7 +98,6 @@ def run_train(
         "lora_target": training_payload.get("lora_target"),
         "train_split": "train",
         "selected_rows": hf_train.num_rows,
-        "task_id": getattr(task, "task_id", None),
         "config_path": str(config_path),
         "log_path": str(log_path),
     }
@@ -141,7 +137,6 @@ def _run_stub_training(
     dataset: "OperatorDataset",
     *,
     workspace: "Workspace",
-    task: Any,
 ) -> Model:
     hf_train: Dataset = dataset.hf_dataset
     model_id = _make_id("model")
@@ -150,7 +145,6 @@ def _run_stub_training(
         "mode": "stub",
         "train_split": "train",
         "selected_rows": hf_train.num_rows,
-        "task_id": getattr(task, "task_id", None),
     }
     (model_dir / "training_config.json").write_text(
         json.dumps(meta, indent=2, sort_keys=True, ensure_ascii=False),
