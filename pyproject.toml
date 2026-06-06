@@ -45,9 +45,6 @@ dataos = "dataos.cli:main"
 [tool.setuptools.packages.find]
 include = ["dataos*"]
 
-[tool.setuptools.package-data]
-dataos = ["templates/**/*.json", "eval_tasks/**/*.yaml", "eval_tasks/**/*.jinja"]
-
 [tool.ruff]
 line-length = 100
 target-version = "py311"
