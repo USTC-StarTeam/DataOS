@@ -1,285 +1,97 @@
 # AGENTS.md
 
-## Purpose
+## 这是什么仓库
 
-This repository is `DataOS`, a local-first, single-experiment runtime for SFT
-data workflows.
+`DataOS` —— 本地优先的 SFT 数据流水线**确定性执行器库**。设计刻意很窄:
 
-The runtime is intentionally narrow:
+- DataOS **不调用 LLM**:加载、处理、训练、评估、复盘都是本地 Python。规划和判断由 **Claude Code**
+  (runtime / planner)在库外完成。
+- 两个容器:`Study`(多实验,就是一个目录)→ `Experiment`(单次)。`compare()` 读盘聚合,所以并行与否
+  由 runtime 决定。
+- 数据集是外部 `dataos_operator.Dataset`;算子来自外部 `dataos-operator` 包,不在本仓库。
+- `train` / `eval` 是**开放-config 执行器**(任意底层键透传,只保留少数键)。
+- 没有内嵌 agent、没有 `run()`、没有调度器、没有研究层 / 守护进程 / 项目队列。
 
-- Internal dataset flow is standardized on Hugging Face `Dataset` and
-  `DatasetDict` directories created by `save_to_disk`.
-- The LLM is used for planning and review only.
-- Operators execute deterministically inside a local sandbox and emit typed
-  artifacts.
-- Experiments persist reports, plans, reviews, logs, and archived artifacts to
-  disk.
-- There is no research layer, daemon loop, project queue, or persistent agent
-  control plane.
+在本仓库工作的 agent,除非用户明确要求,应保持这些约束。
 
-Agents working in this repository should preserve those constraints unless the
-user explicitly asks to change them.
+## 技术栈
 
-## Stack
+- Python `>=3.11`;`uv` + `setuptools`;`ruff`。
+- 核心依赖:`datasets`、`pyarrow`、`dataos-operator`(git)。Extras:`train`(llamafactory + torch)、
+  `eval`(lm-eval)、`vllm`。
 
-- Python `>=3.11`
-- Package/build tooling: `uv`, `setuptools`
-- Linting: `ruff`
-- Core dependencies: `datasets`, `pyarrow`, `prompt_toolkit`, `pyclean`
+## 仓库结构
 
-## Repository Map
+- `dataos/_catalog.py` —— `catalog()` 算子发现
+- `dataos/loading.py` —— `load()` 数据加载(hf:// / 本地文件 / save_to_disk 目录)
+- `dataos/_experiment.py` —— `Experiment` / `Model` / `Eval` / `experiment()`
+- `dataos/_study.py` —— `Study` / `study()`
+- `dataos/workspace.py`、`dataos/report.py`、`dataos/_env.py`、`dataos/cli.py`
+- `dataos/train/llamafactory.py` —— 开放-config 训练执行器
+- `dataos/eval/` —— lm-eval 桥接(runner / config / types / backend / adapters / models)
+- `run-dataos/` —— 给 Claude Code 的 skill(怎么驱动这个库)
+- `docs/` —— 中文说明(实验布局、算子)
 
-- `dataos/core`
-  - Artifact types, sandbox layout, experiment state, operator interface,
-    registry, local artifact store, task template, planning agent
-- `dataos/operators`
-  - Built-in deterministic data operators
-- `dataos/train`
-  - Fixed LLaMA-Factory training runtime stage
-- `dataos/eval`
-  - lm-eval bridge, adapters, config, and natural-language eval helper
-- `dataos/llm`
-  - Minimal LLM client interface and OpenAI-compatible implementation
-- `dataos/prompts`
-  - Prompt builders and payload validation/normalization for plan/review flows
-- `dataos/runtime`
-  - `run_task()` entrypoint and fixed runtime stage wiring
-- `dataos/templates`
-  - Example task template JSON and import specs
-- `docs`
-  - Current main project document only: `docs/dataos_overview.md`
-
-## Local Commands
-
-Install dependencies:
+## 本地命令
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev                          # 装依赖
+uv run ruff check .                          # lint
+python run-dataos/scripts/doctor.py    # 环境自检
 ```
 
-Run lint:
+## 远程 GPU 主机
+
+需要真实训练 / 评测时:
+
+- **`a800-2-chaobo`(主力开发机)** —— `HostName 210.45.70.162`,`Port 1743`,`User hcgu`,
+  7× A800 80GB,`HOME=/data/hcgu`,开发目录在 `/data/hcgu/dev`(从本地 rsync)。GitHub 被墙,机上有
+  clash 代理(`127.0.0.1:7890`),HF 用 `HF_ENDPOINT=https://hf-mirror.com`;SSH 走 Bitwarden SSH agent。
+- 其他可用主机:`bdaa_5090-1`(`114.214.255.119:1108`,3× RTX 5090)、`bdaa_5090-2`(`:1109`,
+  2× RTX 5090)、`hcgu_h100`(实验室 H100 Slurm 集群;登录节点仅编排,GPU 作业走 Slurm)。
+
+操作规则:
+
+- **不要把 token / API key / 私钥写进任何 run manifest 或落盘文件。**
+- 远程只当执行后端;把 DataOS 产物(`report.json` / `review.json`)拉回仓库 workspace,或确认已落在远端
+  持久目录后,再算这次跑完成。
+- 别假设远端依赖和本地一致;长跑前先 `doctor.py` 核对 Python / CUDA / extras。
+- 真实训练前把 venv 的 bin 加进 PATH(`PATH=.venv/bin:$PATH`),否则 `llamafactory-cli` 找不到。
+- 从干净目录(如 `/tmp`)跑脚本,避免 cwd 里的 `./dataos` 盖掉安装的包。
+
+## 必须遵守的运行时事实
+
+- **数据**:外部 `dataos_operator.Dataset`(HF `save_to_disk` 背书)。处理无 DataOS API,直接
+  `Op(**p).run(ds)`。
+- **训练开放-config**:必填 `model_name_or_path` + `template`;`finetuning_type` ∈ {lora, full, freeze};
+  保留键(`stage` / `do_train` / `dataset` / `eval_dataset` / `dataset_dir` / `output_dir` /
+  `overwrite_output_dir`)由 DataOS 写,设置即报错;其余透传到 `train.yaml`。
+- **评估开放-config**:lm-eval 桥接;stub 必须显式 `{"provider": "stub", ...}`。
+- **落盘**:`<workspace>/<study_id>/{plan.json, review.json, experiments/<name>/{dataset,model,eval,logs,_lf}/ + report.json}`。`compare()` 只读盘。
+
+## 改动指引
+
+- 算子在外部 `dataos-operator` 包,不在本仓库;别再加内置算子注册表。
+- 别把 `run()` / 计划 agent / LLM 客户端加回来——判断属于 Claude。
+- train / eval 保持开放-config,别加白名单。
+- 不维护 pytest;除非用户明确要求,别重建测试套件。
+
+## 校验
 
 ```bash
 uv run ruff check .
 ```
 
-## Remote GPU Hosts
+有 GPU 时按需跑 stub 或真实冒烟(见 skill)。
 
-For heavy training or evaluation work that exceeds local capacity, these SSH
-hosts are available and accept key-based login directly:
+## 代码与文档风格
 
-- `bdaa_5090-1`
-  - `HostName 114.214.255.119`
-  - `User hcgu`
-  - `Port 1108`
-  - Verified on `2026-03-28`: reachable by SSH and exposes
-    `3 x NVIDIA GeForce RTX 5090`
-- `bdaa_5090-2`
-  - `HostName 114.214.255.119`
-  - `User hcgu`
-  - `Port 1109`
-  - Verified on `2026-03-28`: reachable by SSH and exposes
-    `2 x NVIDIA GeForce RTX 5090`
+- 跟随现有 Python 风格;行宽 ≤ 100(ruff)。保留类型注解与 dataclass 写法。
+- 注释稀疏,只解释非显然逻辑。
+- **文档用中文**(本仓库面向中文团队);代码标识符、API 名、配置键保持英文。
 
-Useful checks:
+## Feishu / Lark CLI 注意
 
-```bash
-ssh bdaa_5090-1 'hostname && nvidia-smi -L'
-ssh bdaa_5090-2 'hostname && nvidia-smi -L'
-```
-
-### Lab H100 Runtime
-
-PostTrainBench-style training runs should use the lab H100 Slurm cluster when
-the user asks for H100 execution.
-
-- SSH alias: `hcgu_h100`
-- Login user: `hcgu`
-- Persistent workspace root: `/data/hcgu`
-- Default DataOS agent-run root:
-  `/data/hcgu/dataos_agent_runs`
-- Fixed-pool processed root:
-  `/data/hcgu/dataos_fixed_pools/processed`
-- PostTrainBench containers:
-  `/data/hcgu/posttrainbench_containers`
-- Base-model cache:
-  `/data/hcgu/hf_cache`
-
-Important operating rules:
-
-- The login node is for orchestration only; do not run GPU training or full
-  evaluation directly on it.
-- Submit GPU work through Slurm, and prefer `gpu04` unless the user explicitly
-  chooses another node.
-- Keep each agent experiment under
-  `/data/hcgu/dataos_agent_runs/<setting>/<coding_agent>/<base_model>/<task>/<run_id>`.
-- Do not store tokens, API keys, or private keys in run manifests.
-- For fixed-pool PostTrainBench experiments, training data must come only from
-  the DataOS fixed-pool manifest recorded in the run directory.
-
-Agent guidance for remote execution:
-
-- Prefer `bdaa_5090-1` for jobs that benefit from 3 GPUs; use `bdaa_5090-2`
-  for 2-GPU workloads or to split experiments across machines.
-- Treat these hosts as execution backends only. Keep DataOS artifacts, reports,
-  plans, and reviews durable in the repository workspace or copy them back
-  before claiming a run is complete.
-- Do not assume remote environments match local dependencies; verify Python,
-  CUDA, and required training stacks before launching long jobs.
-
-## Runtime Facts You Must Respect
-
-### Dataset Artifacts
-
-- `DatasetArtifact` only supports Hugging Face datasets saved on disk.
-- Do not introduce alternate dataset storage formats unless the task explicitly
-  requires it.
-- If code materializes a dataset artifact, refresh or preserve metadata
-  consistently with `DatasetArtifact.save()` /
-  `refresh_metadata_from_disk()`.
-
-### Sandbox Layout
-
-`Sandbox.prepare()` creates and relies on these directories:
-
-- `inputs/`
-- `outputs/`
-- `artifacts/`
-- `logs/`
-- `tmp/`
-- `code/`
-
-Reports and review artifacts are expected under the sandbox root, especially:
-
-- `plan.json`
-- `report.json`
-- `review.json`
-
-### Artifact Model
-
-Supported artifact types are fixed in `dataos/core/artifact.py`:
-
-- `dataset`
-- `model`
-- `eval`
-- `result`
-- `experiment`
-
-If you add a new artifact type, update the central type definitions and the
-local artifact store behavior together.
-
-### Default Runtime
-
-The default operator registry is built from `dataos/operators/__init__.py` and
-contains deterministic data operators only. The planning agent may select those
-operators for the data stage, and its fallback plan uses the first registered
-operator if LLM output is invalid.
-
-`train_llamafactory` and `eval_model` are fixed runtime stages. They are called
-directly by `run_task()` after the agent-planned data-operator steps complete.
-Do not register them in the operator registry.
-
-### LLM Boundary
-
-The LLM client is for structured plan/review generation. Runtime execution is
-still performed by local code.
-
-If no custom client is passed, `run_task()` expects one of:
-
-- `DASHSCOPE_API_KEY`
-- legacy `STARTEAM_API_KEY`
-
-Optional overrides:
-
-- `DASHSCOPE_BASE_URL` or legacy `STARTEAM_BASE_URL`
-- `DASHSCOPE_MODEL` or legacy `STARTEAM_MODEL`
-
-Keep this separation intact. Avoid pushing execution semantics into prompts
-when local runtime code should own them.
-
-## Change Guidance
-
-### When Adding Or Changing An Operator
-
-- Implement against the `Operator` interface in `dataos/core/operator.py`.
-- Accept `inputs` plus `sandbox`, and emit typed artifacts.
-- Prefer deriving from the latest relevant upstream artifact in `inputs`.
-- Write stable logs via `sandbox.log(...)`.
-- Persist operator outputs inside sandbox-managed artifact directories.
-- Register the operator in `build_default_registry()` if it should participate
-  in the standard runtime.
-- Do not add pytest coverage by default; this repository no longer maintains a
-  pytest suite.
-
-### When Changing Planning Or Review Behavior
-
-- Keep payloads JSON-structured and validated.
-- Preserve fallback behavior when LLM output is invalid.
-- Make sure experiment state still writes durable `plan.json` and `review.json`
-  files.
-
-### When Changing Artifacts Or Experiments
-
-- Preserve on-disk compatibility where practical.
-- Ensure `save_meta()` output remains JSON-serializable.
-- Keep parent-child artifact lineage intact.
-
-## Validation Expectations
-
-Before finishing a meaningful code change, run lint and any direct smoke command
-that is actually relevant to the change.
-
-Minimum expectation:
-
-- `uv run ruff check .`
-
-Do not recreate the old pytest suite unless the user explicitly asks for it.
-
-## Coding Style
-
-- Follow the existing Python style in the repository.
-- Keep lines within Ruff's configured limit of 100 where practical.
-- Prefer small, explicit helpers over implicit magic.
-- Preserve type hints and dataclass usage patterns already used in
-  `dataos/core`.
-- Keep comments sparse and only where they clarify non-obvious logic.
-- Prefer ASCII unless the file already requires Unicode content.
-
-## Safe Agent Behavior For This Repo
-
-- Read the surrounding module before editing shared runtime code.
-- Avoid destructive cleanup commands against user data or workspace artifacts
-  unless explicitly requested.
-- Do not silently change task template schemas, artifact directory conventions,
-  or operator names without updating all dependent code paths.
-- If a requested change conflicts with the repository's local-first /
-  fixed-runtime design, call that out and make the smallest coherent change
-  possible.
-
-## Local Feishu / Lark CLI Note
-
-- When operating on the user's Feishu / Lark resources from Codex Desktop, do
-  not rely on sandboxed execution.
-- In this environment, sandboxed threads may fail to access the local keychain
-  used by `lark-cli`, which can surface as `keychain not initialized` even when
-  the user has already authorized successfully.
-- Prefer running Feishu / Lark CLI commands outside the sandbox using the direct
-  Node entrypoint:
-
-```bash
-/opt/homebrew/bin/node /opt/homebrew/lib/node_modules/@larksuite/cli/scripts/run.js ...
-```
-
-- Do not rely on `PATH` containing Homebrew binaries inside Codex threads; use
-  absolute paths for both `node` and the CLI entrypoint.
-- For wiki URLs, first resolve the wiki node to its `obj_token`, then operate
-  on the underlying doc token.
-
-## Useful Entry Points
-
-- Runtime entrypoint: `dataos/runtime/runner.py`
-- Planning agent: `dataos/core/agent.py`
-- Artifact definitions: `dataos/core/artifact.py`
-- Sandbox definition: `dataos/core/sandbox.py`
-- Task schema: `dataos/core/task.py`
-- Main document: `docs/dataos_overview.md`
+- 操作用户的飞书资源时别依赖沙箱执行——沙箱线程可能访问不到 `lark-cli` 用的本地 keychain(表现为
+  `keychain not initialized`,即便已授权)。必要时用绝对路径直接跑 Node 入口,别依赖 `PATH` 里有 Homebrew。
+- wiki URL 先把 wiki 节点解析成 `obj_token`,再操作底层 doc token。

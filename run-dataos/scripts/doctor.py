@@ -1,0 +1,78 @@
+#!/usr/bin/env python
+"""DataOS 环境自检 —— 在驱动实验前先跑。
+
+它能抓住第一跑常踩的坑:cwd 里的 ./dataos 盖掉了安装的包、缺核心依赖或 train/eval extra、
+llamafactory-cli 不在 PATH、没有可见 GPU。
+
+    python scripts/doctor.py        # 用安装了 dataos 的那个 python
+"""
+
+from __future__ import annotations
+
+import importlib.util as iu
+import os
+import shutil
+
+
+def has(mod: str) -> bool:
+    try:
+        return iu.find_spec(mod) is not None
+    except Exception:
+        return False
+
+
+def main() -> int:
+    ok = True
+    print("# DataOS 自检\n")
+
+    try:
+        import dataos
+    except Exception as exc:  # noqa: BLE001
+        print(f"[FAIL] import dataos 失败: {exc}")
+        print("       请用安装了 dataos 的环境,例如 .venv/bin/python scripts/doctor.py")
+        return 1
+    print(f"[ok]   import dataos -> {dataos.__file__}")
+
+    cwd_pkg = os.path.join(os.getcwd(), "dataos", "__init__.py")
+    if os.path.exists(cwd_pkg) and os.path.realpath(cwd_pkg) != os.path.realpath(dataos.__file__):
+        print(f"[WARN] 你的 cwd 里有另一个 ./dataos ({cwd_pkg}),可能盖掉安装的包。")
+        print("       本次加载到的是对的树,但从这里直接 `python -c` 可能就不是了 ——")
+        print("       为稳妥起见,脚本从干净目录(如 /tmp)里跑。")
+
+    for mod in ("datasets", "pyarrow", "dataos_operator"):
+        present = has(mod)
+        ok = ok and present
+        print(f"[{'ok' if present else 'FAIL'}] 核心依赖: {mod}{'' if present else '  <-- 必需'}")
+
+    api = ("catalog", "load", "study", "experiment", "Study", "Experiment", "Model", "Eval")
+    missing = [n for n in api if not hasattr(dataos, n)]
+    ok = ok and not missing
+    print(f"[{'ok' if not missing else 'FAIL'}] 公开接口: {'全部就位' if not missing else f'缺 {missing}'}")
+
+    train_ok = has("llamafactory")
+    cli_ok = shutil.which("llamafactory-cli") is not None
+    print(f"[{'ok' if train_ok else '--'}] train extra: llamafactory {'已装' if train_ok else '缺失(真实训练需要 [train])'}")
+    if train_ok and not cli_ok:
+        print("[WARN] 装了 llamafactory 但 `llamafactory-cli` 不在 PATH —— "
+              "真实训练前把 venv 的 bin 加进 PATH(例如 PATH=.venv/bin:$PATH)。")
+        ok = False
+    print(f"[{'ok' if has('lm_eval') else '--'}] eval extra:  lm_eval {'已装' if has('lm_eval') else '缺失(真实评估需要 [eval])'}")
+
+    if has("torch"):
+        import torch  # noqa: PLC0415
+        n = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        print(f"[{'ok' if n else '--'}] GPU: torch 看到 {n} 张 CUDA 设备")
+    else:
+        print("[--]   GPU: 未装 torch(只能跑 stub)")
+
+    print()
+    if ok:
+        extras = "真实训练+评估就绪" if (train_ok and has("lm_eval")) else "stub 就绪(装 [train,eval] 才能真跑)"
+        print(f"OK —— {extras}")
+    else:
+        print("上面有问题 —— 真实实验前先修掉")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
