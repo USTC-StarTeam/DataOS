@@ -28,11 +28,23 @@ study = dataos.study(id); study.set_plan(plan)     # 容器(一个目录)
 study.compare()  ->  study.finalize(conclusion)    # 确定性对比表 -> review.json
 ```
 
+## DataOS 跑在哪(本机 vs 远程)
+
+正式场景:**Claude Code 在用户本机,DataOS 在远程 GPU 服务器。** 本机只有这个 skill(说明书 + 脚本)
+和 SSH;dataos 包、`train` / `eval` extra、数据、GPU 都在服务器上。**所以下文所有 `python ...` /
+`exp.train(...)` 等,在正式场景里都是你通过 ssh 在服务器上执行,产物(report.json / review.json)读回本机看
+——本机无需装 dataos。** 远程怎么装环境、经 ssh 跑实验、读回产物,以及那几个真实坑(PATH / HF 镜像 /
+cwd / 代理):见 `references/remote.md`,**真实训练 / 评测前先读它**。
+
+本机离线快验(可选):本机若也装了核心依赖,可只跑 **stub**(`train {"mode":"stub"}`、
+`eval {"provider":"stub",...}`,无 GPU / extras)把流水线逻辑过一遍;真实训练 / 评测一律回服务器。
+
 ## 第一步:自检环境
 
-先跑一次 `python scripts/doctor.py`。它确认你 import 的是对的 `dataos`(cwd 里的 `./dataos`
-会盖掉安装的包)、核心依赖和 `train` / `eval` extra 在不在、`llamafactory-cli` 在不在 PATH、
-GPU 可不可见——这些都是第一次跑最容易踩的坑。
+在 **dataos 所在的机器上**(正式场景 = 远程服务器,经 ssh)跑一次 `scripts/doctor.py`(脚本在本 skill 的
+`scripts/` 下;服务器上即仓库里的 `run-dataos/scripts/doctor.py`)。它确认你 import 的是对的 `dataos`
+(cwd 里的 `./dataos` 会盖掉安装的包)、核心依赖和 `train` / `eval` extra 在不在、`llamafactory-cli` 在不在
+PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令见 `references/remote.md`。
 
 ## 五个阶段(都是你自己在 Python 里调)
 
@@ -61,7 +73,8 @@ GPU 可不可见——这些都是第一次跑最容易踩的坑。
 
 串行还是铺到多卡并行,是你定的——SDK 两种方式完全一样(study 是目录;`compare()` 读盘上的
 `report.json`)。要并行就把数据集准备好一次,然后每个实验用 `scripts/run_one.py`(钉
-`CUDA_VISIBLE_DEVICES`)。见 `references/execution.md`。
+`CUDA_VISIBLE_DEVICES`)。见 `references/execution.md`。正式场景里这些都在**远程服务器上经 ssh 跑**
+(本机 Claude Code 驱动)——见 `references/remote.md`。
 
 ## 示例(stub,无 GPU / 无 LLM key)
 
