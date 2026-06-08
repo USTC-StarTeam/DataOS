@@ -53,9 +53,8 @@ def main() -> int:
     cli_ok = shutil.which("llamafactory-cli") is not None
     print(f"[{'ok' if train_ok else '--'}] train extra: llamafactory {'已装' if train_ok else '缺失(真实训练需要 [train])'}")
     if train_ok and not cli_ok:
-        print("[WARN] 装了 llamafactory 但 `llamafactory-cli` 不在 PATH —— "
-              "真实训练前把 venv 的 bin 加进 PATH(例如 PATH=.venv/bin:$PATH)。")
-        ok = False
+        print("[info] 装了 llamafactory 但 `llamafactory-cli` 不在 PATH —— 真实训练前用**绝对** PATH:")
+        print('       PATH="$(pwd)/.venv/bin:$PATH"(相对 .venv/bin 会让 shutil.which 返回相对路径而出错)')
     print(f"[{'ok' if has('lm_eval') else '--'}] eval extra:  lm_eval {'已装' if has('lm_eval') else '缺失(真实评估需要 [eval])'}")
 
     if has("torch"):

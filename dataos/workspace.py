@@ -33,7 +33,10 @@ class Workspace:
     exp_id: str
 
     def __post_init__(self) -> None:
-        self.root = Path(self.root)
+        # Resolve to an absolute path: relative roots (e.g. the default "workspace") make the
+        # llamafactory subprocess — launched with cwd=exp_dir — re-resolve relative config/output
+        # paths against that cwd and double them, breaking every real training run.
+        self.root = Path(self.root).resolve()
 
     @property
     def exp_dir(self) -> Path:

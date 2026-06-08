@@ -1,8 +1,11 @@
 # 训练 + 评估 —— 开放-config 执行器
 
-`train` 和 `eval` 都是**开放-config**:你通过 `config` dict 传任意 LLaMA-Factory / lm-eval 键,
-原样转发 —— 没有白名单。DataOS 只占用它必须自己拥有的几个键、并校验必填项,所以你能拿到底层
-工具的全部能力,而 DataOS 不挡道。
+你通过 `config` dict 直接喂底层工具的参数,DataOS 基本不挡道。但**两者开放度不同**:
+
+- **train 真透传**:任意 LLaMA-Factory 键原样写进 `train.yaml`,没有白名单(只拒下面那几个保留键)。
+- **eval 是 `EvalConfig` 的字段集**(覆盖 lm-eval 常用键:`tasks` / `mode` / `limit` / `num_fewshot` /
+  `batch_size` / `gen_kwargs` / `model_args` / `apply_chat_template` / `headline_metric` …)。不在其中的键会被
+  **忽略并告警**(不再像以前那样直接 `TypeError`)。
 
 `config` 默认取本实验的 `spec["train"]` / `spec["eval"]`,所以 spec 设好后可以直接
 `exp.train(ds)` / `exp.eval()` 不带参数。
@@ -48,3 +51,10 @@ exp.eval(config={"mode": "lm_eval_native", "model": "hf", "tasks": ["gsm8k"],
 
 LoRA 模型自动解析为 `pretrained=<base>, peft=<adapter>`。返回 `Eval`(`score` = headline 分;
 `metrics` = {"task::metric": value};在 `eval/` 下写 `results.json` 等)。
+
+> **一个 task 可能出多个指标**(如 gsm8k → `strict-match` 和 `flexible-extract`)。headline 默认取第一个;
+> 想固定用哪个,在 eval config 里加 `"headline_metric": "flexible-extract"`。`study.compare()` 会列出每个实验的
+> 全部 `metrics`,并在 headline 冠军和某个指标冠军不一致时给出 `caution`——**别只看 headline**,结论可能因指标而翻转。
+
+> 日志里出现 `fatal: not a git repository ... Stopping at filesystem boundary` 是 lm-eval / llamafactory 探
+> git hash 的无害噪音,忽略即可。

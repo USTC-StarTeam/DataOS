@@ -50,11 +50,13 @@ s.set_plan({ ... })
 
 ```bash
 ssh <host> 'cd <repo> &&
-  PATH=.venv/bin:$PATH HF_ENDPOINT=https://hf-mirror.com CUDA_VISIBLE_DEVICES=6 \
+  PATH=<repo>/.venv/bin:$PATH HF_ENDPOINT=https://hf-mirror.com CUDA_VISIBLE_DEVICES=6 \
   nohup .venv/bin/python run-dataos/scripts/run_one.py \
     --study lr-sweep --spec lr-1e-4 --data prepared/ > /tmp/exp_lr-1e-4.log 2>&1 &'
-# 之后轮询 /tmp/exp_lr-1e-4.log 或 report.json 判断完成
 ```
+> **PATH 用绝对路径**(`<repo>/.venv/bin`),别用相对 `.venv/bin`(下面坑里解释)。
+> **launch 和 poll 分两条 ssh**:上面这条只 launch(nohup &,马上返回);完成判断用**另外**的 ssh until-loop
+> 轮询 `report.json`,别把 `sleep; tail` 挂在 launch 那条上(会被 agent harness 自动后台化、还占着连接)。
 
 **并行**:同一个 study,多个 `run_one.py` 各钉不同 `CUDA_VISIBLE_DEVICES`,后台并发。`compare()` 只读盘,
 容忍还在跑的实验。
@@ -73,7 +75,9 @@ rsync -az <host>:<repo>/workspace/lr-sweep/ ./pulled/lr-sweep/                  
 
 ## 五、服务器上的真实坑
 
-- **PATH**:`llamafactory-cli` 在 `.venv/bin`,非登录 ssh 不在 PATH → 真实训练前 `PATH=.venv/bin:$PATH`。
+- **PATH(必须绝对)**:`llamafactory-cli` 在 `.venv/bin`,非登录 ssh 不在 PATH → 真实训练前
+  `PATH=<repo>/.venv/bin:$PATH`。**必须绝对**——相对 `.venv/bin` 会让 DataOS 的 `shutil.which` 返回相对路径,
+  等训练子进程换到 `cwd=exp_dir` 时 `FileNotFoundError`。(DataOS 现已对 which 结果做 abspath 兜底,仍建议绝对。)
 - **cwd 阴影**:从仓库根直接 `python -c "import dataos"` 时,cwd 里的 `./dataos` 会盖掉安装的包;用
   `.venv/bin/python`,必要时从干净目录跑,或确认 `dataos.__file__` 指向对的树(doctor 会查)。
 - **下载**:服务器若被墙,模型 / 数据集走 `HF_ENDPOINT=https://hf-mirror.com`;pip 用国内镜像;git 挂代理。

@@ -57,6 +57,14 @@ class Study:
         return Path(self.workspace) / self.study_id
 
     @property
+    def id(self) -> str:
+        return self.study_id
+
+    @property
+    def dir(self) -> Path:
+        return self.study_dir
+
+    @property
     def experiments_dir(self) -> Path:
         return self.study_dir / "experiments"
 
@@ -117,6 +125,7 @@ class Study:
                     "id": report.get("id"),
                     "status": report.get("status"),
                     "score": evaluation.get("score"),
+                    "metrics": evaluation.get("metrics") or {},
                     "train": spec.get("train") or {},
                 }
             )
@@ -130,6 +139,7 @@ class Study:
                 "id": row["id"],
                 "status": row["status"],
                 "score": row["score"],
+                "metrics": row["metrics"],
             }
             for key in varied:
                 entry[key] = row["train"].get(key)
@@ -142,6 +152,29 @@ class Study:
         ranking = [{"name": row["name"], "score": row["score"]} for row in ranked]
         best = ranking[0] if ranking and ranking[0]["score"] is not None else None
 
+        # Flag a metric-dependent winner: a task can emit several metrics, and the headline is
+        # only one of them. If a shared metric crowns a different experiment, the conclusion
+        # hinges on which metric is the headline — surface that instead of hiding it.
+        per_metric: dict[str, list[tuple[str, float]]] = {}
+        for row in rows:
+            for key, value in (row["metrics"] or {}).items():
+                if isinstance(value, (int, float)):
+                    per_metric.setdefault(key, []).append((row["name"], float(value)))
+        metric_winners = {
+            key: max(pairs, key=lambda nv: nv[1])[0]
+            for key, pairs in per_metric.items()
+            if len(pairs) > 1
+        }
+        caution = None
+        if best is not None:
+            disagree = sorted(k for k, w in metric_winners.items() if w != best["name"])
+            if disagree:
+                caution = (
+                    f"headline best is {best['name']!r}, but another experiment scores higher on "
+                    f"{disagree} — the winner is metric-dependent. Pin eval config['headline_metric'] "
+                    "to choose which metric ranks."
+                )
+
         return {
             "study_id": self.study_id,
             "goal": (self.plan or {}).get("goal"),
@@ -150,6 +183,8 @@ class Study:
             "experiments": experiments,
             "ranking": ranking,
             "best": best,
+            "metric_winners": metric_winners,
+            "caution": caution,
         }
 
     def finalize(self, conclusion: Any = None) -> dict[str, Any]:

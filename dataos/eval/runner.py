@@ -16,7 +16,9 @@ The model argument is any :class:`dataos.experiment.Model` (structurally a
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from dataos.eval.config import EvalConfig
@@ -45,6 +47,13 @@ def run_eval_stage(
         return evaluation
     eval_config.pop("provider", None)
     eval_config.pop("provider_config", None)
+    # eval config maps to EvalConfig's fields (a broad but fixed set). Tolerate unknown keys
+    # instead of crashing with a raw TypeError — drop them with a warning.
+    known = {f.name for f in dataclasses.fields(EvalConfig)}
+    unknown = sorted(set(eval_config) - known)
+    if unknown:
+        warnings.warn(f"eval: ignoring config keys not in EvalConfig: {unknown}", stacklevel=2)
+        eval_config = {k: v for k, v in eval_config.items() if k in known}
     config_obj = EvalConfig(**eval_config)
     mode = config_obj.normalized_mode()
     if mode == "lm_eval_native":
@@ -134,7 +143,7 @@ def _eval_output_to_artifact(
     eval_id = _make_id("eval")
     eval_dir = workspace.artifact_dir("eval", eval_id)
     metrics = _flatten_metrics(output.results)
-    headline = _pick_headline(metrics, config.tasks)
+    headline = _pick_headline(metrics, config.tasks, config.headline_metric)
     protocol = _protocol_snapshot(output, model, config)
     summary: dict[str, Any] = {
         "backend": "lm_eval",
@@ -191,7 +200,16 @@ def _flatten_metrics(results: dict[str, Any]) -> dict[str, float]:
     return flat
 
 
-def _pick_headline(metrics: dict[str, float], tasks: list[str]) -> float | None:
+def _pick_headline(
+    metrics: dict[str, float], tasks: list[str], headline_metric: str | None = None
+) -> float | None:
+    # A task can emit several metrics (e.g. gsm8k -> strict-match AND flexible-extract). If the
+    # caller pinned one via config["headline_metric"], honor it; otherwise fall back to the first.
+    if headline_metric:
+        for task in tasks:
+            key = f"{task}::{headline_metric}"
+            if key in metrics:
+                return metrics[key]
     for task in tasks:
         for key, value in metrics.items():
             if key.startswith(f"{task}::"):

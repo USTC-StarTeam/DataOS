@@ -95,6 +95,14 @@ class Experiment:
         self.workspace.prepare()
         self._record_step("create", status="completed")
 
+    @property
+    def id(self) -> str:
+        return self.exp_id
+
+    @property
+    def dir(self) -> Path:
+        return self.workspace.exp_dir
+
     # -- stages ---------------------------------------------------------------
 
     def train(self, dataset: "Dataset", config: dict[str, Any] | None = None) -> Model:

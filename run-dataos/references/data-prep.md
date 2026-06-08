@@ -12,8 +12,21 @@
 - `dataos.load("hf://openai/gsm8k", split="train", limit=100)` —— Hugging Face hub。
 - `dataos.load("data/train.jsonl")` —— 本地 `.jsonl` / `.json` / `.csv`。
 - `dataos.load("datasets/gsm8k", split="train", limit=8)` —— `save_to_disk` 目录
-  (HF `DatasetDict`);自动选 split。
+  (HF `DatasetDict`);自动选 split。⚠️ 自带的 `datasets/gsm8k` 带 `question` / `answer` /
+  **`conversations`** 三列,见下面第 4 步**必须**的投影。
 - `dataos_operator.Dataset.from_records([{...}])` —— 从内存行构建;冒烟测试最快的路。
+
+## Dataset 接口(`dataos_operator.Dataset`,不是 HF Dataset)
+
+`load` 返回的是 `dataos_operator.Dataset`,**不是** HF dataset。常用接口:
+
+- `len(ds)` —— 行数(**不是** `ds.count`,那是 `Sequence.count(value)`,当行数用会报错)。
+- `ds.to_records()` —— 取出 `list[dict]`。
+- `ds.metadata` —— 元信息 dict。
+- `ds.hf_dataset` —— 底层 HF `Dataset`,**列名 / 列数在这上面**(`ds.hf_dataset.column_names`;
+  `Dataset` 本身没有 `.column_names`)。
+- `ds.save_to_disk("<dir>")` —— 落盘(跨进程 / 并行用)。
+- `Dataset.from_records(...)` / `Dataset.from_hf(...)` / `Dataset.from_local(...)` —— 构造。
 
 ## 一套可靠的配方
 
@@ -28,9 +41,10 @@
 4. **映射到最终训练 schema。**
    - Alpaca:`AlpacaMapper(source_format="messages")` -> `instruction` / `input` / `output`。
    - ShareGPT:`ShareGPTMapper(source_format="messages")` -> `conversations`。
-   训练阶段自动判别:有 `conversations` 列 ⇒ ShareGPT,否则 Alpaca。如果你映射成 Alpaca 但
-   残留了 `conversations` 列,用
-   `FieldProjectMapper(keep_fields=("instruction","input","output"), strict=False)` 丢掉。
+   训练阶段自动判别:**有 `conversations` 列 ⇒ ShareGPT,否则 Alpaca**。所以映射成 Alpaca 后,只要源里
+   还残留 `conversations` 列(两个 mapper 都会原样透传它),就**必须**投影掉,否则会被误判成 ShareGPT:
+   `FieldProjectMapper(keep_fields=("instruction","input","output"), strict=False)`。
+   **自带的 `datasets/gsm8k` 就带 `conversations`——对它这步投影是必须的、不是可选的。**
 
 ## 跨实验复用
 

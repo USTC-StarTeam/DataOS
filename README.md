@@ -12,7 +12,8 @@ Python 完成,**不调用 LLM**。规划和判断交给 **Claude Code**(runtime 
 - 两个容器:`Study`(多实验)→ `Experiment`(单次)。**`Study` 就是一个目录**,`compare()` 读盘聚合,
   所以并行与否由 runtime 决定,不归 DataOS。
 - 数据集是外部 `dataos_operator.Dataset`(HF Arrow 背书),不是 DataOS 自己的类型。
-- `train`(LLaMA-Factory)和 `eval`(lm-eval)是**开放-config 执行器**:任意底层键透传,无白名单。
+- `train`(LLaMA-Factory)真透传任意键(无白名单);`eval`(lm-eval)用 `EvalConfig` 字段集
+  (覆盖 lm-eval 常用键,未知键忽略 + 告警)。
 - 一切落盘:`<workspace>/<study_id>/{plan.json, review.json, experiments/<name>/.../report.json}`。
 - 没有研究层、守护进程、项目队列或持久 agent 控制面。
 

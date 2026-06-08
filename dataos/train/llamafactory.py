@@ -430,6 +430,9 @@ def _run_llamafactory_train(config_path: Path, cwd: Path, log_path: Path) -> lis
             "llamafactory-cli was not found on PATH. Install the train extra and verify the CLI "
             "on the target machine."
         )
+    # Absolutize: a relative PATH entry (e.g. PATH=.venv/bin:$PATH) makes which() return a relative
+    # path that fails once the subprocess runs with cwd=exp_dir. Use an absolute CLI path.
+    cli_path = str(Path(cli_path).absolute())
     if importlib.util.find_spec("torch") is None:
         raise ValueError(
             "PyTorch is not installed in the active environment. Install a torch build that "

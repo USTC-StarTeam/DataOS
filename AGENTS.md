@@ -9,7 +9,7 @@
 - 两个容器:`Study`(多实验,就是一个目录)→ `Experiment`(单次)。`compare()` 读盘聚合,所以并行与否
   由 runtime 决定。
 - 数据集是外部 `dataos_operator.Dataset`;算子来自外部 `dataos-operator` 包,不在本仓库。
-- `train` / `eval` 是**开放-config 执行器**(任意底层键透传,只保留少数键)。
+- `train` 真透传任意 LLaMA-Factory 键(只拒保留键);`eval` 用 `EvalConfig` 字段集(未知键忽略 + 告警)。
 - 没有内嵌 agent、没有 `run()`、没有调度器、没有研究层 / 守护进程 / 项目队列。
 
 在本仓库工作的 agent,除非用户明确要求,应保持这些约束。
@@ -66,14 +66,14 @@ python run-dataos/scripts/doctor.py    # 环境自检
 - **训练开放-config**:必填 `model_name_or_path` + `template`;`finetuning_type` ∈ {lora, full, freeze};
   保留键(`stage` / `do_train` / `dataset` / `eval_dataset` / `dataset_dir` / `output_dir` /
   `overwrite_output_dir`)由 DataOS 写,设置即报错;其余透传到 `train.yaml`。
-- **评估开放-config**:lm-eval 桥接;stub 必须显式 `{"provider": "stub", ...}`。
+- **评估**:lm-eval 桥接,config = `EvalConfig` 字段集(未知键忽略 + 告警);stub 必须显式 `{"provider": "stub", ...}`。
 - **落盘**:`<workspace>/<study_id>/{plan.json, review.json, experiments/<name>/{dataset,model,eval,logs,_lf}/ + report.json}`。`compare()` 只读盘。
 
 ## 改动指引
 
 - 算子在外部 `dataos-operator` 包,不在本仓库;别再加内置算子注册表。
 - 别把 `run()` / 计划 agent / LLM 客户端加回来——判断属于 Claude。
-- train / eval 保持开放-config,别加白名单。
+- train 保持真开放-config(别加白名单);eval 的 `EvalConfig` 是有意的字段集——要扩展就加字段,别改成任意 key。
 - 不维护 pytest;除非用户明确要求,别重建测试套件。
 
 ## 校验

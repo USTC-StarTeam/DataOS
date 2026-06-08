@@ -52,6 +52,7 @@ class EvalConfig:
     output_path: str | None = None
     adapter: str = "transformers"
     adapter_config: dict[str, Any] = field(default_factory=dict)
+    headline_metric: str | None = None
 
     def normalized_mode(self) -> str:
         mode = self.mode.strip().lower()
