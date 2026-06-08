@@ -6,7 +6,7 @@
 
 - DataOS **不调用 LLM**:加载、处理、训练、评估、复盘都是本地 Python。规划和判断由 **Claude Code**
   (runtime / planner)在库外完成。
-- 两个容器:`Study`(多实验,就是一个目录)→ `Experiment`(单次)。`compare()` 读盘聚合,所以并行与否
+- 两个容器:`Study`(多实验,就是一个目录)→ `Experiment`(单次)。`summary()` 读盘聚合,所以并行与否
   由 runtime 决定。
 - 每个 `Experiment` 由三个 **Stage**(`data` / `train` / `eval`)组成,各自记录状态、产出一等 **Artifact**
   (`Data` / `Model` / `Eval`,带 `inputs` 血缘);`report()` / `review()` = 拼各 `summary()`,加字段自动往上冒。
@@ -78,7 +78,7 @@ python run-dataos/scripts/doctor.py    # 环境自检
   `inputs` 并落 `{kind}.json`(= `summary()`,含 artifact);产物 `Data` / `Model` / `Eval` 是 Artifact,`inputs`
   连成血缘 data→model→eval。EvalStage 跨进程会从 `train.json` 重建 `Model`。
 - **落盘**:`<workspace>/<study_id>/{plan.json, review.json, experiments/<name>/{data,train,eval}.json +
-  report.json + dataset/ model/ eval/ logs/ _lf/}`。每个 stage 落 `{kind}.json`;`compare()` 只读盘。
+  report.json + dataset/ model/ eval/ logs/ _lf/}`。每个 stage 落 `{kind}.json`;`summary()` 只读盘。
 
 ## 改动指引
 

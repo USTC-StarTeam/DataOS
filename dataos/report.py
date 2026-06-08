@@ -1,7 +1,7 @@
 """Flat experiment report (``report.json``), recomposed from stage summaries.
 
 ``build_report`` keeps the historical flat keys (``id`` / ``name`` / ``spec`` /
-``status`` / ``dataset`` / ``model`` / ``eval`` ...) so ``Study.compare`` and the
+``status`` / ``dataset`` / ``model`` / ``eval`` ...) so ``Study.summary`` and the
 docs keep working, and adds a richer ``stages`` section (each stage's full
 ``summary()``). Values are derived from the per-stage / per-artifact summaries —
 add a field on a stage or artifact and it flows up here automatically.

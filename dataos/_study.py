@@ -1,7 +1,7 @@
 """The :class:`Study` container — a set of experiments sharing one plan.
 
 A study is just a directory. Each child :class:`~dataos._experiment.Experiment`
-writes its own ``report.json`` under ``experiments/<slug>/``; :meth:`Study.compare`
+writes its own ``report.json`` under ``experiments/<slug>/``; :meth:`Study.summary`
 globs those reports off disk and aggregates them. Nothing here knows or cares how
 the experiments were driven — one process, many processes, or many machines.
 Running them and deciding whether to parallelize is the runtime's job, not
@@ -110,8 +110,8 @@ class Study:
             spec=dict(spec) if spec is not None else None,
         )
 
-    def compare(self) -> dict[str, Any]:
-        """Aggregate every child ``report.json`` into a deterministic comparison.
+    def summary(self) -> dict[str, Any]:
+        """Aggregate every child ``report.json`` into a deterministic study summary.
 
         Reads from disk (not in-memory state), so it works regardless of how the
         experiments were run. Tolerates missing/partial reports.
@@ -189,8 +189,8 @@ class Study:
         }
 
     def review(self, conclusion: Any = None) -> dict[str, Any]:
-        """Write ``review.json`` (= :meth:`compare` + ``conclusion``) and return it."""
-        review = self.compare()
+        """Write ``review.json`` (= :meth:`summary` + ``conclusion``) and return it."""
+        review = self.summary()
         now = _utc_now_iso()
         review["conclusion"] = conclusion
         review["status"] = "completed"

@@ -1,6 +1,6 @@
 # 落盘目录结构
 
-DataOS 把一次研究的所有产物落在一个 study 目录下。**study 就是一个目录**,`compare()` 直接读盘聚合,
+DataOS 把一次研究的所有产物落在一个 study 目录下。**study 就是一个目录**,`summary()` 直接读盘聚合,
 所以无论串行还是多进程并行,布局都一样。
 
 ## 两层结构
@@ -27,19 +27,19 @@ DataOS 把一次研究的所有产物落在一个 study 目录下。**study 就�
 
 ## report.json(单实验)
 
-`exp.report()` 写出,由各 stage / artifact 的 `summary()` 拼成。扁平键:`id` / `name` / `spec` / `status`
+`exp.summary()` 写出,由各 stage / artifact 的 `summary()` 拼成。扁平键:`id` / `name` / `spec` / `status`
 (由三 stage 状态派生:任一 failed→failed,否则取最远完成阶段)/ `created_at` / `updated_at` /
 `dataset`{path, format, rows} / `model`{id, path, base_model, finetuning_type, mode} /
 `eval`{id, score, metrics, path};外加 `stages`{data, train, eval} —— 每个是该 stage 的完整 `summary()`
 (status / 起止 / 耗时 / error / inputs / config / artifact)。给 stage 或 artifact 加字段会自动出现在
-`stages` 段里。`spec` 进 report 是为了让 `compare()` 做配置 diff。
+`stages` 段里。`spec` 进 report 是为了让 `summary()` 做配置 diff。
 
 ## review.json(study 级)
 
-`study.review(conclusion=...)` 写出,= `compare()` 的确定性对比 + 你写的 `conclusion`。字段:
+`study.review(conclusion=...)` 写出,= `summary()` 的确定性汇总 + 你写的 `conclusion`。字段:
 `study_id` / `goal` / `n_experiments` / `varied_keys` / `experiments[]` / `ranking[]` / `best` /
 `metric_winners` / `caution`(headline 冠军与某指标冠军不一致时的提示)/ `conclusion` / `status` / 时间戳。
-`compare()` 只 glob `experiments/*/report.json`,容忍还在跑或缺失的实验。
+`summary()` 只 glob `experiments/*/report.json`,容忍还在跑或缺失的实验。
 
 ## workspace 的意义
 

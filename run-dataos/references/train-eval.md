@@ -59,7 +59,7 @@ LoRA 模型自动解析为 `pretrained=<base>, peft=<adapter>`。返回 `Eval`(�
 `metrics` = {"task::metric": value};`inputs` = 上游 `Model` 的 id = 血缘;在 `eval/` 下写 `results.json` 等)。
 
 > **一个 task 可能出多个指标**(如 gsm8k → `strict-match` 和 `flexible-extract`)。headline 默认取第一个;
-> 想固定用哪个,在 eval config 里加 `"headline_metric": "flexible-extract"`。`study.compare()` 会列出每个实验的
+> 想固定用哪个,在 eval config 里加 `"headline_metric": "flexible-extract"`。`study.summary()` 会列出每个实验的
 > 全部 `metrics`,并在 headline 冠军和某个指标冠军不一致时给出 `caution`——**别只看 headline**,结论可能因指标而翻转。
 
 > 日志里出现 `fatal: not a git repository ... Stopping at filesystem boundary` 是 lm-eval / llamafactory 探

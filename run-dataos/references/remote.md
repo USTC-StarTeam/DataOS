@@ -58,7 +58,7 @@ ssh <host> 'cd <repo> &&
 > **launch 和 poll 分两条 ssh**:上面这条只 launch(nohup &,马上返回);完成判断用**另外**的 ssh until-loop
 > 轮询 `report.json`,别把 `sleep; tail` 挂在 launch 那条上(会被 agent harness 自动后台化、还占着连接)。
 
-**并行**:同一个 study,多个 `run_one.py` 各钉不同 `CUDA_VISIBLE_DEVICES`,后台并发。`compare()` 只读盘,
+**并行**:同一个 study,多个 `run_one.py` 各钉不同 `CUDA_VISIBLE_DEVICES`,后台并发。`summary()` 只读盘,
 容忍还在跑的实验。
 
 ## 四、读回产物

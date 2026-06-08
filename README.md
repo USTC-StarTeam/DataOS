@@ -9,7 +9,7 @@ Python 完成,**不调用 LLM**。规划和判断交给 **Claude Code**(runtime 
 
 ## 范围
 
-- 两个容器:`Study`(多实验)→ `Experiment`(单次)。**`Study` 就是一个目录**,`compare()` 读盘聚合,
+- 两个容器:`Study`(多实验)→ `Experiment`(单次)。**`Study` 就是一个目录**,`summary()` 读盘聚合,
   所以并行与否由 runtime 决定,不归 DataOS。
 - 每个 `Experiment` 由三个 **Stage**(`data` / `train` / `eval`)组成:各自记录状态、产出一等 **Artifact**
   (`Data` / `Model` / `Eval`,带 `inputs` 血缘);`report()` / `review()` 就是拼各 `summary()`。
@@ -52,8 +52,8 @@ for spec in study.plan["experiments"]:
     ds = Dataset.from_records(
         [{"instruction": "q", "input": "", "output": "a"}],
         metadata={"dataset_format": "alpaca"})
-    exp.data.set(ds).run(); exp.train.run(); exp.eval.run(); exp.report()
-print(study.compare())
+    exp.data.set(ds).run(); exp.train.run(); exp.eval.run(); exp.summary()
+print(study.summary())
 study.review(conclusion="done")
 ```
 

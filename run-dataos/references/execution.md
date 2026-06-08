@@ -1,6 +1,6 @@
 # 执行 —— 运行模式与并行
 
-串行还是并行,是**你**的事,不归 DataOS。study 就是个目录,`study.compare()` 读每个实验盘上的
+串行还是并行,是**你**的事,不归 DataOS。study 就是个目录,`study.summary()` 读每个实验盘上的
 `report.json`,所以无论你怎么驱动,SDK 都一样。挑合适的模式。
 
 ## 光谱
@@ -25,8 +25,8 @@ study = dataos.study(id="lr-sweep"); study.set_plan(plan)
 for spec in study.plan["experiments"]:
     exp = study.experiment(spec)
     ds = build_dataset(spec)        # 你的配方(见 data-prep.md);声明式则用 spec["data"]+exp.data.run()
-    exp.data.set(ds).run(); exp.train.run(); exp.eval.run(); exp.report()
-study.compare(); study.review(conclusion="…")
+    exp.data.set(ds).run(); exp.train.run(); exp.eval.run(); exp.summary()
+study.summary(); study.review(conclusion="…")
 ```
 
 ## 并行(一实验一进程,各钉一张卡)
@@ -42,10 +42,10 @@ python -c "import dataos; dataos.study(id='lr-sweep').set_plan(__import__('json'
 CUDA_VISIBLE_DEVICES=6 python scripts/run_one.py --study lr-sweep --spec lr-1e-4 --data prepared/ &
 CUDA_VISIBLE_DEVICES=5 python scripts/run_one.py --study lr-sweep --spec lr-5e-5 --data prepared/ &
 wait
-python -c "import dataos, json; print(json.dumps(dataos.study('lr-sweep').compare(), ensure_ascii=False, indent=2))"
+python -c "import dataos, json; print(json.dumps(dataos.study('lr-sweep').summary(), ensure_ascii=False, indent=2))"
 ```
 
-DataOS 既不调度、也不知道并行 —— 分卡和并发度完全是你的事。`compare()` 只是 glob 现有的
+DataOS 既不调度、也不知道并行 —— 分卡和并发度完全是你的事。`summary()` 只是 glob 现有的
 `report.json`,所以容忍还在跑或缺失的实验。
 
 ## 先跑 doctor

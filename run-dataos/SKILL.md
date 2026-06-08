@@ -25,8 +25,8 @@ DataOS 是一组**确定性执行器** + 两个容器——**`Study`**(同一个
 plan = {goal, experiments: [spec, ...]}            # 你写
 study = dataos.study(id); study.set_plan(plan)     # 容器(一个目录)
   for spec: exp = study.experiment(spec)           # 据 spec 造 exp.data / exp.train / exp.eval 三个 Stage
-    exp.data.run() -> exp.train.run() -> exp.eval.run() -> exp.report()   # 每个出 report.json
-study.compare()  ->  study.review(conclusion)      # 确定性对比表 -> review.json
+    exp.data.run() -> exp.train.run() -> exp.eval.run() -> exp.summary()  # 每个出 report.json
+study.summary()  ->  study.review(conclusion)      # 确定性汇总 -> review.json
 ```
 
 ## DataOS 跑在哪(本机 vs 远程)
@@ -57,28 +57,28 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 | **数据** | `exp.data` 是 **DataStage**。声明式:`spec["data"]={source,split,limit,field_map,recipe:[{op,params}]}` 再 `exp.data.run()`;或逃生口 `exp.data.set(ds).run()` 注入你用 `dataos_operator` 算子现搭的 `Dataset`。判断全在这。 | `references/data-prep.md` |
 | **训练** | `exp.train.run()` -> `Model`,自动取上游 `exp.data` 的产物。开放-config:任意 LLaMA-Factory 键透传;`config` 取 `spec["train"]`。 | `references/train-eval.md` |
 | **评估** | `exp.eval.run()` -> `Eval`,自动取上游 `exp.train` 的产物 + `spec["eval"]`。stub 必须显式给。 | `references/train-eval.md` |
-| **复盘** | `exp.report()` -> 单实验 `report.json`(扁平键 + `stages` 段);`study.compare()` -> 对比;`study.review(conclusion)` -> `review.json`。DataOS 列表,**你**下结论。 | — |
+| **复盘** | `exp.summary()` -> 单实验 `report.json`(扁平键 + `stages` 段);`study.summary()` -> 汇总/排名;`study.review(conclusion)` -> `review.json`。DataOS 列表,**你**下结论。 | — |
 
 ## 容器
 
 - **`dataos.study(id=None, workspace="workspace")` -> `Study`** —— 创建或**重开**(省略 `id`
   则自动流水号 `study-0001`)。方法:`set_plan(plan)`(写 `plan.json`)、`experiment(spec)`、
-  `compare()`、`review(conclusion)`。
+  `summary()`、`review(conclusion)`。
 - **`Study.experiment(spec)` / `dataos.experiment(spec=None)` -> `Experiment`** —— 一个瘦容器,
-  据 spec 组合三个 Stage:`exp.data` / `exp.train` / `exp.eval`,外加 `exp.report()`。每个 spec 给一个
-  **唯一的短 `name`**:它是目录 slug,也是 `compare()` 的 join key。
+  据 spec 组合三个 Stage:`exp.data` / `exp.train` / `exp.eval`,外加 `exp.summary()`。每个 spec 给一个
+  **唯一的短 `name`**:它是目录 slug,也是 `summary()` 的 join key。
 
 **Stage 自带状态、产物是一等公民。** 每个 stage 记录 `status` / 起止时间 / 耗时 / `error` / `inputs`(血缘)/
 产物,落进 `<exp>/{data,train,eval}.json`(= `stage.summary()`)。产物是 **Artifact**(`Data` / `Model` /
 `Eval`),带 `id` / `path` / `meta` / `inputs`(上游 artifact id,连成血缘链 **data → model → eval**)。
-`report()` / `review()` 就是把这些 `summary()` 拼起来——**给 stage 或 artifact 加个字段,会自动往上冒到报告里**。
+`exp.summary()` / `study.review()` 就是把下层这些 `summary()` 拼起来——**给 stage 或 artifact 加个字段,会自动往上冒到报告里**。
 
 落盘:`<workspace>/<study_id>/{plan.json, review.json,
 experiments/<name>/{data,train,eval}.json + report.json + dataset/ model/ eval/ logs/}`。
 
 ## 执行与并行
 
-串行还是铺到多卡并行,是你定的——SDK 两种方式完全一样(study 是目录;`compare()` 读盘上的
+串行还是铺到多卡并行,是你定的——SDK 两种方式完全一样(study 是目录;`summary()` 读盘上的
 `report.json`)。要并行就把数据集准备好一次,然后每个实验用 `scripts/run_one.py`(钉
 `CUDA_VISIBLE_DEVICES`)。见 `references/execution.md`。正式场景里这些都在**远程服务器上经 ssh 跑**
 (本机 Claude Code 驱动)——见 `references/remote.md`。
@@ -102,8 +102,8 @@ for spec in study.plan["experiments"]:
         [{"instruction": f"q{i}", "input": "", "output": f"a{i}"} for i in range(8)],
         metadata={"dataset_format": "alpaca"})
     exp.data.set(ds).run()             # 逃生口:注入现成 Dataset(声明式则用 spec["data"] + exp.data.run())
-    exp.train.run(); exp.eval.run(); exp.report()
-cmp = study.compare()                  # {varied_keys: ["learning_rate"], best: {name: "b", ...}, ...}
+    exp.train.run(); exp.eval.run(); exp.summary()
+digest = study.summary()               # {varied_keys: ["learning_rate"], best: {name: "b", ...}, ...}
 study.review(conclusion="b 胜")         # -> review.json
 ```
 

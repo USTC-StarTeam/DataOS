@@ -40,11 +40,11 @@ def main() -> int:
     exp.data.set(ds).run()   # 逃生口:注入已准备好的数据集,跳过 spec["data"] 的 recipe
     exp.train.run()          # config 默认取 spec["train"]
     exp.eval.run()           # config 默认取 spec["eval"]
-    report = exp.report()
+    summary = exp.summary()
     print(
-        f"[run_one] {args.spec}: status={report['status']} "
-        f"model={(report.get('model') or {}).get('mode')} "
-        f"score={(report.get('eval') or {}).get('score')} -> {report['id']}"
+        f"[run_one] {args.spec}: status={summary['status']} "
+        f"model={(summary.get('model') or {}).get('mode')} "
+        f"score={(summary.get('eval') or {}).get('score')} -> {summary['id']}"
     )
     return 0
 

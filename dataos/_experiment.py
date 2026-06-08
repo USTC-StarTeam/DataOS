@@ -4,7 +4,7 @@ An experiment is a container: it owns a workspace directory and composes a
 :class:`~dataos._stage.DataStage` / :class:`~dataos._stage.TrainStage` /
 :class:`~dataos._stage.EvalStage` (built from its ``spec``). The coding agent
 drives the stages imperatively — ``exp.data.run()`` -> ``exp.train.run()`` ->
-``exp.eval.run()`` — there is no ``run()`` that chains them. ``report()`` writes a
+``exp.eval.run()`` — there is no ``run()`` that chains them. ``summary()`` writes a
 flat ``report.json`` recomposed from each stage / artifact ``summary()``.
 
 The artifact types live in :mod:`dataos._artifact`; the stages in
@@ -54,8 +54,9 @@ class Experiment:
     def stages(self) -> list[Any]:
         return [self.data, self.train, self.eval]
 
-    def report(self) -> dict[str, Any]:
-        """Recompose ``report.json`` from the stage / artifact summaries and write it."""
+    def summary(self) -> dict[str, Any]:
+        """Recompose this experiment's summary from the stage / artifact summaries,
+        write it to ``report.json``, and return it."""
         from dataos.report import build_report
 
         self.updated_at = _utc_now_iso()
