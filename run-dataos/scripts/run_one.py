@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 """跑一个 study 里的单个实验,端到端。
 
-重开 study,加载**已准备好的**数据集,对指定 spec 做 train + eval + finalize。这是串行循环和
-并行运行通用的"单元"—— 并行时每个进程钉一张卡:
+重开 study,加载**已准备好的**数据集,对指定 spec 做 data(逃生口注入)+ train + eval + report。
+这是串行循环和并行运行通用的"单元"—— 并行时每个进程钉一张卡:
 
     CUDA_VISIBLE_DEVICES=6 python scripts/run_one.py \
         --study lr-sweep --spec lr-1e-4 --data prepared/ --workspace workspace
 
 数据配方(算子)是你的事 —— 用 dataos_operator 构建 Dataset、`save_to_disk` 后把目录作为
---data 传进来。本脚本**不处理**数据,只对一个已准备好的 spec 做训练/评估,因此对各种配方都通用。
+--data 传进来。本脚本用 `exp.data.set(ds)`(**逃生口**:注入现成 Dataset、跳过 spec 里的 recipe)
+保证"准备一次、多进程复用",因此对各种配方都通用、不会按 spec 重跑数据处理。
 """
 
 from __future__ import annotations
@@ -36,9 +37,10 @@ def main() -> int:
 
     ds = dataos.load(args.data, split=args.split, limit=args.limit)
     exp = study.experiment(spec)
-    exp.train(ds)        # config 默认取 spec["train"]
-    exp.eval()           # config 默认取 spec["eval"]
-    report = exp.finalize()
+    exp.data.set(ds).run()   # 逃生口:注入已准备好的数据集,跳过 spec["data"] 的 recipe
+    exp.train.run()          # config 默认取 spec["train"]
+    exp.eval.run()           # config 默认取 spec["eval"]
+    report = exp.report()
     print(
         f"[run_one] {args.spec}: status={report['status']} "
         f"model={(report.get('model') or {}).get('mode')} "

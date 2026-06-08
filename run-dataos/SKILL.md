@@ -3,7 +3,7 @@ name: run-dataos
 description: >-
   用 DataOS 在 Python 里端到端构建 SFT 训练数据、跑或对比微调实验:用 dataos.load +
   dataos-operator 加载并组装算子成训练 Dataset,再在 dataos.study 容器下跑实验(set_plan
-  -> experiment(spec) -> train -> eval -> finalize -> compare -> review)。你(Claude)是
+  -> experiment(spec) -> data -> train -> eval -> report -> compare -> review)。你(Claude)是
   runtime 和 planner——写 plan、驱动各阶段、决定是否并行;DataOS 不调 LLM、也没有 run()。
   凡用户想微调/训练模型、构建或准备 SFT / Alpaca / ShareGPT 数据集、扫参或对比训练配置
   (learning rate、LoRA vs 全参、数据配方)、用 lm-eval 评测模型、跑无 GPU 的 stub 流程,或提到
@@ -24,8 +24,9 @@ DataOS 是一组**确定性执行器** + 两个容器——**`Study`**(同一个
 ```
 plan = {goal, experiments: [spec, ...]}            # 你写
 study = dataos.study(id); study.set_plan(plan)     # 容器(一个目录)
-  for spec: exp = study.experiment(spec) -> 数据 -> train -> eval -> finalize   # 每个出 report.json
-study.compare()  ->  study.finalize(conclusion)    # 确定性对比表 -> review.json
+  for spec: exp = study.experiment(spec)           # 据 spec 造 exp.data / exp.train / exp.eval 三个 Stage
+    exp.data.run() -> exp.train.run() -> exp.eval.run() -> exp.report()   # 每个出 report.json
+study.compare()  ->  study.review(conclusion)      # 确定性对比表 -> review.json
 ```
 
 ## DataOS 跑在哪(本机 vs 远程)
@@ -53,21 +54,27 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 | 阶段 | 你做什么 | 细节 |
 |---|---|---|
 | **计划** | 写 `plan = {goal, experiments:[spec,...]}`;每个 `spec` 是 `{name, data, train, eval}`。用 `dataos.catalog()` 发现算子。可 copy `assets/plan.template.json` 起步。 | — |
-| **数据** | `dataos.load(...)`,再用 `dataos_operator` 算子整形。判断全在这——处理**没有 DataOS API**,你直接 `Op(**p).run(ds)`。 | `references/data-prep.md` |
-| **训练** | `exp.train(ds, config=None)` -> `Model`。开放-config:任意 LLaMA-Factory 键透传;`config` 默认取 `spec["train"]`。 | `references/train-eval.md` |
-| **评估** | `exp.eval(model=None, config=None)` -> `Eval`。默认取本实验的模型 + `spec["eval"]`。stub 必须显式给。 | `references/train-eval.md` |
-| **复盘** | `exp.finalize()` -> 单实验 `report.json`;`study.compare()` -> 对比;`study.finalize(conclusion)` -> `review.json`。DataOS 列表,**你**下结论。 | — |
+| **数据** | `exp.data` 是 **DataStage**。声明式:`spec["data"]={source,split,limit,field_map,recipe:[{op,params}]}` 再 `exp.data.run()`;或逃生口 `exp.data.set(ds).run()` 注入你用 `dataos_operator` 算子现搭的 `Dataset`。判断全在这。 | `references/data-prep.md` |
+| **训练** | `exp.train.run()` -> `Model`,自动取上游 `exp.data` 的产物。开放-config:任意 LLaMA-Factory 键透传;`config` 取 `spec["train"]`。 | `references/train-eval.md` |
+| **评估** | `exp.eval.run()` -> `Eval`,自动取上游 `exp.train` 的产物 + `spec["eval"]`。stub 必须显式给。 | `references/train-eval.md` |
+| **复盘** | `exp.report()` -> 单实验 `report.json`(扁平键 + `stages` 段);`study.compare()` -> 对比;`study.review(conclusion)` -> `review.json`。DataOS 列表,**你**下结论。 | — |
 
 ## 容器
 
 - **`dataos.study(id=None, workspace="workspace")` -> `Study`** —— 创建或**重开**(省略 `id`
   则自动流水号 `study-0001`)。方法:`set_plan(plan)`(写 `plan.json`)、`experiment(spec)`、
-  `compare()`、`finalize(conclusion)`。
-- **`Study.experiment(spec)` / `dataos.experiment(spec=None)` -> `Experiment`** ——
-  `train` / `eval` / `finalize`。每个 spec 给一个**唯一的短 `name`**:它是目录 slug,也是
-  `compare()` 的 join key。
+  `compare()`、`review(conclusion)`。
+- **`Study.experiment(spec)` / `dataos.experiment(spec=None)` -> `Experiment`** —— 一个瘦容器,
+  据 spec 组合三个 Stage:`exp.data` / `exp.train` / `exp.eval`,外加 `exp.report()`。每个 spec 给一个
+  **唯一的短 `name`**:它是目录 slug,也是 `compare()` 的 join key。
 
-落盘:`<workspace>/<study_id>/{plan.json, review.json, experiments/<name>/.../report.json}`。
+**Stage 自带状态、产物是一等公民。** 每个 stage 记录 `status` / 起止时间 / 耗时 / `error` / `inputs`(血缘)/
+产物,落进 `<exp>/{data,train,eval}.json`(= `stage.summary()`)。产物是 **Artifact**(`Data` / `Model` /
+`Eval`),带 `id` / `path` / `meta` / `inputs`(上游 artifact id,连成血缘链 **data → model → eval**)。
+`report()` / `review()` 就是把这些 `summary()` 拼起来——**给 stage 或 artifact 加个字段,会自动往上冒到报告里**。
+
+落盘:`<workspace>/<study_id>/{plan.json, review.json,
+experiments/<name>/{data,train,eval}.json + report.json + dataset/ model/ eval/ logs/}`。
 
 ## 执行与并行
 
@@ -94,16 +101,18 @@ for spec in study.plan["experiments"]:
     ds = Dataset.from_records(
         [{"instruction": f"q{i}", "input": "", "output": f"a{i}"} for i in range(8)],
         metadata={"dataset_format": "alpaca"})
-    exp.train(ds); exp.eval(); exp.finalize()
+    exp.data.set(ds).run()             # 逃生口:注入现成 Dataset(声明式则用 spec["data"] + exp.data.run())
+    exp.train.run(); exp.eval.run(); exp.report()
 cmp = study.compare()                  # {varied_keys: ["learning_rate"], best: {name: "b", ...}, ...}
-study.finalize(conclusion="b 胜")       # -> review.json
+study.review(conclusion="b 胜")         # -> review.json
 ```
 
 ## 边界
 
 - **你是 planner;没有内嵌 agent 或 LLM key。** 如果你为了跑流程去找 API key,就是用错了——
   DataOS 不带 agent / prompt / LLM 客户端。
-- **没有一把梭的 `run()`,并行是你的事。** 各阶段自己调;DataOS 不拥有编排循环、也没有 GPU 调度器。
+- **没有把各阶段串起来的一把梭 `run()`,并行是你的事。** 每个 stage 有自己的 `exp.<stage>.run()`,但没有替你
+  串 data→train→eval 的总 `run()`;DataOS 不拥有编排循环、也没有 GPU 调度器。
 - **算子只来自外部 `dataos_operator` 包**(或用 `dataos.catalog()` 发现);数据集是
   `dataos_operator.Dataset`,不是 DataOS 类型。
 - **核对真实文件。** 读 `experiments/<name>/report.json` 和 `review.json`;别编造结论。

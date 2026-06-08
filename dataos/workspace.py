@@ -100,6 +100,9 @@ class Workspace:
     def report_path(self) -> Path:
         return self.exp_dir / "report.json"
 
+    def stage_path(self, kind: str) -> Path:
+        return self.exp_dir / f"{kind}.json"
+
     def write_report(self, data: dict[str, Any]) -> Path:
         target = self.report_path()
         target.parent.mkdir(parents=True, exist_ok=True)

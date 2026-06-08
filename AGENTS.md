@@ -8,9 +8,12 @@
   (runtime / planner)在库外完成。
 - 两个容器:`Study`(多实验,就是一个目录)→ `Experiment`(单次)。`compare()` 读盘聚合,所以并行与否
   由 runtime 决定。
+- 每个 `Experiment` 由三个 **Stage**(`data` / `train` / `eval`)组成,各自记录状态、产出一等 **Artifact**
+  (`Data` / `Model` / `Eval`,带 `inputs` 血缘);`report()` / `review()` = 拼各 `summary()`,加字段自动往上冒。
 - 数据集是外部 `dataos_operator.Dataset`;算子来自外部 `dataos-operator` 包,不在本仓库。
 - `train` 真透传任意 LLaMA-Factory 键(只拒保留键);`eval` 用 `EvalConfig` 字段集(未知键忽略 + 告警)。
-- 没有内嵌 agent、没有 `run()`、没有调度器、没有研究层 / 守护进程 / 项目队列。
+- 没有内嵌 agent、没有把各阶段串起来的一把梭 `run()`(每个 stage 有自己的 `run()`)、没有调度器、没有研究层 /
+  守护进程 / 项目队列。
 
 在本仓库工作的 agent,除非用户明确要求,应保持这些约束。
 
@@ -24,11 +27,14 @@
 
 - `dataos/_catalog.py` —— `catalog()` 算子发现
 - `dataos/loading.py` —— `load()` 数据加载(hf:// / 本地文件 / save_to_disk 目录)
-- `dataos/_experiment.py` —— `Experiment` / `Model` / `Eval` / `experiment()`
+- `dataos/_ids.py` —— `_make_id` / `_utc_now_iso`(无依赖叶子)
+- `dataos/_artifact.py` —— `Artifact` / `Data` / `Model` / `Eval`(一等产物 + 血缘)
+- `dataos/_stage.py` —— `Stage` / `DataStage` / `TrainStage` / `EvalStage` + `run_recipe`(算子配方执行器)
+- `dataos/_experiment.py` —— `Experiment`(组合三 Stage)/ `experiment()`
 - `dataos/_study.py` —— `Study` / `study()`
 - `dataos/workspace.py`、`dataos/report.py`、`dataos/_env.py`、`dataos/cli.py`
-- `dataos/train/llamafactory.py` —— 开放-config 训练执行器
-- `dataos/eval/` —— lm-eval 桥接(runner / config / types / backend / adapters / models)
+- `dataos/train/llamafactory.py` —— 开放-config 训练执行器(产 `Model`)
+- `dataos/eval/` —— lm-eval 桥接(runner / config / types / backend / adapters / models;产 `Eval`)
 - `run-dataos/` —— 给 Claude Code 的 skill(怎么驱动这个库)
 - `docs/` —— 中文说明(实验布局、算子)
 
@@ -56,7 +62,8 @@ python run-dataos/scripts/doctor.py    # 环境自检
 - 远程只当执行后端;把 DataOS 产物(`report.json` / `review.json`)拉回仓库 workspace,或确认已落在远端
   持久目录后,再算这次跑完成。
 - 别假设远端依赖和本地一致;长跑前先 `doctor.py` 核对 Python / CUDA / extras。
-- 真实训练前把 venv 的 bin 加进 PATH(`PATH=.venv/bin:$PATH`),否则 `llamafactory-cli` 找不到。
+- 真实训练前把 venv 的 bin 加进 PATH,**用绝对路径**(`PATH=$(pwd)/.venv/bin:$PATH`),否则 `llamafactory-cli`
+  找不到;相对 `.venv/bin` 会让 `shutil.which` 返回相对路径、训练子进程换 cwd 后 `FileNotFoundError`。
 - 从干净目录(如 `/tmp`)跑脚本,避免 cwd 里的 `./dataos` 盖掉安装的包。
 
 ## 必须遵守的运行时事实
@@ -67,7 +74,11 @@ python run-dataos/scripts/doctor.py    # 环境自检
   保留键(`stage` / `do_train` / `dataset` / `eval_dataset` / `dataset_dir` / `output_dir` /
   `overwrite_output_dir`)由 DataOS 写,设置即报错;其余透传到 `train.yaml`。
 - **评估**:lm-eval 桥接,config = `EvalConfig` 字段集(未知键忽略 + 告警);stub 必须显式 `{"provider": "stub", ...}`。
-- **落盘**:`<workspace>/<study_id>/{plan.json, review.json, experiments/<name>/{dataset,model,eval,logs,_lf}/ + report.json}`。`compare()` 只读盘。
+- **Stage / Artifact**:`exp.data` / `exp.train` / `exp.eval` 是 Stage,`run()` 跑完自记 status / 时间 / error /
+  `inputs` 并落 `{kind}.json`(= `summary()`,含 artifact);产物 `Data` / `Model` / `Eval` 是 Artifact,`inputs`
+  连成血缘 data→model→eval。EvalStage 跨进程会从 `train.json` 重建 `Model`。
+- **落盘**:`<workspace>/<study_id>/{plan.json, review.json, experiments/<name>/{data,train,eval}.json +
+  report.json + dataset/ model/ eval/ logs/ _lf/}`。每个 stage 落 `{kind}.json`;`compare()` 只读盘。
 
 ## 改动指引
 

@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from dataos._experiment import Experiment, _make_id, _utc_now_iso
+from dataos._experiment import Experiment
+from dataos._ids import _make_id, _utc_now_iso
 from dataos.workspace import Workspace
 
 _JSON_KWARGS: dict[str, Any] = {
@@ -187,7 +188,7 @@ class Study:
             "caution": caution,
         }
 
-    def finalize(self, conclusion: Any = None) -> dict[str, Any]:
+    def review(self, conclusion: Any = None) -> dict[str, Any]:
         """Write ``review.json`` (= :meth:`compare` + ``conclusion``) and return it."""
         review = self.compare()
         now = _utc_now_iso()

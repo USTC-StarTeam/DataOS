@@ -44,7 +44,12 @@ def main() -> int:
         ok = ok and present
         print(f"[{'ok' if present else 'FAIL'}] 核心依赖: {mod}{'' if present else '  <-- 必需'}")
 
-    api = ("catalog", "load", "study", "experiment", "Study", "Experiment", "Model", "Eval")
+    api = (
+        "catalog", "load", "study", "experiment",
+        "Study", "Experiment",
+        "Stage", "DataStage", "TrainStage", "EvalStage",
+        "Artifact", "Data", "Model", "Eval",
+    )
     missing = [n for n in api if not hasattr(dataos, n)]
     ok = ok and not missing
     print(f"[{'ok' if not missing else 'FAIL'}] 公开接口: {'全部就位' if not missing else f'缺 {missing}'}")

@@ -11,12 +11,15 @@ DataOS 把一次研究的所有产物落在一个 study 目录下。**study 就�
   review.json                     # 复盘(compare 聚合 + 你写的 conclusion)
   experiments/
     <name>/                       # 一个 Experiment(name = spec 里的唯一短名,作目录 slug)
-      dataset/                    # 训练集物化(真实训练时)
-      model/                      # 训练产物(LoRA adapter / 全量权重)
-      eval/                       # 评测产物(results.json 等)
+      data.json                   # DataStage 自记状态(= summary():status/时间/inputs/产物 Data)
+      train.json                  # TrainStage 自记状态(含产物 Model + 血缘 inputs)
+      eval.json                   # EvalStage 自记状态(含产物 Eval + 血缘 inputs)
+      dataset/                    # 训练集物化(Data artifact 的 path)
+      model/                      # 训练产物(LoRA adapter / 全量权重;Model 的 path)
+      eval/                       # 评测产物(results.json 等;Eval 的 path)
       logs/                       # 各阶段日志
       _lf/                        # LLaMA-Factory 暂存(train.yaml 等)
-      report.json                 # 单实验总结
+      report.json                 # 单实验总结(扁平键 + stages 段)
 ```
 
 `<study_id>` 由 `dataos.study(id=...)` 指定或自动分配(`study-0001` …)。`dataos.study(id=...)` 是
@@ -24,15 +27,19 @@ DataOS 把一次研究的所有产物落在一个 study 目录下。**study 就�
 
 ## report.json(单实验)
 
-`exp.finalize()` 写出。字段:`id` / `name` / `spec` / `status` / `created_at` / `updated_at` /
-`steps` / `dataset`{path, format, rows} / `model`{id, path, base_model, finetuning_type, mode} /
-`eval`{id, score, metrics, path}。`spec` 进 report 是为了让 `compare()` 做配置 diff。
+`exp.report()` 写出,由各 stage / artifact 的 `summary()` 拼成。扁平键:`id` / `name` / `spec` / `status`
+(由三 stage 状态派生:任一 failed→failed,否则取最远完成阶段)/ `created_at` / `updated_at` /
+`dataset`{path, format, rows} / `model`{id, path, base_model, finetuning_type, mode} /
+`eval`{id, score, metrics, path};外加 `stages`{data, train, eval} —— 每个是该 stage 的完整 `summary()`
+(status / 起止 / 耗时 / error / inputs / config / artifact)。给 stage 或 artifact 加字段会自动出现在
+`stages` 段里。`spec` 进 report 是为了让 `compare()` 做配置 diff。
 
 ## review.json(study 级)
 
-`study.finalize(conclusion=...)` 写出,= `compare()` 的确定性对比 + 你写的 `conclusion`。字段:
+`study.review(conclusion=...)` 写出,= `compare()` 的确定性对比 + 你写的 `conclusion`。字段:
 `study_id` / `goal` / `n_experiments` / `varied_keys` / `experiments[]` / `ranking[]` / `best` /
-`conclusion` / `status` / 时间戳。`compare()` 只 glob `experiments/*/report.json`,容忍还在跑或缺失的实验。
+`metric_winners` / `caution`(headline 冠军与某指标冠军不一致时的提示)/ `conclusion` / `status` / 时间戳。
+`compare()` 只 glob `experiments/*/report.json`,容忍还在跑或缺失的实验。
 
 ## workspace 的意义
 

@@ -24,15 +24,16 @@
 study = dataos.study(id="lr-sweep"); study.set_plan(plan)
 for spec in study.plan["experiments"]:
     exp = study.experiment(spec)
-    ds = build_dataset(spec)        # 你的配方(见 data-prep.md)
-    exp.train(ds); exp.eval(); exp.finalize()
-study.compare(); study.finalize(conclusion="…")
+    ds = build_dataset(spec)        # 你的配方(见 data-prep.md);声明式则用 spec["data"]+exp.data.run()
+    exp.data.set(ds).run(); exp.train.run(); exp.eval.run(); exp.report()
+study.compare(); study.review(conclusion="…")
 ```
 
 ## 并行(一实验一进程,各钉一张卡)
 
-自然单位是**一实验一进程**,因为 `train -> eval -> finalize` 共享内存里的 `exp.model` —— 把
-train 和 eval 拆到不同进程就得从盘上重建 `Model`。把共享数据集准备并保存一次,然后用自带的
+自然单位是**一实验一进程**,因为 `data -> train -> eval -> report` 共享内存里的 stage 产物
+(`exp.data.artifact` / `exp.train.artifact`)—— 把 train 和 eval 拆到不同进程时,EvalStage 会自动从盘上的
+`train.json` 重建 `Model`(血缘照样连上)。把共享数据集准备并保存一次,然后用自带的
 `scripts/run_one.py`:
 
 ```bash

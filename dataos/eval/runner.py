@@ -22,7 +22,8 @@ import warnings
 from typing import TYPE_CHECKING, Any
 
 from dataos.eval.config import EvalConfig
-from dataos._experiment import Eval, Model, _make_id
+from dataos._artifact import Eval, Model
+from dataos._ids import _make_id
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from dataos.workspace import Workspace

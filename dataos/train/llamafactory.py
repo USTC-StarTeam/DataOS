@@ -26,7 +26,8 @@ from typing import TYPE_CHECKING, Any
 
 from datasets import Dataset
 
-from dataos._experiment import Model, _make_id
+from dataos._artifact import Model
+from dataos._ids import _make_id
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from dataos_operator import Dataset as OperatorDataset
@@ -55,9 +56,11 @@ def run_train(
     if config is None or config.get("mode") == "stub":
         return _run_stub_training(dataset, workspace=workspace)
 
-    # Materialize the external Dataset for provenance, then operate on the flat
-    # single-split HF Dataset directly (no DatasetDict, so no split selection).
-    dataset.save_to_disk(workspace.dataset_dir)
+    # The prepared dataset is already materialized to workspace.dataset_dir by the
+    # data stage (it IS the Data artifact); re-saving here would fail because the
+    # dataset passed in is memory-mapped from that same dir ("can't overwrite
+    # itself"). Operate on the flat single-split HF Dataset directly (no
+    # DatasetDict, so no split selection).
     hf_train: Dataset = dataset.hf_dataset
 
     model_id = _make_id("model")

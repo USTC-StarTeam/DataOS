@@ -11,10 +11,13 @@ Python 完成,**不调用 LLM**。规划和判断交给 **Claude Code**(runtime 
 
 - 两个容器:`Study`(多实验)→ `Experiment`(单次)。**`Study` 就是一个目录**,`compare()` 读盘聚合,
   所以并行与否由 runtime 决定,不归 DataOS。
+- 每个 `Experiment` 由三个 **Stage**(`data` / `train` / `eval`)组成:各自记录状态、产出一等 **Artifact**
+  (`Data` / `Model` / `Eval`,带 `inputs` 血缘);`report()` / `review()` 就是拼各 `summary()`。
 - 数据集是外部 `dataos_operator.Dataset`(HF Arrow 背书),不是 DataOS 自己的类型。
 - `train`(LLaMA-Factory)真透传任意键(无白名单);`eval`(lm-eval)用 `EvalConfig` 字段集
   (覆盖 lm-eval 常用键,未知键忽略 + 告警)。
-- 一切落盘:`<workspace>/<study_id>/{plan.json, review.json, experiments/<name>/.../report.json}`。
+- 一切落盘:`<workspace>/<study_id>/{plan.json, review.json,
+  experiments/<name>/{data,train,eval}.json + report.json + dataset/ model/ eval/ logs/}`。
 - 没有研究层、守护进程、项目队列或持久 agent 控制面。
 
 ## 安装
@@ -49,9 +52,9 @@ for spec in study.plan["experiments"]:
     ds = Dataset.from_records(
         [{"instruction": "q", "input": "", "output": "a"}],
         metadata={"dataset_format": "alpaca"})
-    exp.train(ds); exp.eval(); exp.finalize()
+    exp.data.set(ds).run(); exp.train.run(); exp.eval.run(); exp.report()
 print(study.compare())
-study.finalize(conclusion="done")
+study.review(conclusion="done")
 ```
 
 环境自检:`python run-dataos/scripts/doctor.py`。

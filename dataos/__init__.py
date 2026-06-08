@@ -13,7 +13,8 @@ Public surface (all resolved lazily via PEP 562 ``__getattr__`` so that
 * ``dataos.load(...)`` — load a dataset into a ``dataos_operator.Dataset``.
 * ``dataos.study(...)`` — open a multi-experiment :class:`Study` container.
 * ``dataos.experiment(...)`` — start a standalone staged :class:`Experiment`.
-* ``Study`` / ``Experiment`` / ``Model`` / ``Eval`` — the core types.
+* ``Study`` / ``Experiment`` — containers; ``DataStage`` / ``TrainStage`` /
+  ``EvalStage`` — the stages; ``Data`` / ``Model`` / ``Eval`` — the artifacts.
 """
 
 from __future__ import annotations
@@ -21,16 +22,24 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - import-time typing only
+    from dataos._artifact import Artifact, Data, Eval, Model
     from dataos._catalog import catalog
-    from dataos._experiment import Eval, Experiment, Model, experiment
+    from dataos._experiment import Experiment, experiment
+    from dataos._stage import DataStage, EvalStage, Stage, TrainStage
     from dataos._study import Study, study
     from dataos.loading import load
 
 __all__ = [
+    "Artifact",
+    "Data",
+    "DataStage",
     "Eval",
+    "EvalStage",
     "Experiment",
     "Model",
+    "Stage",
     "Study",
+    "TrainStage",
     "catalog",
     "experiment",
     "load",
@@ -46,8 +55,14 @@ _LAZY_EXPORTS: dict[str, str] = {
     "Study": "dataos._study",
     "experiment": "dataos._experiment",
     "Experiment": "dataos._experiment",
-    "Model": "dataos._experiment",
-    "Eval": "dataos._experiment",
+    "Stage": "dataos._stage",
+    "DataStage": "dataos._stage",
+    "TrainStage": "dataos._stage",
+    "EvalStage": "dataos._stage",
+    "Artifact": "dataos._artifact",
+    "Data": "dataos._artifact",
+    "Model": "dataos._artifact",
+    "Eval": "dataos._artifact",
 }
 
 
