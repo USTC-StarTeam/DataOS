@@ -95,20 +95,46 @@ class Study:
         return self
 
     def experiment(self, spec: dict[str, Any] | None = None) -> Experiment:
-        """Create a child :class:`Experiment` under this study.
+        """Open-or-create a child :class:`Experiment` under this study.
 
-        The experiment's directory is ``experiments/<slug(name)>/`` where ``name``
-        comes from ``spec["name"]`` (give each experiment a distinct, short name —
-        the slug is the join key ``compare`` uses).
+        The directory is ``experiments/<slug(name)>/``. If that experiment already ran
+        (its ``report.json`` is on disk), its real ``exp_id`` is reused and every stage is
+        **rehydrated** from ``{kind}.json`` — so re-driving a reopened study **resumes**:
+        completed stages skip, only pending / failed ones run. Give each experiment a
+        distinct short ``name`` — it is the dir slug and the ``summary`` join key.
         """
         name = (spec or {}).get("name") or _make_id("exp")
         workspace = Workspace(self.experiments_dir, _slug(str(name)))
-        return Experiment(
-            exp_id=_make_id("exp"),
+        exp_id = _make_id("exp")
+        report_path = workspace.exp_dir / "report.json"
+        if report_path.is_file():
+            try:
+                exp_id = (json.loads(report_path.read_text(encoding="utf-8")) or {}).get("id") or exp_id
+            except (OSError, json.JSONDecodeError):
+                pass
+        exp = Experiment(
+            exp_id=exp_id,
             workspace=workspace,
             name=str(name),
             spec=dict(spec) if spec is not None else None,
         )
+        return exp.load_state()
+
+    def load_experiments(self) -> list[Experiment]:
+        """Rehydrate every experiment on disk into an :class:`Experiment` (reopen the whole
+        study at the object level). Each spec is read back from its ``report.json`` (falling
+        back to a name-only spec); pair with :meth:`summary` for the aggregated view."""
+        loaded: list[Experiment] = []
+        for slug in self.experiments:
+            report_path = self.experiments_dir / slug / "report.json"
+            spec: dict[str, Any] | None = None
+            if report_path.is_file():
+                try:
+                    spec = (json.loads(report_path.read_text(encoding="utf-8")) or {}).get("spec")
+                except (OSError, json.JSONDecodeError):
+                    spec = None
+            loaded.append(self.experiment(spec if spec is not None else {"name": slug}))
+        return loaded
 
     def summary(self) -> dict[str, Any]:
         """Aggregate every child ``report.json`` into a deterministic study summary.

@@ -18,7 +18,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
-from dataos._artifact import Data, Eval, Model
+from dataos._artifact import Data, Eval, Model, artifact_from_dict
 from dataos._ids import _make_id, _utc_now_iso
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -91,7 +91,11 @@ class Stage:
         self.inputs: list[str] = []
         self.artifact: Artifact | None = None
 
-    def run(self) -> "Artifact":
+    def run(self, force: bool = False) -> "Artifact":
+        # resume: a rehydrated, already-completed stage is skipped, so re-driving a reopened
+        # study only runs the pending / failed stages. force=True re-runs unconditionally.
+        if not force and self.status == "completed" and self.artifact is not None:
+            return self.artifact
         self.status = "running"
         self.started_at = _utc_now_iso()
         t0 = time.monotonic()
@@ -103,12 +107,40 @@ class Stage:
             self.finished_at = _utc_now_iso()
             self.duration_s = round(time.monotonic() - t0, 3)
             self._persist()
+            self.experiment._persist_report()
             raise
         self.status = "completed"
         self.finished_at = _utc_now_iso()
         self.duration_s = round(time.monotonic() - t0, 3)
         self._persist()
+        self.experiment._persist_report()
         return self.artifact
+
+    def load_state(self) -> bool:
+        """Rehydrate this stage from its persisted ``<exp>/<kind>.json`` (reopen / resume).
+
+        Restores status / timing / error / inputs / config / artifact so a reopened study
+        reflects prior runs at the object level. Returns True if a state was loaded."""
+        path = self.workspace.stage_path(self.kind)
+        if not path.is_file():
+            return False
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        self.status = data.get("status") or self.status
+        self.started_at = data.get("started_at")
+        self.finished_at = data.get("finished_at")
+        self.duration_s = data.get("duration_s")
+        self.error = data.get("error")
+        self.log_path = data.get("log_path")
+        self.inputs = list(data.get("inputs") or [])
+        if not self.config and data.get("config"):
+            self.config = dict(data["config"])
+        artifact = data.get("artifact")
+        if artifact:
+            self.artifact = artifact_from_dict(artifact)
+        return True
 
     def _run(self) -> "Artifact":  # subclass hook — returns an Artifact
         raise NotImplementedError

@@ -9,16 +9,17 @@ Python 完成,**不调用 LLM**。规划和判断交给 **Claude Code**(runtime 
 
 ## 范围
 
-- 两个容器:`Study`(多实验)→ `Experiment`(单次)。**`Study` 就是一个目录**,`summary()` 读盘聚合,
-  所以并行与否由 runtime 决定,不归 DataOS。
+- 三层容器:`Project`(研究项目 = 一串 study,**resume 的基本单位**)→ `Study`(多实验)→ `Experiment`(单次)。
+  **都是目录**,`summary()` 读盘聚合,所以并行与否由 runtime 决定,不归 DataOS。
 - 每个 `Experiment` 由三个 **Stage**(`data` / `train` / `eval`)组成:各自记录状态、产出一等 **Artifact**
   (`Data` / `Model` / `Eval`,带 `inputs` 血缘);`report()` / `review()` 就是拼各 `summary()`。
 - 数据集是外部 `dataos_operator.Dataset`(HF Arrow 背书),不是 DataOS 自己的类型。
 - `train`(LLaMA-Factory)真透传任意键(无白名单);`eval`(lm-eval)用 `EvalConfig` 字段集
   (覆盖 lm-eval 常用键,未知键忽略 + 告警)。
-- 一切落盘:`<workspace>/<study_id>/{plan.json, review.json,
-  experiments/<name>/{data,train,eval}.json + report.json + dataset/ model/ eval/ logs/}`。
-- 没有研究层、守护进程、项目队列或持久 agent 控制面。
+- 一切落盘:`<workspace>/<project_id>/{project.json, <study_id>/{plan.json, review.json,
+  experiments/<name>/{data,train,eval}.json + report.json + dataset/ model/ eval/ logs/}}`。重开 project
+  即把整个研究回灌、续跑(完成的 stage 跳过)。
+- 没有守护进程、项目队列或持久 agent 控制面;plan 始终由 Claude 写,DataOS 不生成。
 
 ## 安装
 
@@ -42,7 +43,8 @@ DataOS 是给 **Claude Code** 用的库,不是给人手写脚本的。把仓库�
 import dataos
 from dataos_operator import Dataset
 
-study = dataos.study(id="smoke")
+proj = dataos.project(id="smoke")            # 研究项目(可恢复)
+study = proj.study(id="run1")                # 项目下的一轮 study
 study.set_plan({"goal": "冒烟", "experiments": [
     {"name": "a", "train": {"mode": "stub"},
      "eval": {"provider": "stub", "provider_config": {"score": 0.1}}},
@@ -52,7 +54,7 @@ for spec in study.plan["experiments"]:
     ds = Dataset.from_records(
         [{"instruction": "q", "input": "", "output": "a"}],
         metadata={"dataset_format": "alpaca"})
-    exp.data.set(ds).run(); exp.train.run(); exp.eval.run(); exp.summary()
+    exp.data.set(ds).run(); exp.train.run(); exp.eval.run()   # report.json 自动落
 print(study.summary())
 study.review(conclusion="done")
 ```

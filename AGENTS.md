@@ -6,14 +6,15 @@
 
 - DataOS **不调用 LLM**:加载、处理、训练、评估、复盘都是本地 Python。规划和判断由 **Claude Code**
   (runtime / planner)在库外完成。
-- 两个容器:`Study`(多实验,就是一个目录)→ `Experiment`(单次)。`summary()` 读盘聚合,所以并行与否
-  由 runtime 决定。
+- 三层容器:`Project`(研究项目 = 一串 study,**resume 的基本单位**)→ `Study`(多实验)→ `Experiment`(单次)。
+  都是目录,`summary()` 读盘聚合,所以并行与否由 runtime 决定。
 - 每个 `Experiment` 由三个 **Stage**(`data` / `train` / `eval`)组成,各自记录状态、产出一等 **Artifact**
-  (`Data` / `Model` / `Eval`,带 `inputs` 血缘);`report()` / `review()` = 拼各 `summary()`,加字段自动往上冒。
+  (`Data` / `Model` / `Eval`,带 `inputs` 血缘);`exp.summary()` / `study.review()` = 拼各 `summary()`,加字段自动往上冒。
+- **resume 以 project 为单位**:`dataos.project(id).load()` 把所有 study + experiment + stage 状态从盘回灌;`run()` 遇 `completed` 跳过。
 - 数据集是外部 `dataos_operator.Dataset`;算子来自外部 `dataos-operator` 包,不在本仓库。
 - `train` 真透传任意 LLaMA-Factory 键(只拒保留键);`eval` 用 `EvalConfig` 字段集(未知键忽略 + 告警)。
-- 没有内嵌 agent、没有把各阶段串起来的一把梭 `run()`(每个 stage 有自己的 `run()`)、没有调度器、没有研究层 /
-  守护进程 / 项目队列。
+- 没有内嵌 agent、没有把各阶段串起来的一把梭 `run()`(每个 stage 有自己的 `run()`)、没有调度器、没有守护进程 /
+  项目队列;plan 由 Claude 写、DataOS 不生成。
 
 在本仓库工作的 agent,除非用户明确要求,应保持这些约束。
 
@@ -30,8 +31,9 @@
 - `dataos/_ids.py` —— `_make_id` / `_utc_now_iso`(无依赖叶子)
 - `dataos/_artifact.py` —— `Artifact` / `Data` / `Model` / `Eval`(一等产物 + 血缘)
 - `dataos/_stage.py` —— `Stage` / `DataStage` / `TrainStage` / `EvalStage` + `run_recipe`(算子配方执行器)
-- `dataos/_experiment.py` —— `Experiment`(组合三 Stage)/ `experiment()`
-- `dataos/_study.py` —— `Study` / `study()`
+- `dataos/_experiment.py` —— `Experiment`(组合三 Stage)+ `load_state()`(回灌)
+- `dataos/_study.py` —— `Study` / `study()`(内部,经 project 调)/ `load_experiments()`
+- `dataos/_project.py` —— `Project` / `project()`(最外层容器,resume 单位)
 - `dataos/workspace.py`、`dataos/report.py`、`dataos/_env.py`、`dataos/cli.py`
 - `dataos/train/llamafactory.py` —— 开放-config 训练执行器(产 `Model`)
 - `dataos/eval/` —— lm-eval 桥接(runner / config / types / backend / adapters / models;产 `Eval`)
@@ -75,10 +77,12 @@ python run-dataos/scripts/doctor.py    # 环境自检
   `overwrite_output_dir`)由 DataOS 写,设置即报错;其余透传到 `train.yaml`。
 - **评估**:lm-eval 桥接,config = `EvalConfig` 字段集(未知键忽略 + 告警);stub 必须显式 `{"provider": "stub", ...}`。
 - **Stage / Artifact**:`exp.data` / `exp.train` / `exp.eval` 是 Stage,`run()` 跑完自记 status / 时间 / error /
-  `inputs` 并落 `{kind}.json`(= `summary()`,含 artifact);产物 `Data` / `Model` / `Eval` 是 Artifact,`inputs`
-  连成血缘 data→model→eval。EvalStage 跨进程会从 `train.json` 重建 `Model`。
-- **落盘**:`<workspace>/<study_id>/{plan.json, review.json, experiments/<name>/{data,train,eval}.json +
-  report.json + dataset/ model/ eval/ logs/ _lf/}`。每个 stage 落 `{kind}.json`;`summary()` 只读盘。
+  `inputs` 并落 `{kind}.json`(= `summary()`,含 artifact)+ 刷 `report.json`;`exp.summary()` 是纯 getter(不写盘);
+  产物 `Data` / `Model` / `Eval` 是 Artifact,`inputs` 连成血缘 data→model→eval。
+- **容器 / resume**:`Project` ⊃ `Study` ⊃ `Experiment`,都是 open-or-create;`dataos.project(id).load()` 把整个
+  项目从盘回灌成对象,`run()` 遇 `completed` 跳过(`force=True` 重跑)。study / experiment **只经 project / study** 建。
+- **落盘**:`<workspace>/<project_id>/{project.json, <study_id>/{plan.json, review.json,
+  experiments/<name>/{data,train,eval}.json + report.json + dataset/ model/ eval/ logs/ _lf/}}`。每个 stage 落 `{kind}.json`;`summary()` 只读盘。
 
 ## 改动指引
 

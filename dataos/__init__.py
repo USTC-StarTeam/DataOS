@@ -11,9 +11,9 @@ Public surface (all resolved lazily via PEP 562 ``__getattr__`` so that
 
 * ``dataos.catalog()`` — discover ``dataos_operator`` operators + their params.
 * ``dataos.load(...)`` — load a dataset into a ``dataos_operator.Dataset``.
-* ``dataos.study(...)`` — open a multi-experiment :class:`Study` container.
-* ``dataos.experiment(...)`` — start a standalone staged :class:`Experiment`.
-* ``Study`` / ``Experiment`` — containers; ``DataStage`` / ``TrainStage`` /
+* ``dataos.project(...)`` — open (or reopen) a research :class:`Project`, the resumable
+  top container. Studies live under it: ``project.study(id)``.
+* ``Project`` / ``Study`` / ``Experiment`` — containers; ``DataStage`` / ``TrainStage`` /
   ``EvalStage`` — the stages; ``Data`` / ``Model`` / ``Eval`` — the artifacts.
 """
 
@@ -24,9 +24,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # pragma: no cover - import-time typing only
     from dataos._artifact import Artifact, Data, Eval, Model
     from dataos._catalog import catalog
-    from dataos._experiment import Experiment, experiment
+    from dataos._experiment import Experiment
+    from dataos._project import Project, project
     from dataos._stage import DataStage, EvalStage, Stage, TrainStage
-    from dataos._study import Study, study
+    from dataos._study import Study
     from dataos.loading import load
 
 __all__ = [
@@ -37,13 +38,13 @@ __all__ = [
     "EvalStage",
     "Experiment",
     "Model",
+    "Project",
     "Stage",
     "Study",
     "TrainStage",
     "catalog",
-    "experiment",
     "load",
-    "study",
+    "project",
 ]
 
 __version__ = "0.1.0"
@@ -51,9 +52,9 @@ __version__ = "0.1.0"
 _LAZY_EXPORTS: dict[str, str] = {
     "catalog": "dataos._catalog",
     "load": "dataos.loading",
-    "study": "dataos._study",
+    "project": "dataos._project",
+    "Project": "dataos._project",
     "Study": "dataos._study",
-    "experiment": "dataos._experiment",
     "Experiment": "dataos._experiment",
     "Stage": "dataos._stage",
     "DataStage": "dataos._stage",

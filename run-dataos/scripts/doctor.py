@@ -45,8 +45,8 @@ def main() -> int:
         print(f"[{'ok' if present else 'FAIL'}] 核心依赖: {mod}{'' if present else '  <-- 必需'}")
 
     api = (
-        "catalog", "load", "study", "experiment",
-        "Study", "Experiment",
+        "catalog", "load", "project",
+        "Project", "Study", "Experiment",
         "Stage", "DataStage", "TrainStage", "EvalStage",
         "Artifact", "Data", "Model", "Eval",
     )

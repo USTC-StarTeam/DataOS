@@ -1,6 +1,6 @@
 # 执行 —— 运行模式与并行
 
-串行还是并行,是**你**的事,不归 DataOS。study 就是个目录,`study.summary()` 读每个实验盘上的
+串行还是并行,是**你**的事,不归 DataOS。project / study 都是目录,`study.summary()` 读每个实验盘上的
 `report.json`,所以无论你怎么驱动,SDK 都一样。挑合适的模式。
 
 ## 光谱
@@ -12,20 +12,21 @@
 
 状态在调用之间靠两种方式传:
 
-- **同进程(一个脚本):** 内存里的 `study` / `exp` / `model` 对象顺序流转。最简单 —— 适合计划
+- **同进程(一个脚本):** 内存里的 `project` / `study` / `exp` / `stage` 对象顺序流转。最简单 —— 适合计划
   已固定的情形。
-- **跨进程(分开跑):** 文件系统是 join。`dataos.study(id=...)` 是 **open-or-create** —— 新进程
-  重开 study、把 `plan.json` 读回;结果在 `report.json` 里。这就是"中途停下来判断"和并行能成立的
-  原因。没有 DataOS session 或守护进程 —— 状态要么在内存、要么在磁盘。
+- **跨进程(分开跑):** 文件系统是 join。`dataos.project(id=...)` 是 **open-or-create** —— 新进程
+  重开 project、`project.load()` 把整个项目(所有 study + experiment)**回灌成对象**(状态 / 血缘 / 产物全恢复),
+  再 `run()` 即**续跑**(已 `completed` 的 stage 跳过,`run(force=True)` 才重跑)。结果在 `report.json` 里。这就是
+  "中途停下来判断""换机接着跑"和并行能成立的原因。没有 DataOS session 或守护进程 —— 状态要么在内存、要么在磁盘。
 
 ## 串行(一个进程)
 
 ```python
-study = dataos.study(id="lr-sweep"); study.set_plan(plan)
+study = dataos.project(id="qwen-gsm8k").study(id="lr-sweep"); study.set_plan(plan)
 for spec in study.plan["experiments"]:
     exp = study.experiment(spec)
     ds = build_dataset(spec)        # 你的配方(见 data-prep.md);声明式则用 spec["data"]+exp.data.run()
-    exp.data.set(ds).run(); exp.train.run(); exp.eval.run(); exp.summary()
+    exp.data.set(ds).run(); exp.train.run(); exp.eval.run()   # report.json 自动落
 study.summary(); study.review(conclusion="…")
 ```
 
@@ -37,12 +38,12 @@ study.summary(); study.review(conclusion="…")
 `scripts/run_one.py`:
 
 ```bash
-python -c "import dataos; dataos.study(id='lr-sweep').set_plan(__import__('json').load(open('plan.json')))"
+python -c "import dataos; dataos.project(id='qwen-gsm8k').study(id='lr-sweep').set_plan(__import__('json').load(open('plan.json')))"
 # …… 用算子构建数据集,然后 ds.save_to_disk('prepared/') ……
-CUDA_VISIBLE_DEVICES=6 python scripts/run_one.py --study lr-sweep --spec lr-1e-4 --data prepared/ &
-CUDA_VISIBLE_DEVICES=5 python scripts/run_one.py --study lr-sweep --spec lr-5e-5 --data prepared/ &
+CUDA_VISIBLE_DEVICES=6 python scripts/run_one.py --project qwen-gsm8k --study lr-sweep --spec lr-1e-4 --data prepared/ &
+CUDA_VISIBLE_DEVICES=5 python scripts/run_one.py --project qwen-gsm8k --study lr-sweep --spec lr-5e-5 --data prepared/ &
 wait
-python -c "import dataos, json; print(json.dumps(dataos.study('lr-sweep').summary(), ensure_ascii=False, indent=2))"
+python -c "import dataos, json; print(json.dumps(dataos.project('qwen-gsm8k').study('lr-sweep').summary(), ensure_ascii=False, indent=2))"
 ```
 
 DataOS 既不调度、也不知道并行 —— 分卡和并发度完全是你的事。`summary()` 只是 glob 现有的

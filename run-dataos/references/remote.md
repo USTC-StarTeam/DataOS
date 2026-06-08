@@ -38,7 +38,7 @@ ssh <host> 'cd <repo> && .venv/bin/python run-dataos/scripts/doctor.py'
 ```bash
 ssh <host> 'cd <repo> && .venv/bin/python -c "
 import dataos
-s = dataos.study(id=\"lr-sweep\")
+s = dataos.project(id=\"qwen-gsm8k\").study(id=\"lr-sweep\")
 s.set_plan({ ... })
 "'
 ```
@@ -52,7 +52,7 @@ s.set_plan({ ... })
 ssh <host> 'cd <repo> &&
   PATH=<repo>/.venv/bin:$PATH HF_ENDPOINT=https://hf-mirror.com CUDA_VISIBLE_DEVICES=6 \
   nohup .venv/bin/python run-dataos/scripts/run_one.py \
-    --study lr-sweep --spec lr-1e-4 --data prepared/ > /tmp/exp_lr-1e-4.log 2>&1 &'
+    --project qwen-gsm8k --study lr-sweep --spec lr-1e-4 --data prepared/ > /tmp/exp_lr-1e-4.log 2>&1 &'
 ```
 > **PATH 用绝对路径**(`<repo>/.venv/bin`),别用相对 `.venv/bin`(下面坑里解释)。
 > **launch 和 poll 分两条 ssh**:上面这条只 launch(nohup &,马上返回);完成判断用**另外**的 ssh until-loop

@@ -154,3 +154,30 @@ class Eval(Artifact):
 
     def summary(self) -> dict[str, Any]:
         return {**super().summary(), "score": self.score, "metrics": dict(self.metrics)}
+
+
+def artifact_from_dict(data: dict[str, Any]) -> Artifact:
+    """Rebuild a :class:`Data` / :class:`Model` / :class:`Eval` from a persisted ``to_dict``
+    payload — used to rehydrate a stage's artifact when a Study is reopened from disk."""
+    kind = data.get("kind")
+    art_id = data.get("id") or ""
+    path = data.get("path") or ""
+    meta = dict(data.get("meta") or {})
+    producer = data.get("producer") or ""
+    inputs = list(data.get("inputs") or [])
+    if kind == "data":
+        artifact: Artifact = Data(art_id, path, meta=meta, producer=producer, inputs=inputs)
+    elif kind == "model":
+        artifact = Model(model_id=art_id, path=path, meta=meta, producer=producer, inputs=inputs)
+    elif kind == "eval":
+        artifact = Eval(
+            eval_id=art_id, path=path, metrics=dict(data.get("metrics") or {}),
+            score=data.get("score"), meta=meta, producer=producer, inputs=inputs,
+        )
+    else:
+        artifact = Artifact(
+            id=art_id, kind=str(kind or ""), path=path, meta=meta, producer=producer, inputs=inputs
+        )
+    if data.get("created_at"):
+        artifact.created_at = data["created_at"]
+    return artifact

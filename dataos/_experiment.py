@@ -55,14 +55,26 @@ class Experiment:
         return [self.data, self.train, self.eval]
 
     def summary(self) -> dict[str, Any]:
-        """Recompose this experiment's summary from the stage / artifact summaries,
-        write it to ``report.json``, and return it."""
+        """Return this experiment's current situation, composed from the stage / artifact
+        summaries. **Pure** — no side effects; call it after a stage (or any time) to
+        inspect. ``report.json`` is persisted automatically by each :meth:`Stage.run`
+        (via :meth:`_persist_report`), so a fully-run experiment is visible to
+        ``Study.summary`` whether or not you ever call this."""
         from dataos.report import build_report
 
+        return build_report(self)
+
+    def _persist_report(self) -> None:
+        """Refresh ``report.json`` from the current summary. Called by each ``Stage.run``
+        so the on-disk report always reflects the latest stage state (progress included)."""
         self.updated_at = _utc_now_iso()
-        report = build_report(self)
-        self.workspace.write_report(report)
-        return report
+        self.workspace.write_report(self.summary())
+
+    def load_state(self) -> "Experiment":
+        """Rehydrate all three stages from their persisted ``{kind}.json`` (reopen / resume)."""
+        for stage in self.stages:
+            stage.load_state()
+        return self
 
 
 def experiment(
