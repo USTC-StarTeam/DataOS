@@ -25,7 +25,7 @@ DataOS 是一组**确定性执行器** + 三层容器:**`Project`**(一个研究
 ```
 Project  dataos.project(id)              # 可恢复的研究项目(一串 study)
   └─ Study  project.study(id)            # 一轮 = 一个 plan
-       set_plan(plan)                     # ← 先把 plan 提案给用户、按反馈改、确认后才落
+       set_plan(plan)                     # 模式A(HITL):先提案给用户确认才落;模式B(全自动):你自定后直接落
        └─ Experiment  study.experiment(spec)
             exp.data.run() -> exp.train.run() -> exp.eval.run()   # 每个 run() 落 {kind}.json + 刷 report.json
             #   data  ->  train  ->  eval  ->  (report.json)
@@ -40,17 +40,35 @@ Project  dataos.project(id)              # 可恢复的研究项目(一串 study
 自你对上一轮 `review.json` 的判断**。这条外层循环是 runtime(你)的事——DataOS 不生成 plan、也不串 study。
 
 ```
-用户 instruct ──你拟 plan→提案→用户确认──▶ project.study(1)（多实验[data→train→eval] → review.json）
-review.json   ──你读它、定方向、拟新 plan→提案→用户确认──▶ project.study(2)（新 plan → … → review.json）
-review.json   ──▶ project.study(3) ……（重复,直到目标达成)
+用户 instruct ──你拟 plan──▶ project.study(1)（多实验[data→train→eval] → review.json）
+review.json   ──你读它、定方向、拟新 plan──▶ project.study(2)（新 plan → … → review.json）
+review.json   ──▶ project.study(3) ……（重复,直到达成目标或用尽时间/预算)
 ```
 
-- **计划确认是硬门:`set_plan` 之前必须经用户确认。** 把拟好的 plan 讲清楚(`goal` + 每个实验的要点:数据
-  配方、基座模型、要扫的变量、评测任务),**主动征求反馈、按反馈修正,反复直到用户明确确认**,才
-  `study.set_plan(plan)` 落 `plan.json` 并开跑。别跳过这步直接 set_plan 或起实验——哪怕你觉得方案显然。
+- **`set_plan` 前要不要先经用户确认,取决于运行模式**(见下「两种运行模式」):模式 A 提案→确认后才落 `plan.json`;模式 B 你自主直接落、直接跑。
 - 用 `proj.set_goal(instruct=...)` 把用户初始诉求记进 `project.json`;每轮 study 用有意义的 `id`
   (`lr-sweep` → `full-vs-lora` → `recipe-v2`),旧轮产物原样留在 project 目录里、可回溯对比。
 - **plan 的生成始终是你的判断,不是 DataOS 的函数**——别找"自动生成下一轮 plan"的 API,没有、也不会有。
+
+## 两种运行模式(开工前先定一种)
+
+开工前先问清用哪种模式,并把**模式 + 成功判据 + 时间/预算上限**随 `proj.set_goal(instruct=...)` 记进
+`project.json`。两种模式共用同一套循环(plan → 多实验 → review → 下一轮),只差**每轮 plan 要不要先经用户确认**。
+
+### 模式 A:human-in-the-loop(默认)
+**每轮 plan(含首轮)都先提案、按反馈改、用户确认后才 `set_plan` 开跑。** 把拟好的 plan 讲清楚(`goal` + 每个
+实验要点:数据配方、基座模型、要扫的变量、评测 bench),主动征求反馈、按反馈修正,**反复直到用户明确确认**,
+才落 `plan.json`。别跳过这步直接 set_plan 或起实验——哪怕你觉得方案显然。适合方向未定、代价高、要人把关。
+
+### 模式 B:全自动(autonomous)
+**你自主拟每轮 plan 并直接执行,一轮接一轮,不逐轮确认**,直到命中**停止条件**之一:
+- **达成目标**:最新 `review.json` 满足开工时定的成功判据(如 `gsm8k strict-match ≥ 0.5`,或用户的定性目标)。
+- **用尽预算**:到达用户给的时间 / 轮数 / 实验数 / 成本上限。
+- **安全兜底**:连续几轮无改进(plateau)或反复失败 → 停下如实报告,别空转烧钱。
+
+全自动 ≠ 静默无痕:**每轮照样落 `plan.json` / `review.json` / `manifest.json`**,停时给一份总览(`proj.summary()`
++ 最终结论);用户随时可中断查看,或因一切落盘而**切回模式 A 接着跑**(resume)。长时运行由运行时连续驱动、
+可中断续跑。**开工必须问到成功判据和上限——没有判据/上限的"无限自动跑"不允许**(会无界烧资源)。
 
 ## 重开与续跑(resume 以 **project** 为单位)
 
@@ -89,7 +107,7 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 
 | 阶段 | 你做什么 | 细节 |
 |---|---|---|
-| **计划** | 建 / 重开 `project`(`proj.set_goal(instruct=...)` 记初始诉求);拟 `plan = {goal, experiments:[spec,...]}`(每个 `spec` 是 `{name, data, train, eval}`;`dataos.catalog()` 发现算子;可 copy `assets/plan.template.json`)。**先把 plan 提案给用户、按反馈改、用户确认后**再 `study.set_plan`。 | — |
+| **计划** | 建 / 重开 `project`(`proj.set_goal(instruct=...)` 记初始诉求 + **模式/成功判据/上限**);拟 `plan = {goal, experiments:[spec,...]}`(每个 `spec` 是 `{name, data, train, eval}`;`dataos.catalog()` 发现算子;可 copy `assets/plan.template.json`)。**模式 A:提案→用户确认后再 `study.set_plan`;模式 B:自主 `set_plan` 直接跑**(见「两种运行模式」)。 | — |
 | **数据** | `exp.data` 是 **DataStage**。声明式:`spec["data"]={source,split,limit,field_map,recipe:[{op,params}]}` 再 `exp.data.run()`;或逃生口 `exp.data.set(ds).run()` 注入你用 `dataos_operator` 算子现搭的 `Dataset`。判断全在这。 | `references/data-prep.md` |
 | **训练** | `exp.train.run()` -> `Model`,自动取上游 `exp.data` 的产物。开放-config:任意 LLaMA-Factory 键透传;`config` 取 `spec["train"]`。 | `references/train-eval.md` |
 | **评估** | `exp.eval.run()` -> `Eval`,自动取上游 `exp.train` 的产物 + `spec["eval"]`。stub 必须显式给。 | `references/train-eval.md` |
@@ -144,7 +162,7 @@ from dataos_operator import Dataset
 proj = dataos.project(id="lr-smoke")              # 研究项目(可恢复)
 proj.set_goal(instruct="比较两个 stub 配置")
 study = proj.study(id="lr-sweep")                 # 项目下的一轮 study
-# set_plan 之前:先把这个 plan 提案给用户、按反馈改、等用户确认(示例从略,真实跑必须做)
+# 模式A(默认):set_plan 前先提案给用户、确认;模式B(全自动):自主 set_plan 直接跑(示例从略)
 study.set_plan({"goal": "比较两个 stub 配置", "experiments": [
     {"name": "a", "train": {"mode": "stub", "learning_rate": 1e-4},
      "eval": {"provider": "stub", "provider_config": {"score": 0.1}}},
@@ -167,8 +185,9 @@ study.review(conclusion="b 胜")         # -> review.json
 
 - **你是 planner;没有内嵌 agent 或 LLM key。** 如果你为了跑流程去找 API key,就是用错了——
   DataOS 不带 agent / prompt / LLM 客户端。
-- **plan 要用户确认后才 `set_plan`。** 每轮 study(含首轮)都先提案、按反馈改、用户确认了再落 `plan.json`
-  开跑;别替用户拍板。
+- **运行模式开工先定(见「两种运行模式」)。** 模式 A(默认,human-in-the-loop):每轮 plan 先提案、确认了再
+  `set_plan`,别替用户拍板;模式 B(全自动):自主拟 plan 直接跑,直到达成目标或用尽时间/预算——但**必须有成功
+  判据和上限**,不允许无界空转。
 - **没有把各阶段串起来的一把梭 `run()`,并行是你的事。** 每个 stage 有自己的 `exp.<stage>.run()`,但没有替你
   串 data→train→eval 的总 `run()`;DataOS 不拥有编排循环、也没有 GPU 调度器。
 - **study / experiment 都在 project 之下**:`project.study(id)` 建 study,`study.experiment(spec)` 建实验;
