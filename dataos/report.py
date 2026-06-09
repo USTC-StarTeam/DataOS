@@ -114,7 +114,7 @@ def build_manifest(experiment: "Experiment") -> dict[str, Any]:
         "train": _train_manifest(experiment.train),
         "eval": _eval_manifest(experiment.eval),
         "result": _result_manifest(experiment),
-        "run": _run_command(prov.image_ref()),
+        "run": _run_command(prov.image_ref(), exp_dir),
     }
 
 
@@ -184,9 +184,14 @@ def _result_manifest(experiment: "Experiment") -> dict[str, Any]:
     }
 
 
-def _run_command(image: str | None) -> str:
+def _run_command(image: str | None, exp_dir: Path) -> dict[str, str]:
+    """How to replay this experiment. Default is **no docker** (uv.lock + manifest suffice);
+    docker is an *optional* second form that also pins OS/CUDA."""
     img = image or "<image@digest>"
-    return (
-        f"docker run --rm --gpus '\"device=0\"' -v <workspace>:/ws -e DATAOS_IMAGE={img} {img} "
-        "python run-dataos/scripts/run_one.py --replay /ws/<study>/experiments/<name>/manifest.json"
-    )
+    return {
+        "replay": f"python run-dataos/scripts/run_one.py --replay {exp_dir}/manifest.json --tol 0.3",
+        "replay_in_docker": (  # optional: pins the whole environment, not just the python layer
+            f"docker run --rm --gpus '\"device=0\"' -v <workspace>:/ws -e DATAOS_IMAGE={img} {img} "
+            "python run-dataos/scripts/run_one.py --replay /ws/<study>/experiments/<name>/manifest.json"
+        ),
+    }
