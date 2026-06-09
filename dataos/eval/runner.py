@@ -144,6 +144,17 @@ def _run_lm_eval_native(model: Model, config: EvalConfig):
     return run_lm_eval_native(model, config)
 
 
+def _eval_seeds(config: EvalConfig) -> dict[str, Any]:
+    """The effective seed hierarchy lm-eval ran with (EvalConfig defaults if user didn't set)."""
+    return {
+        "seed": config.seed,
+        "random_seed": config.random_seed,
+        "numpy_random_seed": config.numpy_random_seed,
+        "torch_random_seed": config.torch_random_seed,
+        "fewshot_random_seed": config.fewshot_random_seed,
+    }
+
+
 def _eval_output_to_artifact(
     output: Any,
     workspace: "Workspace",
@@ -169,6 +180,7 @@ def _eval_output_to_artifact(
         "headline_score": headline,
         "source_model_id": model.artifact_id,
         "base_model": model.meta.get("base_model"),
+        "seeds": _eval_seeds(config),  # effective seeds (incl. EvalConfig defaults) for repro
     }
     (eval_dir / "results.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=False, default=str),

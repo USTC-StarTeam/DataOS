@@ -161,7 +161,9 @@ def _eval_manifest(stage: Any) -> dict[str, Any]:
         "mode": meta.get("mode"),
         "tasks": meta.get("tasks", cfg.get("tasks")),
         "num_fewshot": meta.get("num_fewshot", cfg.get("num_fewshot")),
-        "seeds": {k: cfg.get(k) for k in _SEED_KEYS if cfg.get(k) is not None},
+        # prefer the effective seeds recorded by the eval runner (EvalConfig defaults included);
+        # fall back to user-set seeds in the stage config (e.g. stub eval, which has none).
+        "seeds": meta.get("seeds") or {k: cfg.get(k) for k in _SEED_KEYS if cfg.get(k) is not None},
         "headline_metric": cfg.get("headline_metric"),
         "score": getattr(art, "score", None),
         "metrics": dict(getattr(art, "metrics", {}) or {}),
