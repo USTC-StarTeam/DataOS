@@ -52,8 +52,10 @@ review.json   ──▶ project.study(3) ……（重复,直到达成目标或�
 
 ## 两种运行模式(开工前先定一种)
 
-开工前先问清用哪种模式,并把**模式 + 成功判据 + 时间/预算上限**随 `proj.set_goal(instruct=...)` 记进
-`project.json`。两种模式共用同一套循环(plan → 多实验 → review → 下一轮),只差**每轮 plan 要不要先经用户确认**。
+开工前先问清用哪种模式,并把**模式 + 成功判据 + 时间/预算上限**记进 `project.json`——
+`proj.set_goal(instruct=..., mode=..., success_criterion=..., budget=...)`(后三个是结构化字段,reopen 时
+`proj.summary()` / `proj.meta` 能机读回来判停)。两种模式共用同一套循环(plan → 多实验 → review → 下一轮),
+只差**每轮 plan 要不要先经用户确认**。
 
 ### 模式 A:human-in-the-loop(默认)
 **每轮 plan(含首轮)都先提案、按反馈改、用户确认后才 `set_plan` 开跑。** 把拟好的 plan 讲清楚(`goal` + 每个
@@ -117,7 +119,8 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 
 - **`dataos.project(id=None, workspace="workspace")` -> `Project`** —— 创建或**重开**研究项目(省略 `id`
   则自动流水号 `project-0001`)。方法:`study(id)`(在项目下建/重开 study)、`studies`、`load()`(重开时把整个
-  项目回灌成对象)、`summary()`(各 study 总览)、`set_goal(goal=, instruct=)`(写 `project.json`)。
+  项目回灌成对象)、`summary()`(各 study 总览 + `mode`/`success_criterion`/`budget`)、
+  `set_goal(goal=, instruct=, mode=, success_criterion=, budget=)`(写 `project.json`;后三个给全自动模式判停用)。
 - **`project.study(id=None)` -> `Study`** —— 在项目下创建或**重开** study(省略 `id` 则 `study-0001`)。方法:
   `set_plan(plan)`(写 `plan.json`)、`experiment(spec)`、`summary()`、`review(conclusion)`、`load_experiments()`。
   **study 只能经 project 建**(没有独立的 `dataos.study`)。

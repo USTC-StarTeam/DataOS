@@ -45,6 +45,9 @@ exp.train.run()
 ## 评估 —— `exp.eval.run() -> Eval`
 
 - **自动取上游 `exp.train` 的 `Model`**;`config` 取 `spec["eval"]`(或临时 `exp.eval.config = {...}`)。
+- **eval-only(基线 / PostTrain 对照)**:没有上游 train 时,在 `spec["eval"]` 里给 `model_name_or_path`(或
+  `base_model`,或 `model_args` 的 `pretrained=`)直接评一个**裸基座模型**——只 `exp.eval.run()`,不跑 data/train。
+  用来先量 baseline、再和微调结果比收益(LoRA 实验自动 `pretrained=<base>,peft=<adapter>`,基线则只 `pretrained=`)。
 - **stub 必须显式给:** `spec["eval"] = {"provider": "stub", "provider_config": {"score": <float>}}`。
   光 `exp.eval.run()` 而没有 config 也没有 `spec["eval"]` 会**报错**
   —— 故意的:stub 评估需要一个分数,我们不替你编。(注意与训练的不对称:训练 `None` ⇒ stub。

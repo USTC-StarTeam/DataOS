@@ -110,6 +110,7 @@ class Stage:
             self.experiment._persist_report()
             raise
         self.status = "completed"
+        self.error = None  # clear any stale error from a prior failed attempt (retry / resume)
         self.finished_at = _utc_now_iso()
         self.duration_s = round(time.monotonic() - t0, 3)
         self._persist()
@@ -241,9 +242,13 @@ class TrainStage(Stage):
 
         data_art = self.experiment.data.artifact
         self.inputs = [data_art.id] if data_art is not None else []
-        if not self.workspace.dataset_dir.exists():
-            raise ValueError("train needs data: run exp.data.run() first")
-        return Dataset.from_disk(str(self.workspace.dataset_dir))
+        ddir = self.workspace.dataset_dir
+        # dataset_dir is pre-created (empty) by Workspace.prepare(), so .exists() is always True —
+        # require an actual save_to_disk payload, else raise the friendly (eval-symmetric) error
+        # instead of a cryptic datasets FileNotFoundError.
+        if not (ddir / "dataset_info.json").exists() and not (ddir / "dataset_dict.json").exists():
+            raise ValueError("train needs data: run exp.data.run() (or exp.data.set(ds).run()) first")
+        return Dataset.from_disk(str(ddir))
 
 
 class EvalStage(Stage):
@@ -251,11 +256,18 @@ class EvalStage(Stage):
 
     kind = "eval"
 
+    # eval-config keys that name a base model to evaluate directly (no upstream train).
+    # They are not EvalConfig fields, so they're consumed here and stripped before the runner.
+    _BASELINE_KEYS = ("model_name_or_path", "base_model")
+
     def _run(self) -> Eval:
         from dataos.eval.runner import run_eval_stage
 
         model = self._pull_model()
-        evaluation = run_eval_stage(model, self.config or None, workspace=self.workspace)
+        config = self.config
+        if config:
+            config = {k: v for k, v in config.items() if k not in self._BASELINE_KEYS} or None
+        evaluation = run_eval_stage(model, config, workspace=self.workspace)
         evaluation.inputs = list(self.inputs)
         return evaluation
 
@@ -266,13 +278,45 @@ class EvalStage(Stage):
             return model_art
         # cross-process: rebuild a ModelLike from the persisted train.json
         train_json = self.workspace.stage_path("train")
-        if not train_json.exists():
-            raise ValueError("eval needs a model: run exp.train.run() first")
-        art = (json.loads(train_json.read_text(encoding="utf-8")) or {}).get("artifact") or {}
-        self.inputs = [art["id"]] if art.get("id") else []
-        return Model(
-            model_id=art.get("id") or "model",
-            path=art.get("path") or str(self.workspace.model_dir),
-            meta=art.get("meta") or {},
-            producer=art.get("producer") or "train",
+        if train_json.exists():
+            art = (json.loads(train_json.read_text(encoding="utf-8")) or {}).get("artifact") or {}
+            self.inputs = [art["id"]] if art.get("id") else []
+            return Model(
+                model_id=art.get("id") or "model",
+                path=art.get("path") or str(self.workspace.model_dir),
+                meta=art.get("meta") or {},
+                producer=art.get("producer") or "train",
+            )
+        # eval-only / baseline: no upstream train — evaluate a bare model named in the eval
+        # config (PostTrain "beat the baseline" needs this). The runner turns a non-LoRA Model
+        # into pretrained=<path> with no adapter (see eval/backend/native._default_pretrained_source).
+        base = self._baseline_model_source()
+        if base is not None:
+            self.inputs = []
+            return Model(
+                model_id="baseline",
+                path=base,
+                meta={"base_model": base, "finetuning_type": None},
+                producer="baseline",
+            )
+        raise ValueError(
+            "eval needs a model: run exp.train.run() first, or for an eval-only baseline set "
+            "spec['eval']['model_name_or_path'] (or 'base_model', or model_args pretrained=...)"
         )
+
+    def _baseline_model_source(self) -> str | None:
+        """A base-model id/path to evaluate when there is no upstream train (PostTrain baseline)."""
+        config = self.config or {}
+        for key in self._BASELINE_KEYS:
+            value = config.get(key)
+            if value:
+                return str(value)
+        model_args = config.get("model_args")
+        if isinstance(model_args, dict) and model_args.get("pretrained"):
+            return str(model_args["pretrained"])
+        if isinstance(model_args, str):
+            for part in model_args.split(","):
+                part = part.strip()
+                if part.startswith("pretrained="):
+                    return part[len("pretrained=") :].strip()
+        return None

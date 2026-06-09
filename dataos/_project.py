@@ -69,12 +69,33 @@ class Project:
             return []
         return sorted(p.name for p in self.project_dir.iterdir() if p.is_dir())
 
-    def set_goal(self, goal: str | None = None, instruct: str | None = None) -> "Project":
-        """Record the project's goal and/or the user's initial instruct, persist ``project.json``."""
+    def set_goal(
+        self,
+        goal: str | None = None,
+        instruct: str | None = None,
+        *,
+        mode: str | None = None,
+        success_criterion: Any = None,
+        budget: Any = None,
+    ) -> "Project":
+        """Record the project's goal / initial instruct, and (for autonomous runs) a
+        machine-readable run policy, then persist ``project.json``.
+
+        ``mode`` ('human_in_the_loop' | 'autonomous'), ``success_criterion`` and ``budget``
+        take any JSON value; they let a reopened autonomous run read its target / caps back
+        out (via ``summary()`` / ``meta``) and check the stop condition programmatically
+        instead of re-parsing prose in ``instruct``.
+        """
         if goal is not None:
             self.meta["goal"] = goal
         if instruct is not None:
             self.meta["instruct"] = instruct
+        if mode is not None:
+            self.meta["mode"] = mode
+        if success_criterion is not None:
+            self.meta["success_criterion"] = success_criterion
+        if budget is not None:
+            self.meta["budget"] = budget
         self._persist()
         return self
 
@@ -115,6 +136,9 @@ class Project:
             "project_id": self.project_id,
             "goal": self.meta.get("goal"),
             "instruct": self.meta.get("instruct"),
+            "mode": self.meta.get("mode"),
+            "success_criterion": self.meta.get("success_criterion"),
+            "budget": self.meta.get("budget"),
             "n_studies": len(studies),
             "studies": studies,
         }

@@ -81,6 +81,9 @@ rsync -az <host>:<repo>/workspace/lr-sweep/ ./pulled/lr-sweep/                  
 - **cwd 阴影**:从仓库根直接 `python -c "import dataos"` 时,cwd 里的 `./dataos` 会盖掉安装的包;用
   `.venv/bin/python`,必要时从干净目录跑,或确认 `dataos.__file__` 指向对的树(doctor 会查)。
 - **下载**:服务器若被墙,模型 / 数据集走 `HF_ENDPOINT=https://hf-mirror.com`;pip 用国内镜像;git 挂代理。
+  ⚠️ **hf-mirror 不代理 HF 的 Xet CDN**(`cas-bridge.xethub.hf.co`)——新模型权重走 Xet 时会绕开镜像、被墙,
+  报成迷惑的 `RuntimeError: ... downloading using hf_transfer`。解法:加 `HF_HUB_DISABLE_XET=1 HF_HUB_ENABLE_HF_TRANSFER=0`
+  再重拉(或先 `snapshot_download`)。另注意:HF 缓存里**"已缓存"可能只有 config / index、缺真正的权重分片**,真实评测/训练前确认分片齐全。
 - **同步代码**:本机改了 dataos / skill 后,`rsync -az --exclude .git --exclude .venv --exclude '/workspace*'
   ./ <host>:<repo>/` 同步过去;若加了**新模块**,再 `ssh <host> 'cd <repo> && uv pip install -e . --no-deps'`
   (uv 的 editable finder 是静态的)。

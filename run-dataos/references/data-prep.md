@@ -14,7 +14,7 @@ spec["data"] = {
     "source": "datasets/gsm8k", "split": "train", "limit": 200,
     "field_map": None,                       # load 时可选的字段重命名
     "recipe": [                              # 线性、单数据集;每步 = OpClass(**params).run(ds) -> ds
-        {"op": "openai_message_mapper", "params": {"source_format": "qa"}},
+        {"op": "openai_message_mapper", "params": {"source_format": "qa", "query_key": "question", "answer_key": "answer"}},  # qa 模式必须指明源列名(gsm8k 是 question/answer;缺省 query_key=query 会 KeyError)
         {"op": "alpaca_mapper",         "params": {"source_format": "messages"}},
         {"op": "field_project_mapper",  "params": {"keep_fields": ["instruction", "input", "output"], "strict": False}},
     ],

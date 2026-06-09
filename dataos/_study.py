@@ -283,13 +283,18 @@ def _next_serial(root: Path) -> str:
 
 
 def _varied_keys(configs: list[dict[str, Any]]) -> list[str]:
-    """Keys whose value is not identical across all train configs (the swept dims)."""
+    """Keys whose value differs across the train configs that *have* one (the swept dims).
+
+    Experiments with no train stage (e.g. an eval-only baseline, whose train config is ``{}``)
+    are excluded — otherwise every train key looks "swept" simply because the baseline lacks it.
+    """
+    trained = [config for config in configs if config]
     keys: set[str] = set()
-    for config in configs:
+    for config in trained:
         keys.update(config)
     varied = [
         key
         for key in keys
-        if len({json.dumps(c.get(key), sort_keys=True, default=str) for c in configs}) > 1
+        if len({json.dumps(c.get(key), sort_keys=True, default=str) for c in trained}) > 1
     ]
     return sorted(varied)

@@ -25,6 +25,7 @@ def build_report(experiment: "Experiment") -> dict[str, Any]:
         "name": experiment.name,
         "spec": experiment.spec,
         "status": _overall_status(experiment),
+        "score": experiment.eval.artifact.score if experiment.eval.artifact is not None else None,
         "created_at": experiment.created_at,
         "updated_at": _utc_now_iso(),
         "dataset": _dataset_section(experiment.data.artifact),
