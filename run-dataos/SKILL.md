@@ -25,7 +25,7 @@ DataOS 是一组**确定性执行器** + 三层容器:**`Project`**(一个研究
 ```
 Project  dataos.project(id)              # 可恢复的研究项目(一串 study)
   └─ Study  project.study(id)            # 一轮 = 一个 plan
-       set_plan(plan)
+       set_plan(plan)                     # ← 先把 plan 提案给用户、按反馈改、确认后才落
        └─ Experiment  study.experiment(spec)
             exp.data.run() -> exp.train.run() -> exp.eval.run()   # 每个 run() 落 {kind}.json + 刷 report.json
             #   data  ->  train  ->  eval  ->  (report.json)
@@ -40,11 +40,14 @@ Project  dataos.project(id)              # 可恢复的研究项目(一串 study
 自你对上一轮 `review.json` 的判断**。这条外层循环是 runtime(你)的事——DataOS 不生成 plan、也不串 study。
 
 ```
-用户 instruct ──你写 plan──▶ project.study(1)（多实验[data→train→eval] → review.json）
-review.json   ──你读它、定方向、写新 plan──▶ project.study(2)（新 study，新 plan → … → review.json）
+用户 instruct ──你拟 plan→提案→用户确认──▶ project.study(1)（多实验[data→train→eval] → review.json）
+review.json   ──你读它、定方向、拟新 plan→提案→用户确认──▶ project.study(2)（新 plan → … → review.json）
 review.json   ──▶ project.study(3) ……（重复,直到目标达成)
 ```
 
+- **计划确认是硬门:`set_plan` 之前必须经用户确认。** 把拟好的 plan 讲清楚(`goal` + 每个实验的要点:数据
+  配方、基座模型、要扫的变量、评测任务),**主动征求反馈、按反馈修正,反复直到用户明确确认**,才
+  `study.set_plan(plan)` 落 `plan.json` 并开跑。别跳过这步直接 set_plan 或起实验——哪怕你觉得方案显然。
 - 用 `proj.set_goal(instruct=...)` 把用户初始诉求记进 `project.json`;每轮 study 用有意义的 `id`
   (`lr-sweep` → `full-vs-lora` → `recipe-v2`),旧轮产物原样留在 project 目录里、可回溯对比。
 - **plan 的生成始终是你的判断,不是 DataOS 的函数**——别找"自动生成下一轮 plan"的 API,没有、也不会有。
@@ -86,7 +89,7 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 
 | 阶段 | 你做什么 | 细节 |
 |---|---|---|
-| **计划** | 建 / 重开 `project`(`proj.set_goal(instruct=...)` 记初始诉求);写 `plan = {goal, experiments:[spec,...]}` 交给 `study.set_plan`,每个 `spec` 是 `{name, data, train, eval}`。用 `dataos.catalog()` 发现算子。可 copy `assets/plan.template.json` 起步。 | — |
+| **计划** | 建 / 重开 `project`(`proj.set_goal(instruct=...)` 记初始诉求);拟 `plan = {goal, experiments:[spec,...]}`(每个 `spec` 是 `{name, data, train, eval}`;`dataos.catalog()` 发现算子;可 copy `assets/plan.template.json`)。**先把 plan 提案给用户、按反馈改、用户确认后**再 `study.set_plan`。 | — |
 | **数据** | `exp.data` 是 **DataStage**。声明式:`spec["data"]={source,split,limit,field_map,recipe:[{op,params}]}` 再 `exp.data.run()`;或逃生口 `exp.data.set(ds).run()` 注入你用 `dataos_operator` 算子现搭的 `Dataset`。判断全在这。 | `references/data-prep.md` |
 | **训练** | `exp.train.run()` -> `Model`,自动取上游 `exp.data` 的产物。开放-config:任意 LLaMA-Factory 键透传;`config` 取 `spec["train"]`。 | `references/train-eval.md` |
 | **评估** | `exp.eval.run()` -> `Eval`,自动取上游 `exp.train` 的产物 + `spec["eval"]`。stub 必须显式给。 | `references/train-eval.md` |
@@ -122,10 +125,15 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 见 `references/execution.md`。正式场景里这些都在**远程服务器上经 ssh 跑**(本机 Claude Code 驱动)——见
 `references/remote.md`。
 
+**并行编排 = 主 agent 调度 + 每 exp 一个 subagent**(运行时的事,DataOS 不感知):主 agent(你)敲定 plan 后,备一次
+共享数据、按 GPU 容量用信号量**扇出**;**每个 exp 派一个 subagent**——`run_one.py --spec <name>` 钉一张卡跑
+data→train→eval、失败自愈(改 spec / recipe,绝不进 live 容器)、回报 `report.json` / `manifest.json`;主 agent 再汇总成
+`study.summary()` / `review()`。完整 playbook(自愈重试、freeze→replay、铁律)见 `references/execution.md`。
+
 **复现(docker 可选)**:每个实验跑完自动落 `manifest.json`(环境版本 + 数据 fingerprint + config + seeds + 硬件);
 `run_one.py --replay manifest.json` **直接复现并验证,无需 docker**——`uv.lock`(`uv sync --frozen`)钉 python 层 + manifest
 就够了。**docker 只是可选的环境钉死方案**:再把 OS / CUDA 整层也钉死(`assets/Dockerfile` 按 digest + `scripts/run_in_docker.sh`)。
-另有 subagent 自愈并行执行模式。详见 `references/execution.md`;DataOS 不感知 docker(这层是运行时的)。
+DataOS 不感知 docker(这层是运行时的)。
 
 ## 示例(stub,无 GPU / 无 LLM key)
 
@@ -136,6 +144,7 @@ from dataos_operator import Dataset
 proj = dataos.project(id="lr-smoke")              # 研究项目(可恢复)
 proj.set_goal(instruct="比较两个 stub 配置")
 study = proj.study(id="lr-sweep")                 # 项目下的一轮 study
+# set_plan 之前:先把这个 plan 提案给用户、按反馈改、等用户确认(示例从略,真实跑必须做)
 study.set_plan({"goal": "比较两个 stub 配置", "experiments": [
     {"name": "a", "train": {"mode": "stub", "learning_rate": 1e-4},
      "eval": {"provider": "stub", "provider_config": {"score": 0.1}}},
@@ -158,6 +167,8 @@ study.review(conclusion="b 胜")         # -> review.json
 
 - **你是 planner;没有内嵌 agent 或 LLM key。** 如果你为了跑流程去找 API key,就是用错了——
   DataOS 不带 agent / prompt / LLM 客户端。
+- **plan 要用户确认后才 `set_plan`。** 每轮 study(含首轮)都先提案、按反馈改、用户确认了再落 `plan.json`
+  开跑;别替用户拍板。
 - **没有把各阶段串起来的一把梭 `run()`,并行是你的事。** 每个 stage 有自己的 `exp.<stage>.run()`,但没有替你
   串 data→train→eval 的总 `run()`;DataOS 不拥有编排循环、也没有 GPU 调度器。
 - **study / experiment 都在 project 之下**:`project.study(id)` 建 study,`study.experiment(spec)` 建实验;
