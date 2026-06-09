@@ -103,8 +103,20 @@ class Workspace:
     def stage_path(self, kind: str) -> Path:
         return self.exp_dir / f"{kind}.json"
 
+    def manifest_path(self) -> Path:
+        return self.exp_dir / "manifest.json"
+
     def write_report(self, data: dict[str, Any]) -> Path:
         target = self.report_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+        return target
+
+    def write_manifest(self, data: dict[str, Any]) -> Path:
+        target = self.manifest_path()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
             json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False, default=str),

@@ -65,10 +65,13 @@ class Experiment:
         return build_report(self)
 
     def _persist_report(self) -> None:
-        """Refresh ``report.json`` from the current summary. Called by each ``Stage.run``
-        so the on-disk report always reflects the latest stage state (progress included)."""
+        """Refresh ``report.json`` + ``manifest.json`` from current state. Called by each
+        ``Stage.run`` so both always reflect the latest stage state (progress included)."""
+        from dataos.report import build_manifest
+
         self.updated_at = _utc_now_iso()
         self.workspace.write_report(self.summary())
+        self.workspace.write_manifest(build_manifest(self))
 
     def load_state(self) -> "Experiment":
         """Rehydrate all three stages from their persisted ``{kind}.json`` (reopen / resume)."""

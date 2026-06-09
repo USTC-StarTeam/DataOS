@@ -54,3 +54,40 @@ DataOS 既不调度、也不知道并行 —— 分卡和并发度完全是你�
 真实运行前,`python scripts/doctor.py` 确认你 import 的是对的 `dataos`(cwd 里的 `./dataos`
 会盖掉安装的包)、核心依赖 + `train` / `eval` extra 在不在、`llamafactory-cli` 在不在 PATH、
 GPU 可不可见。它能抓住每次第一跑都会咬人的那些坑。
+
+## Docker 执行 + 复现(manifest / `--replay`)
+
+**镜像 = 环境**(uv.lock 锁 python 层,docker 冻整层,按 **digest** 钉死);DataOS 不感知 docker——这层是运行时的。
+
+- **镜像**:`run-dataos/assets/Dockerfile`(从 `uv.lock` 构建)。build 后用 `image@sha256:<digest>` 引用(别用 `:tag`,会动)。
+- **跑一个实验**:`run-dataos/scripts/run_in_docker.sh`(薄封装 `docker run … run_one.py`):
+  ```bash
+  IMAGE=dataos@sha256:<digest> GPU=6 WORKSPACE="$PWD/workspace" \
+    run-dataos/scripts/run_in_docker.sh --project P --study S --spec lr-1e-4 --data /ws/prepared --workspace /ws
+  ```
+  容器内 `run_one.py` 跑完自动落 `manifest.json`(复现收据:环境版本 + 数据 revision/fingerprint + config +
+  seeds + 硬件 + `image@digest`,经 `-e DATAOS_IMAGE` 注入)。
+- **复现一个实验**(同镜像 + manifest,干净重跑 + 验证):
+  ```bash
+  IMAGE=dataos@sha256:<digest> GPU=6 WORKSPACE="$PWD/workspace" \
+    run-dataos/scripts/run_in_docker.sh --replay /ws/<study>/experiments/<name>/manifest.json --tol 0
+  ```
+  `--replay` 在独立 `_replay/` 里按 manifest 的**声明式数据**(source+revision+recipe)+ train/eval config + seeds
+  重跑,验证 **数据 fingerprint 一致** 且 **|Δscore| ≤ --tol** → PASS/FAIL(退出码)。
+  注:用 `set()` 逃生口注入数据(`source=="<injected>"`)的实验不能从 manifest 重跑数据。
+- **诚实边界**:docker 锁环境,但 GPU 驱动/硬件是宿主的、cuDNN/TF32 非确定 → 跨卡数值仍会漂(manifest 记硬件以
+  解释);openai_compatible 评在线服务不可复现;train 要复现记得设 `seed`(见 `train-eval.md`)。
+
+## subagent 自愈并行执行模式
+
+多个实验铺到多卡 + 自动扛失败时用这个模式(**纯运行时编排,DataOS 不感知**):
+
+- **主 agent(planner)**:写 plan、备好共享数据(study 级 prepare-once + `save_to_disk` + 哈希)、**按 GPU 容量扇出**
+  (N 张卡 ≤ N 并发,用信号量;别无脑起一堆)。
+- **每个 exp 一个 subagent**:`run_in_docker.sh --project … --spec …` 跑一个实验;**失败诊断重试**
+  (OOM→降 batch / 配置错→改 spec / 数据形状错→改 recipe),跑完读回 `report.json` / `manifest.json` 上报。
+- **铁律:修复只进 spec 或镜像,绝不进 live 容器。** 在运行中的容器里 `pip install` / 手改文件 = 不可复现
+  (下次干净 `docker run` 就没了)。配置类改动写回 spec(进 manifest);依赖类改动 = 重 bump 镜像(换 digest)。
+- **discovery → freeze → replay**:subagent 探索/自愈得到结果 + 一份钉死的 manifest;**跑通 ≠ 可复现**——关键实验
+  跑完再 `--replay` 干净验证一遍(fingerprint + score),过了才算。
+- **交付物**不是每实验一个 bespoke 镜像/脚本,而是:**共享 `image@digest` + 每实验一份 `manifest.json` + 一行 `docker run`**。

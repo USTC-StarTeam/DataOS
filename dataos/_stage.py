@@ -203,6 +203,7 @@ class DataStage(Stage):
                 split=cfg.get("split", "train"),
                 field_map=cfg.get("field_map"),
                 limit=cfg.get("limit"),
+                revision=cfg.get("revision"),
             )
             recipe = cfg.get("recipe") or []
             ds = run_recipe(ds, recipe)
@@ -210,10 +211,14 @@ class DataStage(Stage):
         ds.save_to_disk(self.workspace.dataset_dir)
         meta = {
             "source": source,
+            "revision": cfg.get("revision"),
             "recipe": recipe,
             "format": cfg.get("format"),
             "rows": len(ds),
             "columns": list(ds.hf_dataset.column_names),
+            # HF's content fingerprint of the materialized dataset — a deterministic
+            # hash reused as the dataset's reproducibility id (None if unavailable).
+            "fingerprint": getattr(ds.hf_dataset, "_fingerprint", None),
         }
         return Data(_make_id("data"), self.workspace.dataset_dir, meta=meta, inputs=self.inputs)
 

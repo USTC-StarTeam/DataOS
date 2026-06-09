@@ -21,6 +21,8 @@ spec 设好后直接 `exp.train.run()` / `exp.eval.run()` 即可,无需传参。
 - **其余全部透传**到生成的 `train.yaml`:`learning_rate`、`num_train_epochs`、
   `per_device_train_batch_size`、`gradient_accumulation_steps`、`cutoff_len`、`lora_target`、
   `bf16`、`warmup_steps`…… 任意 LLaMA-Factory 键。
+- **复现要设 `seed`:** 训练默认不确定。显式给 `seed`(开放-config 会透传给 LLaMA-Factory);DataOS 只把它
+  **记录**进 manifest、**不自动注入**——没设就不可复现。
 - **stub:** `spec["train"]` 为空,或 `{"mode": "stub"}` -> stub 训练(不碰 GPU / torch)。真实训练需要
   `train` extra + GPU。
 
@@ -31,7 +33,7 @@ exp.train.config = {
     "finetuning_type": "lora", "lora_target": "all",
     "num_train_epochs": 1.0, "per_device_train_batch_size": 1,
     "gradient_accumulation_steps": 8, "cutoff_len": 512,
-    "learning_rate": 1e-4, "bf16": True,
+    "learning_rate": 1e-4, "bf16": True, "seed": 42,   # seed 为复现而设
 }
 exp.train.run()
 ```

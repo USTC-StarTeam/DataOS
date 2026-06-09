@@ -115,6 +115,14 @@ def _make_adapter(name: str, adapter_config: dict[str, Any]) -> Any:
 def _run_lm_eval(model: Model, adapter: Any, config: EvalConfig):
     from dataos.eval.backend import run_lm_eval
 
+    # Forward the seed hierarchy to lm-eval so the legacy-adapter path is reproducible too
+    # (native mode already does this; this closes the gap).
+    seeds = {
+        "random_seed": config.random_seed,
+        "numpy_random_seed": config.numpy_random_seed,
+        "torch_random_seed": config.torch_random_seed,
+        "fewshot_random_seed": config.fewshot_random_seed,
+    }
     return run_lm_eval(
         model,
         adapter,
@@ -126,6 +134,7 @@ def _run_lm_eval(model: Model, adapter: Any, config: EvalConfig):
         apply_chat_template=config.apply_chat_template,
         confirm_run_unsafe_code=config.confirm_run_unsafe_code,
         adapter_config=dict(config.adapter_config),
+        extra_simple_evaluate_kwargs=seeds,
     )
 
 

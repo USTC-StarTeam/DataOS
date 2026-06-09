@@ -122,6 +122,12 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 见 `references/execution.md`。正式场景里这些都在**远程服务器上经 ssh 跑**(本机 Claude Code 驱动)——见
 `references/remote.md`。
 
+**容器化 + 复现 + subagent 自愈并行**:要环境一致 / 可复现 / 多卡自愈并行,用 docker 模式——镜像
+(`assets/Dockerfile`,按 digest 钉死)+ `scripts/run_in_docker.sh`;每个实验跑完自动落 `manifest.json`
+(环境 + 数据 fingerprint + config + seeds + 硬件),`run_one.py --replay manifest.json` 干净复现并验证。
+DataOS 不感知 docker(这层是运行时的)。详见 `references/execution.md` 的「Docker 执行 + 复现」与
+「subagent 自愈并行」两节。
+
 ## 示例(stub,无 GPU / 无 LLM key)
 
 ```python

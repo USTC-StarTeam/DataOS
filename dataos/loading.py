@@ -28,6 +28,7 @@ def load(
     split: str = "train",
     field_map: dict[str, str] | None = None,
     limit: int | None = None,
+    revision: str | None = None,
 ) -> "Dataset":
     """Load a dataset into a :class:`dataos_operator.Dataset`.
 
@@ -36,6 +37,9 @@ def load(
       * a local ``.jsonl`` / ``.json`` / ``.csv`` file -> ``Dataset.from_local``.
       * a ``save_to_disk`` directory (``datasets.load_from_disk``-readable) ->
         select ``split`` and build via ``Dataset.from_records``.
+
+    ``revision`` pins a Hugging Face dataset commit/tag/branch (forwarded to
+    ``load_dataset``) for reproducibility; it only applies to ``hf://`` sources.
     """
     from dataos_operator import Dataset
 
@@ -46,6 +50,7 @@ def load(
             split=split,
             field_map=field_map,
             limit=limit,
+            revision=revision,
         )
 
     source_path = Path(source).expanduser()
