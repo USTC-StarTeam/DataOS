@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from dataos._ids import _utc_now_iso
+from dataos._redact import redact
 from dataos._study import Study
 from dataos._study import study as _open_study
 
@@ -148,7 +149,7 @@ class Project:
         self.updated_at = _utc_now_iso()
         payload = {
             "project_id": self.project_id,
-            "meta": self.meta,
+            "meta": redact(self.meta),  # never let a pasted token reach project.json
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

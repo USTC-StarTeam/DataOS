@@ -19,6 +19,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from dataos._artifact import Data, Eval, Model, artifact_from_dict
+from dataos._redact import redact
 from dataos._ids import _make_id, _utc_now_iso
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -156,7 +157,7 @@ class Stage:
             "error": self.error,
             "log_path": self.log_path,
             "inputs": list(self.inputs),
-            "config": self.config,
+            "config": redact(self.config),  # persisted copies never carry tokens (env is the channel)
             "artifact": self.artifact.to_dict() if self.artifact is not None else None,
         }
 

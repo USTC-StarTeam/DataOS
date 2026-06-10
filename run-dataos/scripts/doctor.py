@@ -11,7 +11,22 @@ from __future__ import annotations
 
 import importlib.util as iu
 import os
+import re
 import shutil
+
+
+def _pyproject_version() -> str | None:
+    """The version pinned in the repo's pyproject.toml (doctor.py lives at run-dataos/scripts/)."""
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(root, "pyproject.toml"), encoding="utf-8") as handle:
+            for line in handle:
+                matched = re.match(r'version\s*=\s*"([^"]+)"', line.strip())
+                if matched:
+                    return matched.group(1)
+    except OSError:
+        return None
+    return None
 
 
 def has(mod: str) -> bool:
@@ -38,6 +53,18 @@ def main() -> int:
         print(f"[WARN] 你的 cwd 里有另一个 ./dataos ({cwd_pkg}),可能盖掉安装的包。")
         print("       本次加载到的是对的树,但从这里直接 `python -c` 可能就不是了 ——")
         print("       为稳妥起见,脚本从干净目录(如 /tmp)里跑。")
+
+    # 版本漂移检查:抓"树被部分覆盖"(误 git clone / 旧 rsync 留下混合树)——真实事故:
+    # 远端被 clone 打回 0.1.0,新旧文件混在一起,import 看似成功、API 却缺。
+    version = getattr(dataos, "__version__", None)
+    expected = _pyproject_version()
+    if expected and version != expected:
+        ok = False
+        print(f"[FAIL] 版本漂移: import 的 dataos = {version},仓库 pyproject = {expected}")
+        print("       树被覆盖/混合过——从开发机 `rsync -azI`(忽略时间戳)全量重推,删 __pycache__ 后重跑。")
+    else:
+        note = "(= pyproject)" if expected else "(未找到 pyproject,跳过比对)"
+        print(f"[ok]   dataos 版本: {version} {note}")
 
     for mod in ("datasets", "pyarrow", "dataos_operator"):
         present = has(mod)

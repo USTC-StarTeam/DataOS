@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from dataos._ids import _utc_now_iso
+from dataos._redact import redact
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from dataos._artifact import Data, Eval, Model
@@ -23,7 +24,7 @@ def build_report(experiment: "Experiment") -> dict[str, Any]:
     return {
         "id": experiment.exp_id,
         "name": experiment.name,
-        "spec": experiment.spec,
+        "spec": redact(experiment.spec),
         "status": _overall_status(experiment),
         "score": _report_score(experiment.eval.artifact),
         "created_at": experiment.created_at,
@@ -142,7 +143,7 @@ def _data_manifest(stage: Any) -> dict[str, Any]:
         "rows": meta.get("rows"),
         "columns": meta.get("columns"),
         "recipe": meta.get("recipe", cfg.get("recipe")),
-        "config": dict(cfg),  # full spec["data"] (source/split/limit/field_map/recipe/revision) for replay
+        "config": redact(dict(cfg)),  # full spec["data"] for replay (secret-looking values scrubbed)
         "artifact_id": art.id if art is not None else None,
     }
 
@@ -158,7 +159,7 @@ def _train_manifest(stage: Any) -> dict[str, Any]:
         "finetuning_type": meta.get("finetuning_type"),
         "mode": meta.get("mode"),
         "seed": cfg.get("seed"),  # recorded only; set it in spec["train"] for reproducible training
-        "config": cfg,  # the full open-config (LLaMA-Factory yaml inputs)
+        "config": redact(cfg),  # the full open-config (LLaMA-Factory yaml inputs), secrets scrubbed
         "artifact_id": art.id if art is not None else None,
     }
 
@@ -179,7 +180,7 @@ def _eval_manifest(stage: Any) -> dict[str, Any]:
         "headline_metric": cfg.get("headline_metric"),
         "score": getattr(art, "score", None),
         "metrics": dict(getattr(art, "metrics", {}) or {}),
-        "config": cfg,
+        "config": redact(cfg),
         "artifact_id": art.id if art is not None else None,
     }
 

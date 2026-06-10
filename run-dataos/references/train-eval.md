@@ -63,13 +63,35 @@ exp.eval.run()
 LoRA 模型自动解析为 `pretrained=<base>, peft=<adapter>`。返回 `Eval`(一等 `Artifact`:`score` = headline 分;
 `metrics` = {"task::metric": value};`inputs` = 上游 `Model` 的 id = 血缘;在 `eval/` 下写 `results.json` 等)。
 
+### 外部 harness(`provider: "external"`)—— lm-eval 没有的 bench
+
+Arena Hard / BFCL / HealthBench 这类自带 judge / 评测框架的 bench 不在 lm-eval 里 —— 用外部命令评,DataOS 只
+负责**确定性地跑命令 + 收成绩单**(IoC:judge/harness 在外部,DataOS 不实现):
+
+```python
+exp.eval.config = {
+    "provider": "external",
+    # 占位符:{model_path}(待评模型/adapter 目录)、{base_model}、{output_dir}、{results_file}
+    "command": "bash my_harness/run_bfcl.sh {model_path} {results_file}",
+    "results_file": "external_results.json",   # 命令必须把 JSON 写到 {results_file}
+    "timeout": 3600,                            # 可选;"env": {...} 可选(非密钥)
+}
+exp.eval.run()   # -> Eval;stdout/stderr tail 落 eval/,command 进 manifest(token 样式自动打码)
+```
+
+成绩单格式:`{"score": 0.61, "metrics": {"bfcl::overall": 0.61, ...}}`(`score` 缺省取 `headline_metric`
+指定的 metric,否则取第一个)。**judge 需要的 LLM key / HF token 只走 env(harness 自己从环境读),绝不写进
+command / config。** 诚实边界:外部 judge 不保证确定性 → `--replay` 容差自己定;DataOS 记录 command 与成绩单,
+不背 judge 的可复现性。
+
 > **一个 task 可能出多个指标**(如 gsm8k → `strict-match` 和 `flexible-extract`)。headline 默认取第一个;
 > 想固定用哪个,在 eval config 里加 `"headline_metric": "flexible-extract"`。`study.summary()` 会列出每个实验的
 > 全部 `metrics`,并在 headline 冠军和某个指标冠军不一致时给出 `caution`——**别只看 headline**,结论可能因指标而翻转。
 
 > **多 bench 一次评**(`tasks=[...]`):`report.json` 顶层 `score` 与 `eval.macro_average` = 各 bench 主指标的
 > **宏平均**(`study.summary()` 按它排名),`eval.per_task` 给每个 bench 的分。三个坑:① 某 bench 数据**被门控/缺失**
-> (如 GPQA 的 `Idavidrein/gpqa`)只会被**跳过**并记入 `eval.skipped_tasks`,不再连累其它 bench;② **长生成任务**
+> (如 GPQA 的 `Idavidrein/gpqa`)只会被**跳过**并记入 `eval.skipped_tasks`,不再连累其它 bench(要真测门控
+> bench:HF 网页接受条款 + `HF_TOKEN` 临时进 env,见 `remote.md`;token 绝不进 spec/manifest);② **长生成任务**
 > (如 `aime25`,task 默认 `max_gen_toks=32768`)必须在 `gen_kwargs` 里压 `max_gen_toks=1024` 之类,否则极慢爆时间;
 > ③ 代码 bench(`humaneval`/`mbpp`)给 `confirm_run_unsafe_code=True` 即可,DataOS 会自动置 `HF_ALLOW_CODE_EVAL=1`。
 

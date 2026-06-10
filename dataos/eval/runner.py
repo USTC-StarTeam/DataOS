@@ -46,6 +46,10 @@ def run_eval_stage(
             _build_stub_log_message(model, evaluation, eval_config),
         )
         return evaluation
+    if eval_config.get("provider") == "external":
+        evaluation = _external_eval_artifact(workspace, model, eval_config)
+        workspace.log("eval_model", _build_external_log_message(model, evaluation))
+        return evaluation
     eval_config.pop("provider", None)
     eval_config.pop("provider_config", None)
     # eval config maps to EvalConfig's fields (a broad but fixed set). Tolerate unknown keys
@@ -97,6 +101,106 @@ def _stub_eval_artifact(
         meta=summary,
         producer="eval_model",
     )
+
+
+def _external_eval_artifact(
+    workspace: "Workspace",
+    model: Model,
+    eval_config: dict[str, Any],
+) -> Eval:
+    """Run an external benchmark harness (Arena-Hard / BFCL / HealthBench style) and ingest
+    its score receipt.
+
+    IoC: DataOS only runs the command deterministically and records the result — the
+    judge/harness itself lives outside. The command must write JSON
+    ``{"score": <float>, "metrics": {...}}`` to the ``{results_file}`` placeholder path.
+    Secrets (judge API keys, HF tokens) go through the process env, never the config.
+    """
+    import os
+    import subprocess
+
+    from dataos._redact import redact
+
+    command = eval_config.get("command")
+    if not isinstance(command, str) or not command.strip():
+        raise ValueError("external eval needs config['command'] (a shell command string)")
+    eval_id = _make_id("eval")
+    eval_dir = workspace.artifact_dir("eval", eval_id)
+    results_path = eval_dir / str(eval_config.get("results_file") or "external_results.json")
+    rendered = command
+    for key, value in {
+        "model_path": str(model.path),
+        "base_model": str(model.meta.get("base_model") or ""),
+        "output_dir": str(eval_dir),
+        "results_file": str(results_path),
+    }.items():
+        rendered = rendered.replace("{" + key + "}", value)
+
+    env = dict(os.environ)
+    env.update({str(k): str(v) for k, v in (eval_config.get("env") or {}).items()})
+    timeout = eval_config.get("timeout")
+    proc = subprocess.run(  # noqa: S602 - command is authored by the runtime via the spec
+        rendered,
+        shell=True,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=float(timeout) if timeout else None,
+    )
+    (eval_dir / "external_stdout.log").write_text(proc.stdout[-20000:], encoding="utf-8")
+    (eval_dir / "external_stderr.log").write_text(proc.stderr[-20000:], encoding="utf-8")
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "")[-800:]
+        raise RuntimeError(f"external eval command failed (exit {proc.returncode}): {tail}")
+    if not results_path.is_file():
+        raise RuntimeError(
+            f"external eval produced no results file at {results_path} — the command must write "
+            'JSON {"score": <float>, "metrics": {...}} there (use the {results_file} / '
+            "{output_dir} placeholders)"
+        )
+    payload = json.loads(results_path.read_text(encoding="utf-8"))
+    metrics = {
+        str(key): float(value)
+        for key, value in (payload.get("metrics") or {}).items()
+        if isinstance(value, (int, float))
+    }
+    score = payload.get("score")
+    if score is None and metrics:
+        headline = eval_config.get("headline_metric")
+        score = metrics[headline] if headline in metrics else next(iter(metrics.values()))
+    summary: dict[str, Any] = {
+        "backend": "external",
+        "command": redact(rendered),  # the receipt for the manifest; token-looking parts scrubbed
+        "results_file": str(results_path),
+        "score": score,
+        "headline_score": score,
+        "metrics": metrics,
+        "extra": redact({k: v for k, v in payload.items() if k not in {"score", "metrics"}}),
+        "source_model_id": model.artifact_id,
+        "base_model": model.meta.get("base_model"),
+    }
+    (eval_dir / "results.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    return Eval(
+        eval_id=eval_id,
+        path=eval_dir,
+        metrics=metrics,
+        score=float(score) if score is not None else None,
+        meta=summary,
+        producer="eval_model",
+    )
+
+
+def _build_external_log_message(model: Model, evaluation: Eval) -> str:
+    lines = [
+        f"model={model.artifact_id}",
+        f"eval={evaluation.artifact_id}",
+        "backend=external",
+        f"score={evaluation.score if evaluation.score is not None else 'n/a'}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _make_adapter(name: str, adapter_config: dict[str, Any]) -> Any:

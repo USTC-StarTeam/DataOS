@@ -30,6 +30,7 @@ from uuid import uuid4
 
 from dataos._experiment import Experiment
 from dataos._ids import _make_id, _utc_now_iso
+from dataos._redact import redact
 from dataos.workspace import Workspace
 
 _JSON_KWARGS: dict[str, Any] = {
@@ -91,7 +92,8 @@ class Study:
         self.plan = dict(plan)
         self.updated_at = _utc_now_iso()
         self.study_dir.mkdir(parents=True, exist_ok=True)
-        self.plan_path.write_text(json.dumps(self.plan, **_JSON_KWARGS), encoding="utf-8")
+        # persisted copy is scrubbed of secret-looking values; in-memory plan stays raw
+        self.plan_path.write_text(json.dumps(redact(self.plan), **_JSON_KWARGS), encoding="utf-8")
         return self
 
     def experiment(self, spec: dict[str, Any] | None = None) -> Experiment:

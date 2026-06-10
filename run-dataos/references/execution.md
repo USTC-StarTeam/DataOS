@@ -49,6 +49,10 @@ python -c "import dataos, json; print(json.dumps(dataos.project('qwen-gsm8k').st
 DataOS 既不调度、也不知道并行 —— 分卡和并发度完全是你的事。`summary()` 只是 glob 现有的
 `report.json`,所以容忍还在跑或缺失的实验。
 
+> 在 agent harness(Claude Code)里驱动时:**一条命令只发射一个 `run_one.py`**,N 个并行 = N 条独立命令
+> (远程则 N 条独立 ssh)。含 `&` 的整条命令会被 harness 自动后台化 —— 把多个 launch 链进同一条命令,
+> 只有第一个真的发射出去(真实踩过,靠 subagent 自愈才补救)。
+
 ## 先跑 doctor
 
 真实运行前,`python scripts/doctor.py` 确认你 import 的是对的 `dataos`(cwd 里的 `./dataos`

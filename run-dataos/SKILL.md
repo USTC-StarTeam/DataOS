@@ -112,7 +112,7 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 | **计划** | 建 / 重开 `project`(`proj.set_goal(instruct=...)` 记初始诉求 + **模式/成功判据/上限**);拟 `plan = {goal, experiments:[spec,...]}`(每个 `spec` 是 `{name, data, train, eval}`;`dataos.catalog()` 发现算子;可 copy `assets/plan.template.json`)。**模式 A:提案→用户确认后再 `study.set_plan`;模式 B:自主 `set_plan` 直接跑**(见「两种运行模式」)。 | — |
 | **数据** | `exp.data` 是 **DataStage**。声明式:`spec["data"]={source,split,limit,field_map,recipe:[{op,params}]}` 再 `exp.data.run()`;或逃生口 `exp.data.set(ds).run()` 注入你用 `dataos_operator` 算子现搭的 `Dataset`。判断全在这。 | `references/data-prep.md` |
 | **训练** | `exp.train.run()` -> `Model`,自动取上游 `exp.data` 的产物。开放-config:任意 LLaMA-Factory 键透传;`config` 取 `spec["train"]`。 | `references/train-eval.md` |
-| **评估** | `exp.eval.run()` -> `Eval`,自动取上游 `exp.train` 的产物 + `spec["eval"]`。stub 必须显式给。 | `references/train-eval.md` |
+| **评估** | `exp.eval.run()` -> `Eval`,自动取上游 `exp.train` 的产物 + `spec["eval"]`。stub 必须显式给;lm-eval 没有的 bench(自带 judge/框架,如 Arena Hard / BFCL)走 `provider:"external"` 跑外部 harness。 | `references/train-eval.md` |
 | **复盘** | `report.json` 由各 stage `run()` **自动落**(扁平键 + `stages` 段);`exp.summary()` 是**纯 getter**,返回该实验当前情况;`study.summary()` -> 汇总/排名;`study.review(conclusion)` -> `review.json`。DataOS 列表,**你**下结论。 | — |
 
 ## 容器
