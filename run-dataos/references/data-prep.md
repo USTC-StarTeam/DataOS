@@ -49,7 +49,7 @@ exp.data.set(ds).run()                    # 注入现成 Dataset,跳过 recipe(m
 
 - `len(ds)` —— 行数(**不是** `ds.count`,那是 `Sequence.count(value)`,当行数用会报错)。
 - `ds.to_records()` —— 取出 `list[dict]`。
-- `ds.metadata` —— 元信息 dict。
+- `ds.metadata` —— 元信息 dict(**只读 `mappingproxy`**:不能 `ds.metadata[k]=v`,要在构造时传,如 `Dataset.from_records(..., metadata={"dataset_format": "alpaca"})`)。
 - `ds.hf_dataset` —— 底层 HF `Dataset`,**列名 / 列数在这上面**(`ds.hf_dataset.column_names`;
   `Dataset` 本身没有 `.column_names`)。
 - `ds.save_to_disk("<dir>")` —— 落盘(DataStage 自动做;手动跨进程也可用)。

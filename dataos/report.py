@@ -25,7 +25,7 @@ def build_report(experiment: "Experiment") -> dict[str, Any]:
         "name": experiment.name,
         "spec": experiment.spec,
         "status": _overall_status(experiment),
-        "score": experiment.eval.artifact.score if experiment.eval.artifact is not None else None,
+        "score": _report_score(experiment.eval.artifact),
         "created_at": experiment.created_at,
         "updated_at": _utc_now_iso(),
         "dataset": _dataset_section(experiment.data.artifact),
@@ -67,12 +67,23 @@ def _model_section(model: "Model | None") -> dict[str, Any] | None:
     }
 
 
+def _report_score(evaluation: "Eval | None") -> float | None:
+    """The experiment's single headline number: the multi-bench macro-average when present,
+    else the (single-task) headline score."""
+    if evaluation is None:
+        return None
+    macro = evaluation.meta.get("macro_average")
+    return macro if macro is not None else evaluation.score
+
+
 def _eval_section(evaluation: "Eval | None") -> dict[str, Any] | None:
     if evaluation is None:
         return None
     return {
         "id": evaluation.id,
         "score": evaluation.score,
+        "macro_average": evaluation.meta.get("macro_average"),
+        "per_task": evaluation.meta.get("per_task"),
         "metrics": dict(evaluation.metrics),
         "path": str(evaluation.path),
     }

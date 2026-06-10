@@ -151,7 +151,9 @@ class Study:
                     "name": report.get("name") or report.get("id"),
                     "id": report.get("id"),
                     "status": report.get("status"),
-                    "score": evaluation.get("score"),
+                    "score": evaluation.get("macro_average")
+                    if evaluation.get("macro_average") is not None
+                    else evaluation.get("score"),
                     "metrics": evaluation.get("metrics") or {},
                     "train": spec.get("train") or {},
                 }

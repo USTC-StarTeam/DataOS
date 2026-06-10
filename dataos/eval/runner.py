@@ -165,6 +165,7 @@ def _eval_output_to_artifact(
     eval_dir = workspace.artifact_dir("eval", eval_id)
     metrics = _flatten_metrics(output.results)
     headline = _pick_headline(metrics, config.tasks, config.headline_metric)
+    per_task, macro_average = _macro_average(metrics, list(config.tasks), config.headline_metric)
     protocol = _protocol_snapshot(output, model, config)
     summary: dict[str, Any] = {
         "backend": "lm_eval",
@@ -178,6 +179,10 @@ def _eval_output_to_artifact(
         "results": dict(output.results),
         "score": headline,
         "headline_score": headline,
+        "macro_average": macro_average,  # mean of per-bench primary metrics — the multi-task aggregate
+        "per_task": per_task,            # {task: its primary metric value}
+        "n_tasks": len(config.tasks),
+        "skipped_tasks": dict(protocol["resolved"].get("skipped_tasks") or {}),
         "source_model_id": model.artifact_id,
         "base_model": model.meta.get("base_model"),
         "seeds": _eval_seeds(config),  # effective seeds (incl. EvalConfig defaults) for repro
@@ -237,6 +242,27 @@ def _pick_headline(
             if key.startswith(f"{task}::"):
                 return value
     return None
+
+
+def _macro_average(
+    metrics: dict[str, float], tasks: list[str], headline_metric: str | None
+) -> tuple[dict[str, float | None], float | None]:
+    """Each task's primary metric + their mean — the multi-bench aggregate. The built-in
+    ``score`` is only the FIRST task's metric, so multi-task evals need this to rank by all benches."""
+    per_task: dict[str, float | None] = {}
+    for task in tasks:
+        value: float | None = None
+        if headline_metric and f"{task}::{headline_metric}" in metrics:
+            value = metrics[f"{task}::{headline_metric}"]
+        else:
+            for key, val in metrics.items():
+                if key.startswith(f"{task}::"):
+                    value = val
+                    break
+        per_task[task] = value
+    present = [v for v in per_task.values() if isinstance(v, (int, float))]
+    macro = sum(present) / len(present) if present else None
+    return per_task, macro
 
 
 def _trim_raw(raw: dict[str, Any]) -> dict[str, Any]:

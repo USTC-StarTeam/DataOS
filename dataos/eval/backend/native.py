@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
 from typing import Any
 
@@ -58,11 +59,11 @@ def run_lm_eval_native(model_artifact: ModelArtifact, config: EvalConfig) -> LmE
         "confirm_run_unsafe_code": config.confirm_run_unsafe_code,
         "metadata": dict(config.metadata),
     }
-    raw = simple_evaluate(**_supported_kwargs(simple_evaluate, call_kwargs))
-    if raw is None:
-        raw_dict: dict[str, Any] = {}
-    else:
-        raw_dict = raw if isinstance(raw, dict) else dict(raw)
+    # HF evaluate's code_eval metric (humaneval/mbpp) gates on os.environ["HF_ALLOW_CODE_EVAL"]
+    # SEPARATELY from lm-eval's confirm_run_unsafe_code — without it the code benches raise.
+    if config.confirm_run_unsafe_code:
+        os.environ.setdefault("HF_ALLOW_CODE_EVAL", "1")
+    raw_dict, skipped = _evaluate_with_isolation(simple_evaluate, call_kwargs, list(config.tasks))
     return LmEvalRunOutput(
         tasks=list(config.tasks),
         results=dict(raw_dict.get("results", {})),
@@ -75,8 +76,53 @@ def run_lm_eval_native(model_artifact: ModelArtifact, config: EvalConfig) -> LmE
             "include_path": config.include_path,
             "metadata": dict(config.metadata),
             "seeds": seeds,
+            "skipped_tasks": skipped,
         },
     )
+
+
+def _as_dict(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    return raw if isinstance(raw, dict) else dict(raw)
+
+
+def _evaluate_with_isolation(
+    simple_evaluate: Any, call_kwargs: dict[str, Any], tasks: list[str]
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Run all tasks in one call; if that fails and there are several, degrade to per-task.
+
+    lm-eval resolves every task's dataset up front (``get_task_dict``), so one gated or broken
+    bench (e.g. a gated GPQA) aborts the whole suite. Falling back to per-task keeps the
+    measurable benches and records what was skipped instead of voiding everything.
+    """
+    try:
+        return _as_dict(simple_evaluate(**_supported_kwargs(simple_evaluate, call_kwargs))), {}
+    except Exception:  # noqa: BLE001 - fall back to per-task isolation below
+        if len(tasks) <= 1:
+            raise
+    merged_results: dict[str, Any] = {}
+    merged_samples: dict[str, Any] = {}
+    merged_raw: dict[str, Any] = {}
+    skipped: dict[str, str] = {}
+    for task in tasks:
+        per_kwargs = dict(call_kwargs)
+        per_kwargs["tasks"] = [task]
+        try:
+            one = _as_dict(simple_evaluate(**_supported_kwargs(simple_evaluate, per_kwargs)))
+        except Exception as task_exc:  # noqa: BLE001 - skip the broken bench, keep the rest
+            skipped[task] = str(task_exc)
+            continue
+        merged_results.update(one.get("results", {}))
+        merged_samples.update(one.get("samples", {}))
+        for key, value in one.items():
+            merged_raw.setdefault(key, value)
+    if not merged_results:
+        raise RuntimeError(f"all eval tasks failed: {skipped}")
+    merged_raw["results"] = merged_results
+    merged_raw["samples"] = merged_samples
+    merged_raw["skipped_tasks"] = skipped
+    return merged_raw, skipped
 
 
 def _resolve_model_for_eval(

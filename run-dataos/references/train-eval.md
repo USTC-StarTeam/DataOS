@@ -67,5 +67,11 @@ LoRA 模型自动解析为 `pretrained=<base>, peft=<adapter>`。返回 `Eval`(�
 > 想固定用哪个,在 eval config 里加 `"headline_metric": "flexible-extract"`。`study.summary()` 会列出每个实验的
 > 全部 `metrics`,并在 headline 冠军和某个指标冠军不一致时给出 `caution`——**别只看 headline**,结论可能因指标而翻转。
 
+> **多 bench 一次评**(`tasks=[...]`):`report.json` 顶层 `score` 与 `eval.macro_average` = 各 bench 主指标的
+> **宏平均**(`study.summary()` 按它排名),`eval.per_task` 给每个 bench 的分。三个坑:① 某 bench 数据**被门控/缺失**
+> (如 GPQA 的 `Idavidrein/gpqa`)只会被**跳过**并记入 `eval.skipped_tasks`,不再连累其它 bench;② **长生成任务**
+> (如 `aime25`,task 默认 `max_gen_toks=32768`)必须在 `gen_kwargs` 里压 `max_gen_toks=1024` 之类,否则极慢爆时间;
+> ③ 代码 bench(`humaneval`/`mbpp`)给 `confirm_run_unsafe_code=True` 即可,DataOS 会自动置 `HF_ALLOW_CODE_EVAL=1`。
+
 > 日志里出现 `fatal: not a git repository ... Stopping at filesystem boundary` 是 lm-eval / llamafactory 探
 > git hash 的无害噪音,忽略即可。
