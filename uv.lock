@@ -1029,7 +1029,7 @@ wheels = [
 
 [[package]]
 name = "dataos"
-version = "0.1.0"
+version = "0.2.3"
 source = { editable = "." }
 dependencies = [
     { name = "dataos-operator" },
@@ -1050,6 +1050,7 @@ eval = [
     { name = "lm-eval" },
     { name = "nltk" },
     { name = "openai" },
+    { name = "tenacity" },
     { name = "transformers" },
 ]
 train = [
@@ -1063,7 +1064,7 @@ vllm = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'eval'", specifier = ">=0.34" },
-    { name = "dataos-operator", git = "https://github.com/USTC-StarTeam/DataOS-Operator.git?rev=jsonl2HF" },
+    { name = "dataos-operator", git = "https://github.com/USTC-StarTeam/DataOS-Operator.git?rev=v0.1.0" },
     { name = "datasets", specifier = ">=2.19.0" },
     { name = "evaluate", marker = "extra == 'eval'", specifier = ">=0.4.0" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
@@ -1076,6 +1077,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=15.0.0" },
     { name = "ray", marker = "extra == 'vllm'", specifier = ">=2.9" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
+    { name = "tenacity", marker = "extra == 'eval'" },
     { name = "transformers", marker = "extra == 'eval'", specifier = ">=4.45,<5.0" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.8.0" },
 ]
@@ -1084,7 +1086,7 @@ provides-extras = ["dev", "train", "eval", "vllm"]
 [[package]]
 name = "dataos-operator"
 version = "0.1.0"
-source = { git = "https://github.com/USTC-StarTeam/DataOS-Operator.git?rev=jsonl2HF#cf4a1031b137a22a2ac136b20c306072eaf43f3c" }
+source = { git = "https://github.com/USTC-StarTeam/DataOS-Operator.git?rev=v0.1.0#b9be29ae515597b950fc2221f1ea6216afc2276d" }
 dependencies = [
     { name = "datasets" },
 ]
@@ -5857,6 +5859,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/80/cc/44f2d81d8f9093aad81c3467a5bf5718d2b5f786e887b6e4adcfc17ec6b9/tcolorpy-0.1.7.tar.gz", hash = "sha256:0fbf6bf238890bbc2e32662aa25736769a29bf6d880328f310c910a327632614", size = 299437, upload-time = "2024-12-29T15:24:23.847Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/05/a2/ed023f2edd1e011b4d99b6727bce8253842d66c3fbf9ed0a26fc09a92571/tcolorpy-0.1.7-py3-none-any.whl", hash = "sha256:26a59d52027e175a37e0aba72efc99dda43f074db71f55b316d3de37d3251378", size = 8096, upload-time = "2024-12-29T15:24:21.33Z" },
+]
+
+[[package]]
+name = "tenacity"
+version = "9.1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/c6/ee486fd809e357697ee8a44d3d69222b344920433d3b6666ccd9b374630c/tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a", size = 49413, upload-time = "2026-02-07T10:45:33.841Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55", size = 28926, upload-time = "2026-02-07T10:45:32.24Z" },
 ]
 
 [[package]]
