@@ -146,7 +146,8 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 见 `references/execution.md`。正式场景里这些都在**远程服务器上经 ssh 跑**(本机 Claude Code 驱动)——见
 `references/remote.md`。
 
-**并行编排 = 主 agent 调度 + 每 exp 一个 subagent**(运行时的事,DataOS 不感知):主 agent(你)敲定 plan 后,备一次
+**并行编排 = 主 agent 调度 + 每 exp 一个 subagent**(运行时的事,DataOS 不感知):主 agent(你)敲定 plan 后,
+**装好并钉死环境(依赖/评测 harness——持久环境变更只归主 agent,subagent 缺什么上报、不自己装)**、备一次
 共享数据、按 GPU 容量用信号量**扇出**;**每个 exp 派一个 subagent**——`run_one.py --spec <name>` 钉一张卡跑
 data→train→eval、失败自愈(改 spec / recipe,绝不进 live 容器)、回报 `report.json` / `manifest.json`;主 agent 再汇总成
 `study.summary()` / `review()`。完整 playbook(自愈重试、freeze→replay、铁律)见 `references/execution.md`。

@@ -90,16 +90,21 @@ docker 是**可选的更强环境钉死**——在 python 层(uv.lock)之外,把
 
 多个实验铺到多卡 + 自动扛失败时用这个模式(**纯运行时编排,DataOS 不感知**):
 
-- **主 agent(planner)**:写 plan、备好共享数据(study 级 prepare-once + `save_to_disk` + 哈希)、**按 GPU 容量扇出**
-  (N 张卡 ≤ N 并发,用信号量;别无脑起一堆)。
+- **主 agent(planner)**:**装好并钉死环境**(dataos extras、外部 harness 依赖——独立 venv、钉版本/commit,
+  落 uv.lock / 镜像;**环境是 project 级共享状态,只归主 agent**)、写 plan、备好共享数据(study 级
+  prepare-once + `save_to_disk` + 哈希)、**按 GPU 容量扇出**(N 张卡 ≤ N 并发,用信号量;别无脑起一堆)。
 - **每个 exp 一个 subagent**:`run_one.py --project … --spec …` 跑一个实验(走 docker 则换 `run_in_docker.sh`);
   **失败诊断重试**(OOM→降 batch / 配置错→改 spec / 数据形状错→改 recipe),跑完读回 `report.json` / `manifest.json` 上报。
 - **eval-harness subagent(project 开工时一次)**:做评测 discovery(读目标场景的评分器实现,如 PostTrainBench
-  的 7 个 `evaluate.py`)→ wrap 成 `provider:"external"` 命令(装依赖、调通)→ **校验对分**(拿已知模型跑出
-  和官方/论文一致的数)→ 冻结(钉 repo commit / 包版本,填 `harness` 字段)→ 交付一条可复用的 eval 配置
-  (常为 `suite`),之后所有 exp-subagent 原样用它。**评测实现归它,实验执行归 exp-subagent,两者不混。**
+  的 7 个 `evaluate.py`)→ 产出 **wrapper 草案 + 依赖清单**交主 agent(**装依赖归主 agent,不归它**)→ 环境就绪后
+  **校验对分**(拿已知模型跑出和官方/论文一致的数)→ 冻结(钉 repo commit / 包版本,填 `harness` 字段)→ 交付
+  一条可复用的 eval 配置(常为 `suite`),之后所有 exp-subagent 原样用它。**评测实现归它,实验执行归
+  exp-subagent,环境归主 agent,三者不混。**
 - **铁律:修复只进 spec 或镜像,绝不进 live 容器。** 在运行中的容器里 `pip install` / 手改文件 = 不可复现
   (下次干净 `docker run` 就没了)。配置类改动写回 spec(进 manifest);依赖类改动 = 重 bump 镜像(换 digest)。
+- **铁律:持久环境变更只归主 agent。** `pip install` / 改 venv / clone / 动仓库代码 = 共享状态变更——subagent
+  **一律不做**(缺依赖就上报,主 agent 装好并落锁后再继续;真实事故:subagent 自行 clone 把整棵树打回旧版)。
+  **进程级 env 注入不受限**(`HF_TOKEN=… CUDA_VISIBLE_DEVICES=…` 前缀单条命令,不留痕、不互踩)。
 - **discovery → freeze → replay**:subagent 探索/自愈得到结果 + 一份钉死的 manifest;**跑通 ≠ 可复现**——关键实验
   跑完再 `--replay` 干净验证一遍(fingerprint + score),过了才算。
 - **交付物**不是每实验一个 bespoke 镜像/脚本,而是:**共享 `image@digest` + 每实验一份 `manifest.json` + 一行 `docker run`**。
