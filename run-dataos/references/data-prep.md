@@ -66,7 +66,9 @@ exp.data.set(ds).run()                    # 注入现成 Dataset,跳过 recipe(m
    `sharegpt` / `messages`)把每个源先映射成 OpenAI messages,再 `ConcatMixer().run([ds_a, ds_b, ...])`
    合并。⚠️ **混多个源是多数据集操作,不能写进线性 recipe** —— 用 `set()` 逃生口手搭后注入。
 3. **按需过滤 / 采样。** 选择器在 `dataos_operator.operators.selector` 下 —— 如
-   `{"op": "length_filter", ...}`、`{"op": "random_sample_selector", "params": {"sample_size": N, "strict": False}}`。
+   `{"op": "length_filter", ...}`、`{"op": "random_sample_selector", "params": {"sample_size": N, "seed": 42, "strict": False}}`。
+   **随机采样进 recipe 必须设 `seed`**(数据侧的"复现要设 seed"):不设则每次运行选行不同 →
+   数据 fingerprint 漂移 → `--replay` 的一致性校验必然 FAIL。
 4. **映射到最终训练 schema。**
    - Alpaca:`{"op": "alpaca_mapper", "params": {"source_format": "messages"}}` -> `instruction` / `input` / `output`。
    - ShareGPT:`{"op": "sharegpt_mapper", "params": {"source_format": "messages"}}` -> `conversations`。
