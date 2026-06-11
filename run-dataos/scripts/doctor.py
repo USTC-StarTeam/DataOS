@@ -70,6 +70,13 @@ def main() -> int:
         present = has(mod)
         ok = ok and present
         print(f"[{'ok' if present else 'FAIL'}] 核心依赖: {mod}{'' if present else '  <-- 必需'}")
+    try:
+        import dataos_operator  # noqa: PLC0415
+
+        op_version = getattr(dataos_operator, "__version__", None) or "?"
+        print(f"[ok]   dataos_operator 版本: {op_version} ({dataos_operator.__file__})")
+    except Exception:  # noqa: BLE001 - covered by the FAIL above
+        pass
 
     api = (
         "catalog", "load", "project",

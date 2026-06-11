@@ -45,6 +45,7 @@ spec 形如:
   ——只 `exp.eval.run()`;`{model_path}` 解析为 HF id,vllm 经镜像加载。
 - **prompting 形态**(评测协议的一部分):所有 bench 经 vllm 套用 `templates/qwen3.jinja` chat template;
   gsm8k 为 10-shot + 显式 `ANSWER:` 指令;thinking 模式未被显式禁用(已知未知,对比实验间一致即可)。
-- LoRA merge 缓存默认在 `~/.cache/dataos_ptb_merged/<hash>`(`PTB_MERGE_CACHE` 可改),不写 artifact 目录。
+- LoRA merge 缓存默认在 `~/.cache/dataos_ptb_merged/<内容hash>`(按 adapter 权重**内容**取键——原地重训
+  绝不会复用旧 merge;`PTB_MERGE_CACHE` 可改),不写 artifact 目录;不再信任旧的 in-artifact `_merged`。
 - judge 类(arena/health)分数 judge-dependent:study 内同 judge 才可比;`--replay` 容差放宽。
 - aime2025 / humaneval 的 smoke 上限是估计值(校准只实测了 bfcl/gsm8k),首跑留余量。

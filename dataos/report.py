@@ -26,7 +26,11 @@ def build_report(experiment: "Experiment") -> dict[str, Any]:
         "name": experiment.name,
         "spec": redact(experiment.spec),
         "status": _overall_status(experiment),
-        "score": _report_score(experiment.eval.artifact),
+        # a headline number is only honest while the eval that produced it is CURRENT —
+        # a stale/failed/re-running eval keeps its artifact for forensics, not for ranking
+        "score": _report_score(experiment.eval.artifact)
+        if experiment.eval.status == "completed"
+        else None,
         "created_at": experiment.created_at,
         "updated_at": _utc_now_iso(),
         "dataset": _dataset_section(experiment.data.artifact),
@@ -40,6 +44,10 @@ def _overall_status(experiment: "Experiment") -> str:
     stages = experiment.stages
     if any(stage.status == "failed" for stage in stages):
         return "failed"
+    # an invalidated stage anywhere means the chain is NOT current — even if eval still
+    # says completed (e.g. eval re-scored before train was rebuilt), don't launder it
+    if any(stage.status == "stale" for stage in stages):
+        return "stale"
     if experiment.eval.status == "completed":
         return "completed"
     done = [stage.kind for stage in stages if stage.status == "completed"]
@@ -54,6 +62,7 @@ def _dataset_section(data: "Data | None") -> dict[str, Any] | None:
         "format": data.meta.get("format"),
         "rows": data.meta.get("rows"),
         "fingerprint": data.meta.get("fingerprint"),
+        "declared_source": data.meta.get("declared_source"),  # injected data: where the spec SAID it came from
     }
 
 
@@ -106,10 +115,22 @@ def build_manifest(experiment: "Experiment") -> dict[str, Any]:
     """Compose the reproducibility manifest for one experiment (schema ``dataos.manifest/1``)."""
     from dataos import _provenance as prov
 
+    import os
+
     exp_dir = experiment.workspace.exp_dir
     parents = exp_dir.parents
+    # an eval-only experiment (baseline / formal confirm by path) never runs data/train;
+    # without this flag their "pending" stages make a completed, scored receipt look half-run.
+    # Derived from the evaluated model's identity (every eval receipt carries it), so the
+    # flag can never disagree with what was actually scored.
+    eval_art = experiment.eval.artifact
+    eval_only = bool(
+        eval_art is not None
+        and str((eval_art.meta or {}).get("source_model_id") or "").startswith("evalonly:")
+    )
     return {
         "schema": "dataos.manifest/1",
+        "eval_only": eval_only,
         "who": {
             "name": experiment.name,
             "exp_id": experiment.exp_id,
@@ -123,8 +144,21 @@ def build_manifest(experiment: "Experiment") -> dict[str, Any]:
             "versions": prov.package_versions(),
             "image": prov.image_ref(),
             "git": prov.git_sha(Path(__file__).parent),
+            # exact installed commit of the operator lib (version string alone can't prove
+            # which code ran for a git/branch install)
+            "dataos_operator": prov.package_origin("dataos-operator"),
         },
-        "hardware": prov.hardware(),
+        # CUDA_VISIBLE_DEVICES is the device PINNING — hardware() only sees the masked view.
+        # Taken from the stage that actually RAN (train, else eval): the manifest writer may
+        # be a different process (driver/reopen) whose env says nothing about the run.
+        "hardware": {
+            **prov.hardware(),
+            "visible_devices": (
+                getattr(experiment.train, "_visible_devices", None)
+                or getattr(experiment.eval, "_visible_devices", None)
+                or os.environ.get("CUDA_VISIBLE_DEVICES")
+            ),
+        },
         "data": _data_manifest(experiment.data),
         "train": _train_manifest(experiment.train),
         "eval": _eval_manifest(experiment.eval),
@@ -137,14 +171,19 @@ def _data_manifest(stage: Any) -> dict[str, Any]:
     art = stage.artifact
     cfg = stage.config or {}
     meta = (art.meta if art is not None else {}) or {}
+    injected = meta.get("source") == "<injected>"
     return {
         "status": stage.status,
         "source": meta.get("source", cfg.get("source")),
-        "revision": meta.get("revision", cfg.get("revision")),
+        # injected data must not borrow the DECLARED spec's revision/recipe — they describe
+        # a pipeline that did not produce these bytes (replay would lie)
+        "declared_source": meta.get("declared_source"),
+        "revision": meta.get("revision") if injected else meta.get("revision", cfg.get("revision")),
         "fingerprint": meta.get("fingerprint"),
         "rows": meta.get("rows"),
         "columns": meta.get("columns"),
-        "recipe": meta.get("recipe", cfg.get("recipe")),
+        "recipe": meta.get("recipe") if injected else meta.get("recipe", cfg.get("recipe")),
+        "config_drift": getattr(stage, "config_drift", False),
         "config": redact(dict(cfg)),  # full spec["data"] for replay (secret-looking values scrubbed)
         "artifact_id": art.id if art is not None else None,
     }
@@ -161,6 +200,7 @@ def _train_manifest(stage: Any) -> dict[str, Any]:
         "finetuning_type": meta.get("finetuning_type"),
         "mode": meta.get("mode"),
         "seed": cfg.get("seed"),  # recorded only; set it in spec["train"] for reproducible training
+        "config_drift": getattr(stage, "config_drift", False),  # config differs from what produced the artifact
         "config": redact(cfg),  # the full open-config (LLaMA-Factory yaml inputs), secrets scrubbed
         "artifact_id": art.id if art is not None else None,
     }
@@ -190,14 +230,17 @@ def _eval_manifest(stage: Any) -> dict[str, Any]:
         "skipped_tasks": redact(meta.get("skipped_tasks")),
         "score": getattr(art, "score", None),
         "metrics": dict(getattr(art, "metrics", {}) or {}),
+        "config_drift": getattr(stage, "config_drift", False),
         "config": redact(cfg),
         "artifact_id": art.id if art is not None else None,
     }
 
 
 def _result_manifest(experiment: "Experiment") -> dict[str, Any]:
-    model = experiment.train.artifact
-    evaluation = experiment.eval.artifact
+    # results are claims about the CURRENT chain — an invalidated (stale) or re-running
+    # stage's old artifact stays in its stage receipt for forensics, never in `result`
+    model = experiment.train.artifact if experiment.train.status == "completed" else None
+    evaluation = experiment.eval.artifact if experiment.eval.status == "completed" else None
     return {
         "model_id": model.id if model is not None else None,
         "model_path": str(model.path) if model is not None else None,

@@ -145,7 +145,8 @@ class Project:
         }
 
     def _persist(self) -> None:
-        self.project_dir.mkdir(parents=True, exist_ok=True)
+        from dataos._io import atomic_write_json
+
         self.updated_at = _utc_now_iso()
         payload = {
             "project_id": self.project_id,
@@ -153,7 +154,7 @@ class Project:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
-        self.project_path.write_text(json.dumps(payload, **_JSON_KWARGS), encoding="utf-8")
+        atomic_write_json(self.project_path, payload)
 
 
 def project(id: str | None = None, workspace: str | Path = "workspace") -> Project:

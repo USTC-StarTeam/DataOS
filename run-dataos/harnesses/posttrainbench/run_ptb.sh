@@ -23,17 +23,30 @@ export PATH=$PTB/.venv/bin:$PATH \
   NO_PROXY=localhost,127.0.0.1 no_proxy=localhost,127.0.0.1
 
 # LoRA adapter -> merged model (vllm-based harnesses can't load bare adapters).
-# Cache lives OUTSIDE the artifact dir (artifacts stay immutable); keyed by adapter path hash.
-# Legacy in-artifact _merged dirs are still honored if already present.
+# Cache lives OUTSIDE the artifact dir and is keyed by adapter CONTENT, not path:
+# a retrain-in-place produces new weights at the same path — a path-keyed (or legacy
+# in-artifact _merged) cache would silently evaluate the STALE merge for every bench.
 if [ -f "$MODEL/adapter_config.json" ]; then
-  if [ -f "$MODEL/_merged/config.json" ]; then
-    MERGED="$MODEL/_merged"
-  else
-    CACHE=${PTB_MERGE_CACHE:-$HOME/.cache/dataos_ptb_merged}
-    H=$(printf "%s" "$(cd "$MODEL" && pwd)" | md5sum | cut -c1-12)
-    MERGED="$CACHE/$H"
-    [ -f "$MERGED/config.json" ] || $PY "$HERE/merge_lora.py" "$MODEL" "$MERGED"
+  ls "$MODEL"/adapter_model.* >/dev/null 2>&1 || {
+    echo "[run_ptb] $MODEL has adapter_config.json but NO adapter_model.* weights — incomplete adapter" >&2
+    exit 4
+  }
+  CACHE=${PTB_MERGE_CACHE:-$HOME/.cache/dataos_ptb_merged}
+  H=$(cat "$MODEL/adapter_config.json" "$MODEL"/adapter_model.* | md5sum | cut -c1-16)
+  MERGED="$CACHE/$H"
+  if [ ! -f "$MERGED/config.json" ]; then
+    # merge into a temp dir + atomic rename: a killed merge must not leave a half-written
+    # dir at the content-hash key (that would poison the cache for this adapter forever)
+    TMPD="$CACHE/.tmp.$H.$$"
+    rm -rf "$TMPD"
+    $PY "$HERE/merge_lora.py" "$MODEL" "$TMPD"
+    if [ -f "$MERGED/config.json" ]; then
+      rm -rf "$TMPD"   # a concurrent merge won the race — use theirs
+    else
+      mv "$TMPD" "$MERGED" 2>/dev/null || { [ -f "$MERGED/config.json" ] || exit 5; rm -rf "$TMPD"; }
+    fi
   fi
+  echo "[run_ptb] adapter content hash $H -> $MERGED" >&2
   MODEL="$MERGED"
 fi
 

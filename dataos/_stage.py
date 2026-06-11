@@ -15,10 +15,14 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
+import socket
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from dataos._artifact import Data, Eval, Model, artifact_from_dict
+from dataos._io import atomic_write_json
 from dataos._redact import redact
 from dataos._ids import _make_id, _utc_now_iso
 
@@ -91,35 +95,100 @@ class Stage:
         self.log_path: str | None = None
         self.inputs: list[str] = []
         self.artifact: Artifact | None = None
+        self.config_drift: bool = False  # reopened with a config that differs from the persisted one
+        self._runner: dict[str, Any] = {}  # liveness identity while running: {pid, hostname}
+        self._visible_devices: str | None = None  # CUDA pinning of the process that RAN this stage
 
     def run(self, force: bool = False) -> "Artifact":
+        # liveness guard: a rehydrated "running" stage may STILL be running in another
+        # process — re-driving it would double-run into the same experiment dirs. Re-read
+        # the persisted state first: the in-memory snapshot is load-time-stale (TOCTOU).
+        self._refresh_runner_from_disk()
+        if not force and self.status == "running" and self._runner_alive():
+            raise RuntimeError(
+                f"{self.kind} stage is already running (pid {self._runner.get('pid')} on "
+                f"{self._runner.get('hostname')}) — re-driving would double-run this experiment "
+                "dir. Wait for it to finish, or run(force=True) after confirming it is dead."
+            )
         # resume: a rehydrated, already-completed stage is skipped, so re-driving a reopened
-        # study only runs the pending / failed stages. force=True re-runs unconditionally.
-        if not force and self.status == "completed" and self.artifact is not None:
+        # study only runs the pending / failed / stale ones. A completed stage whose config
+        # DRIFTED from the persisted receipt must NOT be skipped: keeping the old artifact
+        # while reporting the new config would make the receipts lie. force=True always re-runs.
+        if (
+            not force
+            and self.status == "completed"
+            and self.artifact is not None
+            and not self.config_drift
+        ):
             return self.artifact
         self.status = "running"
         self.started_at = _utc_now_iso()
+        self._visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+        self._runner = {"pid": os.getpid(), "hostname": socket.gethostname()}
+        # the old artifact's files are about to be wiped — receipts must stop advertising it
+        # NOW, not keep presenting a dead artifact id/score as live through the run/failure
+        self.artifact = None
         # persist the running state immediately: a 40-min train/eval must be observable from
         # {kind}.json (pollers had to grep tqdm logs when this was only written at stage end)
         self._persist()
         t0 = time.monotonic()
         try:
+            # no stale files from a prior run/config (e.g. lora→full retrain leaving
+            # adapter_config.json behind, which eval would then load as a stale adapter).
+            # Exception: a train resuming from its own checkpoints must keep them.
+            if not (self.kind == "train" and (self.config or {}).get("resume_from_checkpoint")):
+                self.workspace.clear_artifact_dir(self.kind)
             self.artifact = self._run()
         except Exception as exc:
             self.status = "failed"
             self.error = str(exc)
             self.finished_at = _utc_now_iso()
             self.duration_s = round(time.monotonic() - t0, 3)
+            self._runner = {}
             self._persist()
             self.experiment._persist_report()
             raise
         self.status = "completed"
         self.error = None  # clear any stale error from a prior failed attempt (retry / resume)
+        self.config_drift = False
         self.finished_at = _utc_now_iso()
         self.duration_s = round(time.monotonic() - t0, 3)
+        self._runner = {}
         self._persist()
+        # this stage actually ran -> downstream completed artifacts were built from
+        # now-stale upstream outputs; mark them stale so the next drive re-runs them
+        self.experiment._invalidate_downstream(self.kind)
         self.experiment._persist_report()
         return self.artifact
+
+    def _runner_alive(self) -> bool:
+        pid, host = self._runner.get("pid"), self._runner.get("hostname")
+        if not pid or host != socket.gethostname():
+            return False  # cross-host liveness is unknowable -> treat as stale, proceed
+        try:
+            os.kill(int(pid), 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # EPERM = a LIVE process owned by someone else (shared box) — alive
+        except (OSError, ValueError):
+            return False
+        return True
+
+    def _refresh_runner_from_disk(self) -> None:
+        """Pull the latest persisted status/runner before the liveness check — another
+        process may have started (or finished) this stage since we rehydrated."""
+        path = self.workspace.stage_path(self.kind)
+        if not path.is_file():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return  # torn read mid-replace — keep the in-memory view
+        persisted_status = data.get("status")
+        if persisted_status == "running":
+            self.status = "running"
+            self._runner = dict(data.get("runner") or {})
 
     def load_state(self) -> bool:
         """Rehydrate this stage from its persisted ``<exp>/<kind>.json`` (reopen / resume).
@@ -140,8 +209,18 @@ class Stage:
         self.error = data.get("error")
         self.log_path = data.get("log_path")
         self.inputs = list(data.get("inputs") or [])
-        if not self.config and data.get("config"):
-            self.config = dict(data["config"])
+        self._runner = dict(data.get("runner") or {})
+        self._visible_devices = data.get("visible_devices")
+        persisted_config = data.get("config")
+        if not self.config and persisted_config:
+            self.config = dict(persisted_config)
+        elif persisted_config is not None and self.config and self.status == "completed":
+            # the persisted copy is redacted — compare like-for-like. A completed stage
+            # reopened with a DIFFERENT config must not silently keep its old artifact
+            # while the receipts start claiming the new config produced it.
+            current = json.dumps(redact(self.config), sort_keys=True, default=str)
+            persisted = json.dumps(persisted_config, sort_keys=True, default=str)
+            self.config_drift = current != persisted
         artifact = data.get("artifact")
         if artifact:
             self.artifact = artifact_from_dict(artifact)
@@ -161,16 +240,14 @@ class Stage:
             "log_path": self.log_path,
             "inputs": list(self.inputs),
             "config": redact(self.config),  # persisted copies never carry tokens (env is the channel)
+            "config_drift": self.config_drift,
+            "runner": self._runner or None,  # liveness identity while running ({pid, hostname})
+            "visible_devices": self._visible_devices,  # device pinning of the RUNNING process
             "artifact": self.artifact.to_dict() if self.artifact is not None else None,
         }
 
     def _persist(self) -> None:
-        path = self.workspace.stage_path(self.kind)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(self.summary(), indent=2, sort_keys=True, ensure_ascii=False, default=str),
-            encoding="utf-8",
-        )
+        atomic_write_json(self.workspace.stage_path(self.kind), self.summary())
 
 
 class DataStage(Stage):
@@ -182,6 +259,21 @@ class DataStage(Stage):
         super().__init__(experiment, config)
         self._injected: Any | None = None
 
+    def run(self, force: bool = False) -> "Artifact":
+        # spec-config drift can't see injected datasets (their identity lives in the object,
+        # not the spec) — compare content fingerprints so re-driving a completed experiment
+        # with a DIFFERENT prepared pool re-runs instead of silently keeping the old data
+        if (
+            self._injected is not None
+            and self.status == "completed"
+            and self.artifact is not None
+        ):
+            new_fp = getattr(getattr(self._injected, "hf_dataset", None), "_fingerprint", None)
+            old_fp = (self.artifact.meta or {}).get("fingerprint")
+            if new_fp is not None and old_fp is not None and new_fp != old_fp:
+                self.config_drift = True
+        return super().run(force)
+
     def set(self, dataset: Any) -> "DataStage":
         """Escape hatch: inject a hand-built ``dataos_operator.Dataset`` (skips the recipe)."""
         self._injected = dataset
@@ -191,7 +283,10 @@ class DataStage(Stage):
         cfg = self.config
         if self._injected is not None:
             ds = self._injected
-            source = cfg.get("source", "<injected>")
+            # honest provenance: whatever spec["data"] declares, THIS dataset came from
+            # set() — recording the declared source would launder injected data as
+            # declarative and make --replay re-run a recipe that never produced it.
+            source = "<injected>"
             recipe: list[dict[str, Any]] = []
             self.inputs = []
         else:
@@ -216,6 +311,7 @@ class DataStage(Stage):
         ds.save_to_disk(self.workspace.dataset_dir)
         meta = {
             "source": source,
+            "declared_source": cfg.get("source") if self._injected is not None else None,
             "revision": cfg.get("revision"),
             "recipe": recipe,
             # injected datasets carry their format in operator metadata, not the spec
@@ -277,32 +373,56 @@ class EvalStage(Stage):
         return evaluation
 
     def _pull_model(self) -> Model:
+        train_status = self.experiment.train.status
         model_art = self.experiment.train.artifact
         if model_art is not None:
+            # an artifact whose stage is stale/failed/running is NOT scoreable: evaluating
+            # it launders an invalidated chain back into a "completed" report
+            if train_status != "completed":
+                raise ValueError(
+                    f"upstream train stage is {train_status!r} — its model is not current; "
+                    "run exp.train.run() first (or run(force=True) to rebuild the chain)"
+                )
             self.inputs = [model_art.id]
             return model_art
         # cross-process: rebuild a ModelLike from the persisted train.json
         train_json = self.workspace.stage_path("train")
         if train_json.exists():
-            art = (json.loads(train_json.read_text(encoding="utf-8")) or {}).get("artifact") or {}
-            self.inputs = [art["id"]] if art.get("id") else []
-            return Model(
-                model_id=art.get("id") or "model",
-                path=art.get("path") or str(self.workspace.model_dir),
-                meta=art.get("meta") or {},
-                producer=art.get("producer") or "train",
-            )
+            persisted = json.loads(train_json.read_text(encoding="utf-8")) or {}
+            art = persisted.get("artifact") or {}
+            if art:
+                if persisted.get("status") != "completed":
+                    raise ValueError(
+                        f"persisted train stage is {persisted.get('status')!r} — its model is "
+                        "not current; re-run training before evaluating"
+                    )
+                self.inputs = [art["id"]] if art.get("id") else []
+                return Model(
+                    model_id=art.get("id") or "model",
+                    path=art.get("path") or str(self.workspace.model_dir),
+                    meta=art.get("meta") or {},
+                    producer=art.get("producer") or "train",
+                )
         # eval-only / baseline: no upstream train — evaluate a bare model named in the eval
         # config (PostTrain "beat the baseline" needs this). The runner turns a non-LoRA Model
         # into pretrained=<path> with no adapter (see eval/backend/native._default_pretrained_source).
         base = self._baseline_model_source()
         if base is not None:
             self.inputs = []
+            # identity must come from WHAT is being evaluated, not from an assumed role:
+            # this path also scores trained models referenced by path (formal confirms),
+            # and labeling those "baseline" made the deciding receipts misname the candidates.
+            # basename alone is ambiguous (every merged model ends in ".../_merged") — add a
+            # short hash of the FULL reference so two candidates can't share an identity.
+            import hashlib
+
+            name = Path(str(base)).name or str(base)
+            digest = hashlib.sha1(str(base).encode("utf-8")).hexdigest()[:8]
             return Model(
-                model_id="baseline",
+                model_id=f"evalonly:{name}#{digest}",
                 path=base,
-                meta={"base_model": base, "finetuning_type": None},
-                producer="baseline",
+                meta={"base_model": base, "finetuning_type": None, "eval_only": True},
+                producer="eval_only",
             )
         raise ValueError(
             "eval needs a model: run exp.train.run() first, or for an eval-only baseline set "

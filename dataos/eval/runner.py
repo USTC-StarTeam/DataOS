@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from dataos.eval.config import EvalConfig
 from dataos._artifact import Eval, Model
 from dataos._ids import _make_id
-from dataos._redact import redact
+from dataos._redact import REDACTED, redact
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from dataos.workspace import Workspace
@@ -292,19 +292,39 @@ def _external_eval_artifact(
         rendered = rendered.replace("{" + key + "}", value)
 
     env = dict(os.environ)
-    env.update({str(k): str(v) for k, v in (eval_config.get("env") or {}).items()})
+    extra_env = {str(k): str(v) for k, v in (eval_config.get("env") or {}).items()}
+    # a config rehydrated from disk carries REDACTED placeholders — exporting those would
+    # override the real key in the process env with the literal string "<redacted>"
+    dropped = [k for k, v in extra_env.items() if REDACTED in v]
+    if dropped:
+        warnings.warn(
+            f"external eval: dropping env keys {dropped} whose values are redaction "
+            "placeholders — secrets must come from the process env, never persisted configs",
+            stacklevel=2,
+        )
+    env.update({k: v for k, v in extra_env.items() if REDACTED not in v})
     timeout = eval_config.get("timeout")
-    proc = subprocess.run(  # noqa: S602 - command is authored by the runtime via the spec
-        rendered,
-        shell=True,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=float(timeout) if timeout else None,
-    )
+    try:
+        proc = subprocess.run(  # noqa: S602 - command is authored by the runtime via the spec
+            rendered,
+            shell=True,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=float(timeout) if timeout else None,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # keep the evidence: without this, a timeout left NO logs at all, and the raw
+        # exception text (which embeds captured output) bypassed the redaction net
+        _write_external_logs(eval_dir, exc.stdout, exc.stderr)
+        raise RuntimeError(
+            redact(
+                f"external eval command timed out after {timeout}s "
+                f"(partial stderr tail: {_tail_text(exc.stderr)})"
+            )
+        ) from None
     # harness output may echo env/tokens — scrub before anything reaches disk or error text
-    (eval_dir / "external_stdout.log").write_text(redact(proc.stdout[-20000:]), encoding="utf-8")
-    (eval_dir / "external_stderr.log").write_text(redact(proc.stderr[-20000:]), encoding="utf-8")
+    _write_external_logs(eval_dir, proc.stdout, proc.stderr)
     if proc.returncode != 0:
         tail = redact((proc.stderr or proc.stdout or "")[-800:])
         raise RuntimeError(f"external eval command failed (exit {proc.returncode}): {tail}")
@@ -350,6 +370,21 @@ def _external_eval_artifact(
         meta=summary,
         producer="eval_model",
     )
+
+
+def _tail_text(payload: Any, limit: int = 800) -> str:
+    if payload is None:
+        return ""
+    if isinstance(payload, bytes):
+        payload = payload.decode("utf-8", errors="replace")
+    return str(payload)[-limit:]
+
+
+def _write_external_logs(eval_dir: Any, stdout: Any, stderr: Any) -> None:
+    from dataos._io import atomic_write_text
+
+    atomic_write_text(eval_dir / "external_stdout.log", redact(_tail_text(stdout, 20000)))
+    atomic_write_text(eval_dir / "external_stderr.log", redact(_tail_text(stderr, 20000)))
 
 
 def _build_external_log_message(model: Model, evaluation: Eval) -> str:

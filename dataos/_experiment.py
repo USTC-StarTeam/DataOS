@@ -73,6 +73,20 @@ class Experiment:
         self.workspace.write_report(self.summary())
         self.workspace.write_manifest(build_manifest(self))
 
+    def _invalidate_downstream(self, kind: str) -> None:
+        """A stage that actually executed invalidates COMPLETED stages after it: their
+        artifacts were produced from now-stale upstream outputs. Marking them ``stale``
+        makes the next drive re-run them instead of silently pairing new data with an
+        old model (or a new model with an old eval) in a "completed" report."""
+        passed = False
+        for stage in self.stages:
+            if stage.kind == kind:
+                passed = True
+                continue
+            if passed and stage.status == "completed":
+                stage.status = "stale"
+                stage._persist()
+
     def load_state(self) -> "Experiment":
         """Rehydrate all three stages from their persisted ``{kind}.json`` (reopen / resume)."""
         for stage in self.stages:

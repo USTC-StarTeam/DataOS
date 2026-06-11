@@ -44,6 +44,11 @@ def _run_one(args: argparse.Namespace) -> int:
 
 def _replay(args: argparse.Namespace) -> int:
     manifest = json.loads(Path(args.replay).read_text(encoding="utf-8"))
+    if "<redacted>" in json.dumps(manifest):
+        print(
+            "[replay] WARN: manifest 含 <redacted> 打码占位——原配置写了密钥(违规);"
+            "replay 会按占位值执行,真正的密钥请经进程 env 注入。"
+        )
     who = manifest.get("who") or {}
     data = manifest.get("data") or {}
     data_cfg = dict(data.get("config") or {})
@@ -94,9 +99,22 @@ def _replay(args: argparse.Namespace) -> int:
         score_ok = abs(float(new_score) - float(old_score)) <= args.tol
         score_detail = f"|{new_score} - {old_score}| <= {args.tol}"
 
-    ok = fp_ok and score_ok
+    # 多 bench 实验:分数容差不够——覆盖集也必须一致,否则"macro 在容差内"可能只是
+    # 因为这次跳过了上次失败的 bench(分母都不一样,PASS 没有意义)
+    cov_ok, cov_detail = True, None
+    old_per_task = (manifest.get("eval") or {}).get("per_task") or {}
+    if old_per_task:
+        scored = lambda pt: {k for k, v in pt.items() if isinstance(v, (int, float))}  # noqa: E731
+        old_cov = scored(old_per_task)
+        new_cov = scored((exp.eval.artifact.meta or {}).get("per_task") or {})
+        cov_ok = old_cov == new_cov
+        cov_detail = f"old={sorted(old_cov)} new={sorted(new_cov)}"
+
+    ok = fp_ok and score_ok and cov_ok
     print(f"[replay] data.fingerprint: {'OK' if fp_ok else 'MISMATCH'} (old={old_fp} new={new_fp})")
     print(f"[replay] eval.score:       {'OK' if score_ok else 'FAIL'} ({score_detail})")
+    if cov_detail is not None:
+        print(f"[replay] eval.coverage:    {'OK' if cov_ok else 'MISMATCH'} ({cov_detail})")
     print(f"[replay] {'PASS' if ok else 'FAIL'} -> {workspace}")
     return 0 if ok else 1
 

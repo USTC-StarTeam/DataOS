@@ -107,3 +107,33 @@ def git_sha(path: str | Path) -> dict[str, Any] | None:
 def image_ref() -> str | None:
     """The container ``image@digest`` this runs in, if the runtime exported ``DATAOS_IMAGE``."""
     return os.environ.get("DATAOS_IMAGE") or None
+
+
+def package_origin(dist: str) -> dict[str, Any] | None:
+    """Where a package was installed FROM (PEP 610 ``direct_url.json``): the vcs url +
+    exact commit for git installs, or the local path (+editable) for path installs.
+
+    ``package_versions`` pins the version string; for git/branch installs the version
+    alone can't prove which code ran — this records the commit. Failure-safe -> None."""
+    try:
+        import json as _json
+
+        raw = metadata.distribution(dist).read_text("direct_url.json")
+        if not raw:
+            return None
+        data = _json.loads(raw)
+        origin: dict[str, Any] = {"url": data.get("url")}
+        vcs = data.get("vcs_info") or {}
+        if vcs:
+            origin.update(
+                {
+                    "vcs": vcs.get("vcs"),
+                    "commit": vcs.get("commit_id"),
+                    "requested": vcs.get("requested_revision"),
+                }
+            )
+        if (data.get("dir_info") or {}).get("editable"):
+            origin["editable"] = True
+        return origin
+    except Exception:
+        return None

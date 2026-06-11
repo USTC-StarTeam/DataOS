@@ -16,7 +16,8 @@
   已固定的情形。
 - **跨进程(分开跑):** 文件系统是 join。`dataos.project(id=...)` 是 **open-or-create** —— 新进程
   重开 project、`project.load()` 把整个项目(所有 study + experiment)**回灌成对象**(状态 / 血缘 / 产物全恢复),
-  再 `run()` 即**续跑**(已 `completed` 的 stage 跳过,`run(force=True)` 才重跑)。结果在 `report.json` 里。这就是
+  再 `run()` 即**续跑**(`completed` 且 config 未变的跳过;pending / failed / `stale`(上游重跑过)/ config 漂移
+  的会重跑且**清空产物目录**;还活着的 `running` 拒绝再驱动防双跑;`run(force=True)` 无条件重跑)。结果在 `report.json` 里。这就是
   "中途停下来判断""换机接着跑"和并行能成立的原因。没有 DataOS session 或守护进程 —— 状态要么在内存、要么在磁盘。
 
 ## 串行(一个进程)

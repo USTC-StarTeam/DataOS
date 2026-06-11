@@ -82,8 +82,11 @@ studies = proj.load()                    # 盘上所有 study + experiment + sta
 proj.summary()                           # 各 study 的 best / varied_keys 总览
 ```
 
-**再驱动即续跑**:重新跑 plan,`exp.<stage>.run()` 遇到已 `completed` 的 stage 会**跳过**(只补 pending /
-failed),`run(force=True)` 才强制重跑。所以"换进程 / 换机 / 隔几天接着跑"都成立——不需要 session / 守护进程。
+**再驱动即续跑**:重新跑 plan,`exp.<stage>.run()` 遇到已 `completed` **且 config 未变**的 stage 会**跳过**;
+要补跑的是 pending / failed / `stale`(上游重跑过,下游自动标 stale)/ **config 漂移**(重开时改了该段 spec,
+视同过期,会**重跑并清空**该 stage 的产物目录——train 配了 `resume_from_checkpoint` 除外)。`run(force=True)`
+无条件重跑。正在 `running` 且进程还活着的 stage 会**拒绝**再驱动(防双跑)。所以"换进程 / 换机 / 隔几天接着跑"
+都成立——不需要 session / 守护进程。
 
 ## DataOS 跑在哪(本机 vs 远程)
 

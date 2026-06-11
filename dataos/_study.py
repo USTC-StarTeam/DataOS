@@ -31,6 +31,7 @@ from uuid import uuid4
 
 from dataos._experiment import Experiment
 from dataos._ids import _make_id, _utc_now_iso
+from dataos._io import atomic_write_json
 from dataos._redact import redact
 from dataos.workspace import Workspace
 
@@ -92,9 +93,8 @@ class Study:
         """Record the multi-experiment plan and persist ``plan.json``."""
         self.plan = dict(plan)
         self.updated_at = _utc_now_iso()
-        self.study_dir.mkdir(parents=True, exist_ok=True)
         # persisted copy is scrubbed of secret-looking values; in-memory plan stays raw
-        self.plan_path.write_text(json.dumps(redact(self.plan), **_JSON_KWARGS), encoding="utf-8")
+        atomic_write_json(self.plan_path, redact(self.plan))
         return self
 
     def experiment(self, spec: dict[str, Any] | None = None) -> Experiment:
@@ -150,15 +150,23 @@ class Study:
             evaluation = report.get("eval") or {}
             spec = report.get("spec") or {}
             dataset = report.get("dataset") or {}
+            # an invalidated/failed/re-running eval's old numbers are forensics, not scores:
+            # letting them rank (while the guards exclude them as not-completed) would crown
+            # exactly the least trustworthy row
+            eval_current = ((report.get("stages") or {}).get("eval") or {}).get("status") == "completed"
             rows.append(
                 {
                     "name": report.get("name") or report.get("id"),
                     "id": report.get("id"),
                     "status": report.get("status"),
-                    "score": evaluation.get("macro_average")
-                    if evaluation.get("macro_average") is not None
-                    else evaluation.get("score"),
-                    "metrics": evaluation.get("metrics") or {},
+                    "score": (
+                        evaluation.get("macro_average")
+                        if evaluation.get("macro_average") is not None
+                        else evaluation.get("score")
+                    )
+                    if eval_current
+                    else None,
+                    "metrics": (evaluation.get("metrics") or {}) if eval_current else {},
                     "train": spec.get("train") or {},
                     "data_rows": dataset.get("rows"),
                     "data_fingerprint": dataset.get("fingerprint"),
@@ -248,7 +256,14 @@ class Study:
         # shrink an experiment's macro to FEWER benches — ranking partial against full coverage
         # is apples-to-oranges. Identical coverage (everyone skipped the same bench) stays quiet.
         coverages = {
-            row["name"]: frozenset(row["per_task"].keys())
+            # only benches that actually SCORED count as covered — an in-entry lm-eval task
+            # skip leaves the task in per_task with value None, which is exactly the
+            # missing-coverage case this guard exists to catch
+            row["name"]: frozenset(
+                task
+                for task, value in row["per_task"].items()
+                if isinstance(value, (int, float))
+            )
             for row in rows
             if row["status"] == "completed" and row["per_task"]
         }
@@ -281,8 +296,7 @@ class Study:
         review["created_at"] = self.created_at
         review["updated_at"] = now
         self.updated_at = now
-        self.study_dir.mkdir(parents=True, exist_ok=True)
-        self.review_path.write_text(json.dumps(review, **_JSON_KWARGS), encoding="utf-8")
+        atomic_write_json(self.review_path, review)
         return review
 
     # -- helpers --------------------------------------------------------------
@@ -373,7 +387,12 @@ def _eval_protocol_fingerprint(report: dict[str, Any]) -> str | None:
     Model-identity keys are excluded (recursively, so suite entries too) so an eval-only
     baseline fingerprints the same as the trained experiments it anchors; stub
     ``provider_config`` is excluded so smoke sweeps with different fake scores don't alarm."""
-    config = ((report.get("stages") or {}).get("eval") or {}).get("config")
+    eval_stage = (report.get("stages") or {}).get("eval") or {}
+    if eval_stage.get("config_drift"):
+        # the persisted score came from a config that is no longer the one on record —
+        # the protocol is UNKNOWN until the stage re-runs; don't group it with anything
+        return None
+    config = eval_stage.get("config")
     if not isinstance(config, dict):
         return None
     protocol = _strip_protocol_noise(config)

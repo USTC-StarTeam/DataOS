@@ -21,7 +21,6 @@ experiment).
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -107,19 +106,28 @@ class Workspace:
         return self.exp_dir / "manifest.json"
 
     def write_report(self, data: dict[str, Any]) -> Path:
-        target = self.report_path()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False, default=str),
-            encoding="utf-8",
-        )
-        return target
+        from dataos._io import atomic_write_json
+
+        return atomic_write_json(self.report_path(), data)
 
     def write_manifest(self, data: dict[str, Any]) -> Path:
-        target = self.manifest_path()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False, default=str),
-            encoding="utf-8",
-        )
-        return target
+        from dataos._io import atomic_write_json
+
+        return atomic_write_json(self.manifest_path(), data)
+
+    def clear_artifact_dir(self, kind: str) -> None:
+        """Empty a stage's artifact dir before it (re)runs.
+
+        A force re-run with a different config must not inherit stale files — e.g. a
+        lora→full retrain leaving the old ``adapter_config.json`` behind makes eval load
+        the stale adapter. First runs see an empty dir, so this is a no-op for them."""
+        import shutil
+
+        target = {"data": self.dataset_dir, "train": self.model_dir, "eval": self.eval_dir}.get(kind)
+        if target is None or not target.exists():
+            return
+        for child in target.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
