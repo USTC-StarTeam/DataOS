@@ -21,6 +21,7 @@ On-disk layout::
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -148,6 +149,7 @@ class Study:
         for report in self._read_reports():
             evaluation = report.get("eval") or {}
             spec = report.get("spec") or {}
+            dataset = report.get("dataset") or {}
             rows.append(
                 {
                     "name": report.get("name") or report.get("id"),
@@ -158,10 +160,24 @@ class Study:
                     else evaluation.get("score"),
                     "metrics": evaluation.get("metrics") or {},
                     "train": spec.get("train") or {},
+                    "data_rows": dataset.get("rows"),
+                    "data_fingerprint": dataset.get("fingerprint"),
+                    "eval_protocol": _eval_protocol_fingerprint(report),
+                    "per_task": evaluation.get("per_task") or {},
                 }
             )
         rows.sort(key=lambda row: str(row["name"]))
         varied = _varied_keys([row["train"] for row in rows])
+        # Data-side sweeps (row counts / content) are invisible to spec["train"] diffs — e.g.
+        # an injected-dataset volume sweep. Surface them as pseudo-keys next to the train dims.
+        with_data = [row for row in rows if row["data_rows"] is not None or row["data_fingerprint"]]
+        fingerprints = [row["data_fingerprint"] for row in with_data]
+        if len({row["data_rows"] for row in with_data}) > 1:
+            varied.append("data.rows")
+        elif all(fingerprints) and len(set(fingerprints)) > 1:
+            # only when every report records one — a mixed old/new-version study must not
+            # misread a missing fingerprint as a data variation
+            varied.append("data.fingerprint")
 
         experiments: list[dict[str, Any]] = []
         for row in rows:
@@ -173,7 +189,12 @@ class Study:
                 "metrics": row["metrics"],
             }
             for key in varied:
-                entry[key] = row["train"].get(key)
+                if key == "data.rows":
+                    entry[key] = row["data_rows"]
+                elif key == "data.fingerprint":
+                    entry[key] = row["data_fingerprint"]
+                else:
+                    entry[key] = row["train"].get(key)
             experiments.append(entry)
 
         ranked = sorted(
@@ -196,15 +217,43 @@ class Study:
             for key, pairs in per_metric.items()
             if len(pairs) > 1
         }
-        caution = None
+        cautions: list[str] = []
         if best is not None:
             disagree = sorted(k for k, w in metric_winners.items() if w != best["name"])
             if disagree:
-                caution = (
+                cautions.append(
                     f"headline best is {best['name']!r}, but another experiment scores higher on "
                     f"{disagree} — the winner is metric-dependent. Pin eval config['headline_metric'] "
                     "to choose which metric ranks."
                 )
+        # Comparability guard: ranking only means something if every experiment was scored by
+        # the SAME eval implementation (tasks / limits / harness commands). Model-identity keys
+        # are excluded from the fingerprint, so an eval-only baseline matches its sweep.
+        protocols = {
+            row["name"]: row["eval_protocol"]
+            for row in rows
+            if row["eval_protocol"] is not None and row["status"] == "completed"
+        }
+        if len(set(protocols.values())) > 1:
+            cautions.append(
+                f"experiments were scored under DIFFERENT eval protocols {protocols} — "
+                "their scores are NOT comparable; align spec['eval'] across the study"
+            )
+        # Coverage guard: even under one protocol, runtime skips (gated bench, broken harness)
+        # shrink an experiment's macro to FEWER benches — ranking partial against full coverage
+        # is apples-to-oranges. Identical coverage (everyone skipped the same bench) stays quiet.
+        coverages = {
+            row["name"]: frozenset(row["per_task"].keys())
+            for row in rows
+            if row["status"] == "completed" and row["per_task"]
+        }
+        if len(set(coverages.values())) > 1:
+            shape = {name: sorted(cov) for name, cov in sorted(coverages.items())}
+            cautions.append(
+                f"experiments covered DIFFERENT bench sets {shape} (skipped entries/tasks?) — "
+                "their macro scores are not comparable; rerun the missing benches"
+            )
+        caution = " | ".join(cautions) if cautions else None
 
         return {
             "study_id": self.study_id,
@@ -284,6 +333,39 @@ def _next_serial(root: Path) -> str:
             if entry.is_dir() and match:
                 highest = max(highest, int(match.group(1)))
     return f"study-{highest + 1:04d}"
+
+
+_PROTOCOL_SKIP_KEYS = {"model_name_or_path", "base_model", "model_args", "provider_config", "env"}
+
+
+def _strip_protocol_noise(value: Any) -> Any:
+    """Drop model-identity / stub-score / env keys at EVERY level (suite entries included)."""
+    if isinstance(value, dict):
+        return {
+            key: _strip_protocol_noise(val)
+            for key, val in value.items()
+            if key not in _PROTOCOL_SKIP_KEYS
+        }
+    if isinstance(value, list):
+        return [_strip_protocol_noise(item) for item in value]
+    return value
+
+
+def _eval_protocol_fingerprint(report: dict[str, Any]) -> str | None:
+    """A short hash of the experiment's eval *protocol* — what was evaluated and how it was
+    scored (tasks / limits / fewshot / harness commands / suite shape).
+
+    Model-identity keys are excluded (recursively, so suite entries too) so an eval-only
+    baseline fingerprints the same as the trained experiments it anchors; stub
+    ``provider_config`` is excluded so smoke sweeps with different fake scores don't alarm."""
+    config = ((report.get("stages") or {}).get("eval") or {}).get("config")
+    if not isinstance(config, dict):
+        return None
+    protocol = _strip_protocol_noise(config)
+    if not protocol:
+        return None
+    payload = json.dumps(protocol, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha1(payload).hexdigest()[:8]
 
 
 def _varied_keys(configs: list[dict[str, Any]]) -> list[str]:

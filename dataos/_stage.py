@@ -215,7 +215,8 @@ class DataStage(Stage):
             "source": source,
             "revision": cfg.get("revision"),
             "recipe": recipe,
-            "format": cfg.get("format"),
+            # injected datasets carry their format in operator metadata, not the spec
+            "format": cfg.get("format") or (getattr(ds, "metadata", None) or {}).get("dataset_format"),
             "rows": len(ds),
             "columns": list(ds.hf_dataset.column_names),
             # HF's content fingerprint of the materialized dataset — a deterministic

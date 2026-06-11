@@ -102,6 +102,9 @@ rsync -az <host>:<repo>/workspace/lr-sweep/ ./pulled/lr-sweep/                  
   (uv 的 editable finder 是静态的)。怀疑远端树被动过(版本不对 / 行为怪)→ `rsync -azI` 强制全量
   + 删 `__pycache__` + 跑 doctor 核版本。
 - **detach**:长跑用 nohup / tmux,别依赖 ssh 长连接。
+- **ssh agent(如 Bitwarden)认证失败**:偶发 `agent refused operation` → 重试即可;但连续
+  `Permission denied (publickey)` 时**先 `ssh-add -l` 看 agent 活没活**——agent 进程没了(应用退出/锁定)
+  重试无用,要把应用拉起并解锁(`open -a Bitwarden`,主密码只有用户能输)。
 
 ## 六、本机离线快验(可选)
 

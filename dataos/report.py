@@ -53,6 +53,7 @@ def _dataset_section(data: "Data | None") -> dict[str, Any] | None:
         "path": str(data.path),
         "format": data.meta.get("format"),
         "rows": data.meta.get("rows"),
+        "fingerprint": data.meta.get("fingerprint"),
     }
 
 
@@ -85,6 +86,7 @@ def _eval_section(evaluation: "Eval | None") -> dict[str, Any] | None:
         "score": evaluation.score,
         "macro_average": evaluation.meta.get("macro_average"),
         "per_task": evaluation.meta.get("per_task"),
+        "skipped_tasks": evaluation.meta.get("skipped_tasks"),
         "metrics": dict(evaluation.metrics),
         "path": str(evaluation.path),
     }
@@ -178,6 +180,14 @@ def _eval_manifest(stage: Any) -> dict[str, Any]:
         # fall back to user-set seeds in the stage config (e.g. stub eval, which has none).
         "seeds": meta.get("seeds") or {k: cfg.get(k) for k in _SEED_KEYS if cfg.get(k) is not None},
         "headline_metric": cfg.get("headline_metric"),
+        # multi-bench / external-harness provenance: what aggregated score this is, which
+        # command/harness produced it, and what got skipped — the frozen-eval receipt.
+        "macro_average": meta.get("macro_average"),
+        "per_task": meta.get("per_task"),
+        "command": meta.get("command"),
+        "harness": redact(meta.get("harness")),
+        "suite": redact(meta.get("suite")),
+        "skipped_tasks": redact(meta.get("skipped_tasks")),
         "score": getattr(art, "score", None),
         "metrics": dict(getattr(art, "metrics", {}) or {}),
         "config": redact(cfg),

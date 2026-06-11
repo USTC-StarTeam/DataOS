@@ -112,7 +112,7 @@ PATH、GPU 可不可见——第一次跑最容易踩的坑。远程一条命令
 | **计划** | 建 / 重开 `project`(`proj.set_goal(instruct=...)` 记初始诉求 + **模式/成功判据/上限**);拟 `plan = {goal, experiments:[spec,...]}`(每个 `spec` 是 `{name, data, train, eval}`;`dataos.catalog()` 发现算子;可 copy `assets/plan.template.json`)。**模式 A:提案→用户确认后再 `study.set_plan`;模式 B:自主 `set_plan` 直接跑**(见「两种运行模式」)。 | — |
 | **数据** | `exp.data` 是 **DataStage**。声明式:`spec["data"]={source,split,limit,field_map,recipe:[{op,params}]}` 再 `exp.data.run()`;或逃生口 `exp.data.set(ds).run()` 注入你用 `dataos_operator` 算子现搭的 `Dataset`。判断全在这。 | `references/data-prep.md` |
 | **训练** | `exp.train.run()` -> `Model`,自动取上游 `exp.data` 的产物。开放-config:任意 LLaMA-Factory 键透传;`config` 取 `spec["train"]`。 | `references/train-eval.md` |
-| **评估** | `exp.eval.run()` -> `Eval`,自动取上游 `exp.train` 的产物 + `spec["eval"]`。stub 必须显式给;lm-eval 没有的 bench(自带 judge/框架,如 Arena Hard / BFCL)走 `provider:"external"` 跑外部 harness。 | `references/train-eval.md` |
+| **评估** | `exp.eval.run()` -> `Eval`,自动取上游产物 + `spec["eval"]`。**"怎么评"是你的判断,不默认 lm-eval**:新场景第一步先做**评测 discovery**(场景自带评分器?如 PostTrainBench 的 7 个 `evaluate.py`);三通道 = lm-eval(内置引擎)/ `provider:"external"`(任何外部 harness)/ stub(冒烟);多 bench 组合用 `suite`。harness 钉版本(`harness` 字段进 manifest);**study 内评测协议必须一致**(不一致 `summary()` 会 caution)。 | `references/train-eval.md` |
 | **复盘** | `report.json` 由各 stage `run()` **自动落**(扁平键 + `stages` 段);`exp.summary()` 是**纯 getter**,返回该实验当前情况;`study.summary()` -> 汇总/排名;`study.review(conclusion)` -> `review.json`。DataOS 列表,**你**下结论。 | — |
 
 ## 容器
@@ -195,6 +195,9 @@ study.review(conclusion="b 胜")         # -> review.json
   串 data→train→eval 的总 `run()`;DataOS 不拥有编排循环、也没有 GPU 调度器。
 - **study / experiment 都在 project 之下**:`project.study(id)` 建 study,`study.experiment(spec)` 建实验;
   没有独立的 `dataos.study` / `dataos.experiment`。
+- **同一 study 内所有实验用同一评测实现**(同 tasks / limit / harness 命令),否则排名无意义——
+  `study.summary()` 发现协议不一致会出 caution,别无视它。评测实现在 project 开工时 discovery 一次、
+  校验、冻结,然后复用(见 `train-eval.md`)。
 - **算子只来自外部 `dataos_operator` 包**(或用 `dataos.catalog()` 发现);数据集是
   `dataos_operator.Dataset`,不是 DataOS 类型。
 - **核对真实文件。** 读 `project.json` / `<study>/review.json` / `experiments/<name>/report.json`;别编造结论。

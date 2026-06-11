@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import warnings
 from typing import TYPE_CHECKING, Any
 
 from dataos.eval.config import EvalConfig
 from dataos._artifact import Eval, Model
 from dataos._ids import _make_id
+from dataos._redact import redact
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from dataos.workspace import Workspace
@@ -39,6 +41,8 @@ def run_eval_stage(
 ) -> Eval:
     """Run an lm-eval task suite and emit a single :class:`Eval`."""
     eval_config = dict(config or {})
+    if "suite" in eval_config:  # key presence, not truthiness — {"suite": []} must hit the validator
+        return _suite_eval_artifact(model, eval_config, workspace=workspace)
     if eval_config.get("provider") == "stub":
         evaluation = _stub_eval_artifact(workspace, model, eval_config)
         workspace.log(
@@ -69,6 +73,159 @@ def run_eval_stage(
     evaluation = _eval_output_to_artifact(output, workspace, model, config_obj)
     workspace.log("eval_model", _build_log_message(model, evaluation, output, config_obj))
     return evaluation
+
+
+def _entry_slug(name: Any, index: int, used: set[str]) -> str:
+    """Directory-safe, unique suite-entry name (no path escapes, no clash with results.json)."""
+    slug = re.sub(r"[^0-9A-Za-z._-]+", "-", str(name)).strip(".-") or f"entry{index}"
+    if slug == "results.json":
+        slug = f"entry{index}"
+    candidate, counter = slug, 1
+    while candidate in used:
+        counter += 1
+        candidate = f"{slug}#{counter}"
+    used.add(candidate)
+    return candidate
+
+
+def _merge_unique(target: dict[str, Any], key: str, prefix: str, value: Any) -> None:
+    """Insert without ever overwriting: collide -> '<prefix>::<key>', then '...#2', '...#3'."""
+    candidate = key
+    if candidate in target:
+        candidate = f"{prefix}::{key}"
+        counter = 1
+        while candidate in target:
+            counter += 1
+            candidate = f"{prefix}::{key}#{counter}"
+    target[candidate] = value
+
+
+class _SuiteEntryWorkspace:
+    """Route one suite entry's artifacts into ``eval/<entry>/`` so entries don't clobber
+    each other (the flat workspace layout keeps a single dir per artifact kind)."""
+
+    def __init__(self, base: "Workspace", entry_dir: Any) -> None:
+        self._base = base
+        self._entry_dir = entry_dir
+
+    def artifact_dir(self, kind: str, _id: str) -> Any:
+        del kind, _id
+        self._entry_dir.mkdir(parents=True, exist_ok=True)
+        return self._entry_dir
+
+    def log(self, name: str, message: str) -> Any:
+        return self._base.log(name, message)
+
+
+def _suite_eval_artifact(
+    model: Model,
+    eval_config: dict[str, Any],
+    *,
+    workspace: "Workspace",
+) -> Eval:
+    """Combine several eval runs (lm-eval / external / stub entries) into ONE :class:`Eval`.
+
+    This is how a single experiment gets scored against a whole scenario (e.g. PostTrainBench
+    = one lm-eval entry covering 4 tasks + 3 external harness entries). Each entry runs through
+    the normal single-provider path (keeping its seeds / receipts / task isolation); results
+    merge into one artifact: union ``metrics``, union ``per_task``, ``macro_average`` across
+    every bench, and entry-level failure isolation (a broken harness lands in ``skipped_tasks``
+    instead of voiding the others).
+    """
+    entries = eval_config.get("suite")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("eval suite must be a non-empty list of eval-config dicts")
+    for index, entry in enumerate(entries):  # validate the WHOLE shape before running anything
+        if not isinstance(entry, dict):
+            raise ValueError(f"suite entry #{index} must be a dict eval config")
+        if entry.get("suite"):
+            raise ValueError("nested eval suites are not supported")
+    eval_id = _make_id("eval")
+    eval_dir = workspace.artifact_dir("eval", eval_id)
+    merged_metrics: dict[str, float] = {}
+    per_task: dict[str, Any] = {}
+    skipped: dict[str, str] = {}
+    receipts: list[dict[str, Any]] = []
+    seeds: dict[str, Any] | None = None
+    used_names: set[str] = set()
+    for index, entry in enumerate(entries):
+        entry_cfg = dict(entry)
+        name = _entry_slug(
+            entry_cfg.pop("name", None)
+            or entry_cfg.get("provider")
+            or entry_cfg.get("mode")
+            or f"entry{index}",
+            index,
+            used_names,
+        )
+        sub_workspace = _SuiteEntryWorkspace(workspace, eval_dir / name)
+        try:
+            sub = run_eval_stage(model, entry_cfg, workspace=sub_workspace)
+        except Exception as exc:  # noqa: BLE001 - isolate entries like lm-eval tasks
+            skipped[name] = redact(str(exc))  # error text may quote harness stderr — scrub it
+            continue
+        for key, value in (sub.metrics or {}).items():
+            _merge_unique(merged_metrics, key, name, value)
+        sub_per_task = sub.meta.get("per_task")
+        if isinstance(sub_per_task, dict) and sub_per_task:
+            for task, value in sub_per_task.items():
+                _merge_unique(per_task, task, name, value)
+        else:
+            _merge_unique(per_task, name, name, sub.score)
+        if seeds is None and sub.meta.get("seeds"):
+            seeds = dict(sub.meta["seeds"])
+        for task, reason in (sub.meta.get("skipped_tasks") or {}).items():
+            skipped[f"{name}::{task}"] = redact(str(reason))
+        receipts.append(
+            {
+                "name": name,
+                "backend": sub.meta.get("backend"),
+                "mode": sub.meta.get("mode"),
+                "tasks": sub.meta.get("tasks"),
+                "command": sub.meta.get("command"),
+                "harness": sub.meta.get("harness"),
+                "seeds": sub.meta.get("seeds"),
+                "score": sub.score,
+                "metrics": dict(sub.metrics or {}),
+                "artifact_id": sub.artifact_id,
+                "path": str(sub.path),
+            }
+        )
+    if not receipts:
+        raise RuntimeError(f"all suite entries failed: {skipped}")
+    present = [value for value in per_task.values() if isinstance(value, (int, float))]
+    macro = sum(present) / len(present) if present else None
+    summary: dict[str, Any] = {
+        "backend": "suite",
+        "suite": receipts,
+        "n_entries": len(entries),
+        "score": macro,
+        "headline_score": macro,
+        "macro_average": macro,
+        "per_task": per_task,
+        "skipped_tasks": skipped,
+        "seeds": seeds,
+        "source_model_id": model.artifact_id,
+        "base_model": model.meta.get("base_model"),
+    }
+    (eval_dir / "results.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    workspace.log(
+        "eval_model",
+        f"model={model.artifact_id}\neval={eval_id}\nbackend=suite\n"
+        f"entries={len(receipts)}/{len(entries)}\n"
+        f"score={macro if macro is not None else 'n/a'}\n",
+    )
+    return Eval(
+        eval_id=eval_id,
+        path=eval_dir,
+        metrics=merged_metrics,
+        score=float(macro) if macro is not None else None,
+        meta=summary,
+        producer="eval_model",
+    )
 
 
 def _stub_eval_artifact(
@@ -119,8 +276,6 @@ def _external_eval_artifact(
     import os
     import subprocess
 
-    from dataos._redact import redact
-
     command = eval_config.get("command")
     if not isinstance(command, str) or not command.strip():
         raise ValueError("external eval needs config['command'] (a shell command string)")
@@ -147,10 +302,11 @@ def _external_eval_artifact(
         env=env,
         timeout=float(timeout) if timeout else None,
     )
-    (eval_dir / "external_stdout.log").write_text(proc.stdout[-20000:], encoding="utf-8")
-    (eval_dir / "external_stderr.log").write_text(proc.stderr[-20000:], encoding="utf-8")
+    # harness output may echo env/tokens — scrub before anything reaches disk or error text
+    (eval_dir / "external_stdout.log").write_text(redact(proc.stdout[-20000:]), encoding="utf-8")
+    (eval_dir / "external_stderr.log").write_text(redact(proc.stderr[-20000:]), encoding="utf-8")
     if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "")[-800:]
+        tail = redact((proc.stderr or proc.stdout or "")[-800:])
         raise RuntimeError(f"external eval command failed (exit {proc.returncode}): {tail}")
     if not results_path.is_file():
         raise RuntimeError(
@@ -171,6 +327,9 @@ def _external_eval_artifact(
     summary: dict[str, Any] = {
         "backend": "external",
         "command": redact(rendered),  # the receipt for the manifest; token-looking parts scrubbed
+        # frozen-harness identity ({repo, commit, judge_model, ...}) — fill it when freezing
+        # the harness so the manifest can prove which scorer produced the number
+        "harness": redact(eval_config.get("harness")),
         "results_file": str(results_path),
         "score": score,
         "headline_score": score,

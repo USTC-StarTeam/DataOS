@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from dataos._redact import redact
 from dataos.eval.backend.runner import LmEvalRunOutput
 from dataos.eval.config import EvalConfig
 from dataos.eval.types import ModelLike as ModelArtifact
@@ -111,7 +112,7 @@ def _evaluate_with_isolation(
         try:
             one = _as_dict(simple_evaluate(**_supported_kwargs(simple_evaluate, per_kwargs)))
         except Exception as task_exc:  # noqa: BLE001 - skip the broken bench, keep the rest
-            skipped[task] = str(task_exc)
+            skipped[task] = redact(str(task_exc))  # error text reaches disk via the manifest
             continue
         merged_results.update(one.get("results", {}))
         merged_samples.update(one.get("samples", {}))

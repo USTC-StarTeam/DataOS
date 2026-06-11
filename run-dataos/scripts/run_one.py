@@ -47,17 +47,24 @@ def _replay(args: argparse.Namespace) -> int:
     who = manifest.get("who") or {}
     data = manifest.get("data") or {}
     data_cfg = dict(data.get("config") or {})
-    if not data_cfg.get("source") or data.get("source") == "<injected>":
+    # eval-only 实验(基线:data/train 都没跑过)的 replay = 只复评、跳过 fingerprint 比对
+    _not_run = (None, "pending", "created")
+    eval_only = (
+        data.get("status") in _not_run
+        and (manifest.get("train") or {}).get("status") in _not_run
+    )
+    if not eval_only and (not data_cfg.get("source") or data.get("source") == "<injected>"):
         raise SystemExit(
             "replay 需要声明式数据(spec['data'] 有 source);此 manifest 用了 set() 注入,无法重跑数据。"
         )
 
     spec = {
         "name": who.get("name") or "replay",
-        "data": data_cfg,
-        "train": dict((manifest.get("train") or {}).get("config") or {}),
         "eval": dict((manifest.get("eval") or {}).get("config") or {}),
     }
+    if not eval_only:
+        spec["data"] = data_cfg
+        spec["train"] = dict((manifest.get("train") or {}).get("config") or {})
     # 复现到独立 workspace,避免覆盖原实验(默认 manifest 同级 _replay/)
     workspace = (
         args.workspace
@@ -69,11 +76,12 @@ def _replay(args: argparse.Namespace) -> int:
     )
     study.set_plan({"goal": "replay", "experiments": [spec]})
     exp = study.experiment(spec)
-    exp.data.run()
-    exp.train.run()
+    if not eval_only:
+        exp.data.run()
+        exp.train.run()
     exp.eval.run()
 
-    new_fp = (exp.data.artifact.meta or {}).get("fingerprint")
+    new_fp = None if eval_only else (exp.data.artifact.meta or {}).get("fingerprint")
     old_fp = data.get("fingerprint")
     new_score = exp.eval.artifact.score
     old_score = (manifest.get("result") or {}).get("score")

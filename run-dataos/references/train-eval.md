@@ -44,6 +44,19 @@ exp.train.run()
 
 ## 评估 —— `exp.eval.run() -> Eval`
 
+**"怎么评"是 runtime(你)的判断,不是 DataOS 的默认。** 场景定义评测(PostTrainBench 定义的是它仓库里
+7 个 `src/eval/tasks/<task>/evaluate.py`,不是 lm-eval)——所以进入一个新场景的**第一步是评测 discovery**:
+场景自带评分器/官方 harness 吗?bench 恰好在 lm-eval 任务库里吗?然后选执行通道:
+
+- **lm-eval**(内置引擎):bench 在 lm-eval 任务库里时最省(seeds / 任务级隔离 / per_task 全自动)。
+- **`provider:"external"`**(万能接口):任何外部评分器 = 一条命令 + 一张 JSON 成绩单(见下节)。
+- **stub**:冒烟。
+
+**冻结纪律(discovery → 校验 → freeze → 复用)**:评测实现在 **project 开工时确定一次**——wrap 好后先拿
+已知模型**校验对分**(和官方/论文数字对得上),把 harness 钉死(repo+commit / 包版本,填 `harness` 字段进
+manifest),之后该 project 所有实验跑**同一个**冻结的 harness。**study 内协议不一致 = 排名无意义**,
+`study.summary()` 会出 caution。
+
 - **自动取上游 `exp.train` 的 `Model`**;`config` 取 `spec["eval"]`(或临时 `exp.eval.config = {...}`)。
 - **eval-only(基线 / PostTrain 对照)**:没有上游 train 时,在 `spec["eval"]` 里给 `model_name_or_path`(或
   `base_model`,或 `model_args` 的 `pretrained=`)直接评一个**裸基座模型**——只 `exp.eval.run()`,不跑 data/train。
@@ -80,9 +93,33 @@ exp.eval.run()   # -> Eval;stdout/stderr tail 落 eval/,command 进 manifest(tok
 ```
 
 成绩单格式:`{"score": 0.61, "metrics": {"bfcl::overall": 0.61, ...}}`(`score` 缺省取 `headline_metric`
-指定的 metric,否则取第一个)。**judge 需要的 LLM key / HF token 只走 env(harness 自己从环境读),绝不写进
-command / config。** 诚实边界:外部 judge 不保证确定性 → `--replay` 容差自己定;DataOS 记录 command 与成绩单,
-不背 judge 的可复现性。
+指定的 metric,否则取第一个)。**冻结时给 `"harness": {"repo": ..., "commit": ..., "judge_model": ...}`**——
+原样记进 Eval meta 和 manifest,成绩单才能证明"是哪个评分器打的分"。**judge 需要的 LLM key / HF token 只走
+env(harness 自己从环境读),绝不写进 command / config。** 诚实边界:外部 judge 不保证确定性 → `--replay`
+容差自己定;DataOS 记录 command 与成绩单,不背 judge 的可复现性。
+
+### 多 bench 套件(`suite`)—— 一个实验 = 整个场景的分
+
+一次实验要在整个场景上打分(如 PostTrainBench 7 bench = lm-eval 4 任务 + 3 个外部 harness)时,把多个
+eval 配置组合成一个 `suite`,**合并成一个 `Eval`**:
+
+```python
+spec["eval"] = {"suite": [
+    {"name": "lm",     "mode": "lm_eval_native", "model": "hf",
+     "tasks": ["gsm8k", "aime25", "gpqa_diamond_zeroshot", "humaneval"],
+     "limit": 50, "apply_chat_template": True, "confirm_run_unsafe_code": True},
+    {"name": "bfcl",   "provider": "external", "command": "python .../bfcl/evaluate.py --model-path {model_path} --json-output-file {results_file}",
+     "harness": {"repo": "aisa-group/PostTrainBench", "commit": "<sha>"}},
+    {"name": "arena",  "provider": "external", "command": "..."},
+    {"name": "health", "provider": "external", "command": "..."},
+]}
+exp.eval.run()
+```
+
+每条 entry 走各自的正常路径(lm-eval 的 seeds/隔离、external 的收据全保留),产物落 `eval/<entry名>/`;
+合并结果:`metrics` 取并集、`per_task` 跨全部 bench、**`macro_average` = 全场景宏平均**(report 顶层 `score`、
+`study.summary()` 排名都用它)、某条 entry 挂了进 `skipped_tasks` 不连累其余、每条的收据(command/harness/分)
+留在 `eval.suite`。eval-only 基线照常:顶层给 `model_name_or_path` 即可。不支持嵌套 suite。
 
 > **一个 task 可能出多个指标**(如 gsm8k → `strict-match` 和 `flexible-extract`)。headline 默认取第一个;
 > 想固定用哪个,在 eval config 里加 `"headline_metric": "flexible-extract"`。`study.summary()` 会列出每个实验的
