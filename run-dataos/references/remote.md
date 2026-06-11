@@ -105,6 +105,9 @@ rsync -az <host>:<repo>/workspace/lr-sweep/ ./pulled/lr-sweep/                  
 - **ssh agent(如 Bitwarden)认证失败**:偶发 `agent refused operation` → 重试即可;但连续
   `Permission denied (publickey)` 时**先 `ssh-add -l` 看 agent 活没活**——agent 进程没了(应用退出/锁定)
   重试无用,要把应用拉起并解锁(`open -a Bitwarden`,主密码只有用户能输)。
+- **经 ssh 远程 `pkill -f` 会自杀**:`ssh host 'pkill -f "uv pip install"'` 的模式会匹配**这条 ssh 自己的
+  远端 shell 命令行**(它含同样字样)→ 把自己杀掉,表现为 exit 255、输出消失(真实踩过,且极难排查)。
+  用字符类防自匹配:`pkill -f "uv pip insta[l]l"`。
 
 ## 六、本机离线快验(可选)
 
