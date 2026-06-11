@@ -13,6 +13,7 @@ loaders so a planner has a single entry point::
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -107,11 +108,24 @@ def _load_save_to_disk(
             for row in records
         ]
 
-    metadata = {
-        "source": source_path.name,
-        "loader": "save_to_disk",
-        "path": str(source_path),
-        "split": split,
-        "records": len(records),
-    }
+    # dataos_operator's save_to_disk writes a sidecar with e.g. dataset_format — carry it
+    # through so a prepared dataset injected via run_one --data keeps its format provenance.
+    metadata: dict[str, Any] = {}
+    sidecar = source_path / "dataos_metadata.json"
+    if sidecar.is_file():
+        try:
+            saved = json.loads(sidecar.read_text(encoding="utf-8"))
+            if isinstance(saved, dict):
+                metadata.update(saved)
+        except (OSError, json.JSONDecodeError):
+            pass
+    metadata.update(
+        {
+            "source": source_path.name,
+            "loader": "save_to_disk",
+            "path": str(source_path),
+            "split": split,
+            "records": len(records),
+        }
+    )
     return Dataset.from_records(records, metadata=metadata)

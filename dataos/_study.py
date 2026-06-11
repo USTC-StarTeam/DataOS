@@ -210,13 +210,18 @@ class Study:
         per_metric: dict[str, list[tuple[str, float]]] = {}
         for row in rows:
             for key, value in (row["metrics"] or {}).items():
-                if isinstance(value, (int, float)):
+                # error bars are not scores: ranking experiments by ::stderr crowns the
+                # NOISIEST run (seen live with bfcl's stderr columns, incl. the mislabeled all2)
+                if isinstance(value, (int, float)) and not _is_noise_metric(key):
                     per_metric.setdefault(key, []).append((row["name"], float(value)))
-        metric_winners = {
-            key: max(pairs, key=lambda nv: nv[1])[0]
-            for key, pairs in per_metric.items()
-            if len(pairs) > 1
-        }
+        metric_winners: dict[str, str] = {}
+        for key, pairs in per_metric.items():
+            if len(pairs) < 2:
+                continue
+            top = max(value for _, value in pairs)
+            leaders = [name for name, value in pairs if value == top]
+            if len(leaders) == 1:  # a tie crowns nobody (3-way 0.85 used to "win" arbitrarily)
+                metric_winners[key] = leaders[0]
         cautions: list[str] = []
         if best is not None:
             disagree = sorted(k for k, w in metric_winners.items() if w != best["name"])
@@ -333,6 +338,16 @@ def _next_serial(root: Path) -> str:
             if entry.is_dir() and match:
                 highest = max(highest, int(match.group(1)))
     return f"study-{highest + 1:04d}"
+
+
+def _is_noise_metric(key: str) -> bool:
+    """Error-bar / counter pseudo-metrics that must not participate in winner ranking."""
+    lowered = key.lower()
+    return (
+        "stderr" in lowered
+        or "_sterr" in lowered
+        or lowered.endswith("::all2")  # bfcl quirk: 'all2' is a stderr despite the name
+    )
 
 
 _PROTOCOL_SKIP_KEYS = {"model_name_or_path", "base_model", "model_args", "provider_config", "env"}

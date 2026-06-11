@@ -130,7 +130,9 @@ exp.eval.run()
 > (如 GPQA 的 `Idavidrein/gpqa`)只会被**跳过**并记入 `eval.skipped_tasks`,不再连累其它 bench(要真测门控
 > bench:HF 网页接受条款 + `HF_TOKEN` 临时进 env,见 `remote.md`;token 绝不进 spec/manifest);② **长生成任务**
 > (如 `aime25`,task 默认 `max_gen_toks=32768`)必须在 `gen_kwargs` 里压 `max_gen_toks=1024` 之类,否则极慢爆时间;
-> ③ 代码 bench(`humaneval`/`mbpp`)给 `confirm_run_unsafe_code=True` 即可,DataOS 会自动置 `HF_ALLOW_CODE_EVAL=1`。
+> ③ 代码 bench(`humaneval`/`mbpp`)给 `confirm_run_unsafe_code=True` 即可,DataOS 会自动置 `HF_ALLOW_CODE_EVAL=1`;
+> ④ **小样本 smoke 只作"没崩"检查,不能用于实验排名**(实测 n=20 把 0.845/0.76/0.68 的真实分化抹平成三方平局)
+> ——结论在 formal 量级出,且判停 margin 必须大于宏平均的测量噪声(否则判停门是掷硬币)。
 
 > 日志里出现 `fatal: not a git repository ... Stopping at filesystem boundary` 是 lm-eval / llamafactory 探
 > git hash 的无害噪音,忽略即可。

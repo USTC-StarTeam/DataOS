@@ -102,6 +102,10 @@ docker 是**可选的更强环境钉死**——在 python 层(uv.lock)之外,把
   exp-subagent,环境归主 agent,三者不混。**
 - **铁律:修复只进 spec 或镜像,绝不进 live 容器。** 在运行中的容器里 `pip install` / 手改文件 = 不可复现
   (下次干净 `docker run` 就没了)。配置类改动写回 spec(进 manifest);依赖类改动 = 重 bump 镜像(换 digest)。
+- **铁律:subagent 绝不带着飞行中工作终止。** 发射了 nohup 训练/评测就要么等到 terminal、要么把自己发射的
+  进程杀干净再退;"我发射了、等跑完会有人分析"是空头承诺(真实事故:R3 发射 3 个 formal 评测后自行退出,
+  主 agent 被迫接管)。进度 checkpoint 文件**在收尾时也要更新**——停在"in flight"的进度文件会误导接管者
+  (以 report.json 为准,进度文件只是导航)。
 - **铁律:持久环境变更只归主 agent。** `pip install` / 改 venv / clone / 动仓库代码 = 共享状态变更——subagent
   **一律不做**(缺依赖就上报,主 agent 装好并落锁后再继续;真实事故:subagent 自行 clone 把整棵树打回旧版)。
   **进程级 env 注入不受限**(`HF_TOKEN=… CUDA_VISIBLE_DEVICES=…` 前缀单条命令,不留痕、不互踩)。

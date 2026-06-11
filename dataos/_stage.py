@@ -99,6 +99,9 @@ class Stage:
             return self.artifact
         self.status = "running"
         self.started_at = _utc_now_iso()
+        # persist the running state immediately: a 40-min train/eval must be observable from
+        # {kind}.json (pollers had to grep tqdm logs when this was only written at stage end)
+        self._persist()
         t0 = time.monotonic()
         try:
             self.artifact = self._run()

@@ -22,10 +22,18 @@ export PATH=$PTB/.venv/bin:$PATH \
   HF_ENDPOINT=https://hf-mirror.com HF_HUB_DISABLE_XET=1 HF_HUB_ENABLE_HF_TRANSFER=0 \
   NO_PROXY=localhost,127.0.0.1 no_proxy=localhost,127.0.0.1
 
-# LoRA adapter -> merged model (vllm-based harnesses can't load bare adapters); cached
+# LoRA adapter -> merged model (vllm-based harnesses can't load bare adapters).
+# Cache lives OUTSIDE the artifact dir (artifacts stay immutable); keyed by adapter path hash.
+# Legacy in-artifact _merged dirs are still honored if already present.
 if [ -f "$MODEL/adapter_config.json" ]; then
-  MERGED="$MODEL/_merged"
-  [ -f "$MERGED/config.json" ] || $PY "$HERE/merge_lora.py" "$MODEL" "$MERGED"
+  if [ -f "$MODEL/_merged/config.json" ]; then
+    MERGED="$MODEL/_merged"
+  else
+    CACHE=${PTB_MERGE_CACHE:-$HOME/.cache/dataos_ptb_merged}
+    H=$(printf "%s" "$(cd "$MODEL" && pwd)" | md5sum | cut -c1-12)
+    MERGED="$CACHE/$H"
+    [ -f "$MERGED/config.json" ] || $PY "$HERE/merge_lora.py" "$MODEL" "$MERGED"
+  fi
   MODEL="$MERGED"
 fi
 

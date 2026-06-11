@@ -38,6 +38,13 @@ spec 形如:
 
 ## 注意
 - **一次只跑一个 bench / 一张卡**(每个都自起 vllm);launch 时钉 `CUDA_VISIBLE_DEVICES`。
-- smoke n=20 的 stderr≈0.08 → 只能探 >0.16 的回归;结论性对比用正式 limit。
+- **smoke 只是"没崩"检查,不能用于排名**(实测:smoke 下 bfcl 三方平 0.85,formal 下 0.845/0.76/0.68
+  全分开)。结论一律在 formal limit 出;判停门的 margin 要和宏平均的测量噪声比(n=200/200/100 时
+  macro se≈0.018——小于它的差异是掷硬币,不是信号)。
+- **eval-only 基线**:`spec = {"name": "baseline", "eval": {"suite": [...], "model_name_or_path": "Qwen/Qwen3-1.7B"}}`
+  ——只 `exp.eval.run()`;`{model_path}` 解析为 HF id,vllm 经镜像加载。
+- **prompting 形态**(评测协议的一部分):所有 bench 经 vllm 套用 `templates/qwen3.jinja` chat template;
+  gsm8k 为 10-shot + 显式 `ANSWER:` 指令;thinking 模式未被显式禁用(已知未知,对比实验间一致即可)。
+- LoRA merge 缓存默认在 `~/.cache/dataos_ptb_merged/<hash>`(`PTB_MERGE_CACHE` 可改),不写 artifact 目录。
 - judge 类(arena/health)分数 judge-dependent:study 内同 judge 才可比;`--replay` 容差放宽。
 - aime2025 / humaneval 的 smoke 上限是估计值(校准只实测了 bfcl/gsm8k),首跑留余量。
