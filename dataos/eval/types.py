@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -9,11 +9,10 @@ from typing import Any, Protocol, runtime_checkable
 class ModelLike(Protocol):
     """Structural type for a trained model the eval subsystem consumes.
 
-    The eval backend/adapters only read these four attributes, so any object
-    exposing them (the new :class:`dataos.experiment.Model`, or the legacy
-    ``ModelArtifact``) is accepted. Importing this Protocol instead of a
-    concrete ``ModelArtifact`` also breaks the eval -> core.artifact import
-    cycle without touching any function body.
+    The eval backend only reads these four attributes, so any object exposing
+    them is accepted. Importing this Protocol instead of a concrete artifact
+    class also breaks the eval -> core.artifact import cycle without touching
+    any function body.
     """
 
     path: Path
@@ -23,58 +22,12 @@ class ModelLike(Protocol):
 
 
 @dataclass(slots=True)
-class EvalAdapterConfig:
-    name: str
-    config: dict[str, Any] = field(default_factory=dict)
+class LmEvalRunOutput:
+    """One lm-eval run, normalized: per-task results + samples + the raw payload
+    + a protocol snapshot (model args / seeds / skipped tasks) for the receipts."""
 
-
-@dataclass(slots=True)
-class EvalRequestConfig:
-    type: str
-    batch_size: int = 8
-    max_new_tokens: int = 256
-    do_sample: bool = False
-
-
-@dataclass(slots=True)
-class AdapterCallContext:
-    """Per-call envelope passed to adapter ``generate_until`` /
-    ``score_continuations``.
-
-    Carries the adapter knobs and the request shape; intentionally distinct
-    from :class:`dataos.eval.config.EvalConfig` (the lm-eval-shaped task
-    config). The bridge fills this in from a live ``DataOSLM`` instance — no
-    user-facing surface should construct it directly.
-    """
-
-    adapter: EvalAdapterConfig | None = None
-    request: EvalRequestConfig | None = None
-
-
-@dataclass(slots=True)
-class EvalRequest:
-    sample_id: str
-    index: int
-    request_type: str
-    prompt: str
-    stop: list[str] | None = None
-    choices: list[str] | None = None
-    meta: dict[str, Any] = field(default_factory=dict)
-
-    def to_record(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(slots=True)
-class ModelResponse:
-    sample_id: str
-    index: int
-    request_type: str
-    text: str | None = None
-    logprob: float | None = None
-    finish_reason: str | None = None
+    tasks: list[str]
+    results: dict[str, Any]
+    samples: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     raw: dict[str, Any] = field(default_factory=dict)
-    meta: dict[str, Any] = field(default_factory=dict)
-
-    def to_record(self) -> dict[str, Any]:
-        return asdict(self)
+    protocol: dict[str, Any] = field(default_factory=dict)

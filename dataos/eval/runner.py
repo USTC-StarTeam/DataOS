@@ -1,8 +1,9 @@
 """Drive the lm-evaluation-harness bridge from the eval stage.
 
-``run_eval_stage`` is the single entry point. It builds an
-:class:`EvalConfig` from the open ``config`` dict and routes either to the
-original DataOSLM adapter bridge or to lm-eval's native model backends.
+``run_eval_stage`` is the single entry point with four channels: a multi-entry
+``suite`` combiner, ``provider="external"`` (any outside harness = command + JSON
+receipt), ``provider="stub"`` (smoke), and the default lm-eval **native** backend
+(an :class:`EvalConfig` built from the open ``config`` dict).
 The :class:`LmEvalRunOutput` is then packaged into one :class:`Eval`
 whose meta carries the per-task results, the headline score, a protocol
 snapshot, and a budget-trimmed copy of the raw lm-eval payload. Legacy
@@ -64,12 +65,8 @@ def run_eval_stage(
         warnings.warn(f"eval: ignoring config keys not in EvalConfig: {unknown}", stacklevel=2)
         eval_config = {k: v for k, v in eval_config.items() if k in known}
     config_obj = EvalConfig(**eval_config)
-    mode = config_obj.normalized_mode()
-    if mode == "lm_eval_native":
-        output = _run_lm_eval_native(model, config_obj)
-    else:
-        adapter = _make_adapter(config_obj.adapter, config_obj.adapter_config)
-        output = _run_lm_eval(model, adapter, config_obj)
+    config_obj.normalized_mode()  # validates; removed legacy modes raise with guidance
+    output = _run_lm_eval_native(model, config_obj)
     evaluation = _eval_output_to_artifact(output, workspace, model, config_obj)
     workspace.log("eval_model", _build_log_message(model, evaluation, output, config_obj))
     return evaluation
@@ -397,45 +394,6 @@ def _build_external_log_message(model: Model, evaluation: Eval) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _make_adapter(name: str, adapter_config: dict[str, Any]) -> Any:
-    del adapter_config  # adapters read their knobs off AdapterCallContext at call time
-    if name == "transformers":
-        from dataos.eval.adapters.transformers import TransformersAdapter
-
-        return TransformersAdapter()
-    if name == "openai_compatible":
-        from dataos.eval.adapters.openai_compatible import OpenAICompatibleAdapter
-
-        return OpenAICompatibleAdapter()
-    raise ValueError(f"Unknown eval adapter {name!r}; expected 'transformers' or 'openai_compatible'")
-
-
-def _run_lm_eval(model: Model, adapter: Any, config: EvalConfig):
-    from dataos.eval.backend import run_lm_eval
-
-    # Forward the seed hierarchy to lm-eval so the legacy-adapter path is reproducible too
-    # (native mode already does this; this closes the gap).
-    seeds = {
-        "random_seed": config.random_seed,
-        "numpy_random_seed": config.numpy_random_seed,
-        "torch_random_seed": config.torch_random_seed,
-        "fewshot_random_seed": config.fewshot_random_seed,
-    }
-    return run_lm_eval(
-        model,
-        adapter,
-        tasks=list(config.tasks),
-        limit=config.limit,
-        num_fewshot=config.num_fewshot,
-        batch_size=config.batch_size,
-        max_new_tokens=config.max_new_tokens,
-        apply_chat_template=config.apply_chat_template,
-        confirm_run_unsafe_code=config.confirm_run_unsafe_code,
-        adapter_config=dict(config.adapter_config),
-        extra_simple_evaluate_kwargs=seeds,
-    )
-
-
 def _run_lm_eval_native(model: Model, config: EvalConfig):
     from dataos.eval.backend import run_lm_eval_native
 
@@ -473,7 +431,6 @@ def _eval_output_to_artifact(
         "num_fewshot": config.num_fewshot,
         "batch_size": config.batch_size,
         "model": protocol["resolved"].get("lm_eval_model"),
-        "adapter": config.adapter if config.normalized_mode() == "legacy_adapter" else None,
         "results": dict(output.results),
         "score": headline,
         "headline_score": headline,
@@ -616,10 +573,7 @@ def _build_log_message(
         f"tasks={','.join(config.tasks)}",
         f"score={headline if headline is not None else 'n/a'}",
     ]
-    if config.normalized_mode() == "lm_eval_native":
-        lines.append(f"lm_eval_model={evaluation.meta.get('model') or config.model or 'hf'}")
-    else:
-        lines.append(f"adapter={config.adapter}")
+    lines.append(f"lm_eval_model={evaluation.meta.get('model') or config.model or 'hf'}")
     if config.limit is not None:
         lines.append(f"limit={config.limit}")
     return "\n".join(lines) + "\n"

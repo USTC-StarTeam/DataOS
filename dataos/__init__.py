@@ -47,7 +47,7 @@ __all__ = [
     "project",
 ]
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 
 _LAZY_EXPORTS: dict[str, str] = {
     "catalog": "dataos._catalog",

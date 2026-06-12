@@ -48,7 +48,9 @@ exp.train.run()
 7 个 `src/eval/tasks/<task>/evaluate.py`,不是 lm-eval)——所以进入一个新场景的**第一步是评测 discovery**:
 场景自带评分器/官方 harness 吗?bench 恰好在 lm-eval 任务库里吗?然后选执行通道:
 
-- **lm-eval**(内置引擎):bench 在 lm-eval 任务库里时最省(seeds / 任务级隔离 / per_task 全自动)。
+- **lm-eval**(内置引擎,`mode` 缺省即 `lm_eval_native`,无需显式给;旧 legacy_adapter 桥已移除):
+  bench 在 lm-eval 任务库里时最省(seeds / 任务级隔离 / per_task 全自动);端点模型走 lm-eval 自带的
+  API backend(如 `local-chat-completions`)或 DataOS 的 tool-chat 插件。
 - **`provider:"external"`**(万能接口):任何外部评分器 = 一条命令 + 一张 JSON 成绩单(见下节)。
 - **stub**:冒烟。
 

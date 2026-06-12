@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from dataos._redact import redact
-from dataos.eval.backend.runner import LmEvalRunOutput
 from dataos.eval.config import EvalConfig
+from dataos.eval.types import LmEvalRunOutput
 from dataos.eval.types import ModelLike as ModelArtifact
 
 

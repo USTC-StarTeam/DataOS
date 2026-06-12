@@ -11,13 +11,16 @@ NATIVE_LM_EVAL_MODES = {"lm_eval_native", "native"}
 class EvalConfig:
     """lm-evaluation-harness shaped eval configuration.
 
-    ``mode="legacy_adapter"`` keeps the original DataOSLM adapter bridge.
-    ``mode="lm_eval_native"`` delegates model loading and inference to
-    lm-evaluation-harness backends such as ``hf`` or ``vllm``.
+    ``mode="lm_eval_native"`` (the default and only mode) delegates model loading and
+    inference to lm-evaluation-harness backends such as ``hf`` / ``vllm`` /
+    ``local-chat-completions`` (plus the DataOS tool-chat plugin in
+    :mod:`dataos.eval.models`). The pre-0.2.5 ``legacy_adapter`` bridge was removed:
+    endpoint-served models go through lm-eval's own API backends, and anything lm-eval
+    can't score goes through ``provider="external"`` instead.
     """
 
     tasks: list[str]
-    mode: str = "legacy_adapter"
+    mode: str = "lm_eval_native"
     limit: int | float | None = None
     num_fewshot: int | None = None
     batch_size: int | str | None = 8
@@ -50,18 +53,22 @@ class EvalConfig:
     metadata: dict[str, Any] = field(default_factory=dict)
     trust_remote_code: bool | None = None
     output_path: str | None = None
-    adapter: str = "transformers"
-    adapter_config: dict[str, Any] = field(default_factory=dict)
     headline_metric: str | None = None
 
     def normalized_mode(self) -> str:
         mode = self.mode.strip().lower()
-        if mode in LEGACY_ADAPTER_MODES:
-            return "legacy_adapter"
         if mode in NATIVE_LM_EVAL_MODES:
             return "lm_eval_native"
-        allowed = sorted(LEGACY_ADAPTER_MODES | NATIVE_LM_EVAL_MODES)
-        raise ValueError(f"Unknown eval mode {self.mode!r}; expected one of: {', '.join(allowed)}")
+        if mode in LEGACY_ADAPTER_MODES:
+            raise ValueError(
+                "the legacy_adapter eval bridge was removed in 0.2.5 — drop the 'mode' key "
+                "(lm_eval_native is the default; endpoints go through lm-eval's API backends "
+                "such as local-chat-completions), or use provider='external' for benches "
+                "lm-eval can't score"
+            )
+        raise ValueError(
+            f"Unknown eval mode {self.mode!r}; expected one of: {sorted(NATIVE_LM_EVAL_MODES)}"
+        )
 
     def to_record(self) -> dict[str, Any]:
         return asdict(self)

@@ -1,0 +1,4 @@
+# Verification scripts are linear narratives — chained stage calls on one line
+# (e.data.set(ds).run(); e.train.run(); e.eval.run()) read better than split.
+[lint]
+ignore = ["E702"]

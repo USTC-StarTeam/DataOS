@@ -91,16 +91,19 @@ docker 是**可选的更强环境钉死**——在 python 层(uv.lock)之外,把
 
 多个实验铺到多卡 + 自动扛失败时用这个模式(**纯运行时编排,DataOS 不感知**):
 
-- **主 agent(planner)**:**装好并钉死环境**(dataos extras、外部 harness 依赖——独立 venv、钉版本/commit,
-  落 uv.lock / 镜像;**环境是 project 级共享状态,只归主 agent**)、写 plan、备好共享数据(study 级
-  prepare-once + `save_to_disk` + 哈希)、**按 GPU 容量扇出**(N 张卡 ≤ N 并发,用信号量;别无脑起一堆)。
-- **每个 exp 一个 subagent**:`run_one.py --project … --spec …` 跑一个实验(走 docker 则换 `run_in_docker.sh`);
-  **失败诊断重试**(OOM→降 batch / 配置错→改 spec / 数据形状错→改 recipe),跑完读回 `report.json` / `manifest.json` 上报。
-- **eval-harness subagent(project 开工时一次)**:做评测 discovery(读目标场景的评分器实现,如 PostTrainBench
-  的 7 个 `evaluate.py`)→ 产出 **wrapper 草案 + 依赖清单**交主 agent(**装依赖归主 agent,不归它**)→ 环境就绪后
-  **校验对分**(拿已知模型跑出和官方/论文一致的数)→ 冻结(钉 repo commit / 包版本,填 `harness` 字段)→ 交付
-  一条可复用的 eval 配置(常为 `suite`),之后所有 exp-subagent 原样用它。**评测实现归它,实验执行归
-  exp-subagent,环境归主 agent,三者不混。**
+**角色只有两种**:主 agent 拥有 project 级一切共享状态,sub-agent 只负责**一轮 Experiment 的
+data → train → eval**。不设第三种常设角色。
+
+- **主 agent(planner/owner)**:project 开工时一次性做完所有共享态工作——**装好并钉死环境**(dataos
+  extras、外部 harness 依赖——独立 venv、钉版本/commit,落 uv.lock / 镜像;**环境只归主 agent**)、
+  **评测 discovery→对分校验→冻结**(读目标场景自带的评分器,拿已知模型对出和官方一致的分,钉 commit 填
+  `harness` 字段,产出一条所有实验共用的 eval 配置,常为 `suite`;调研可以临时派 subagent,但裁定与落地归
+  主 agent)、写 plan、备好共享数据(study 级 prepare-once + `save_to_disk` + 哈希)、**按 GPU 容量扇出**
+  (N 张卡 ≤ N 并发,用信号量;别无脑起一堆),最后汇总 `summary()` / `review()`。
+- **每个 Experiment 一个 sub-agent**:拿着冻结好的 spec 跑完整的 **data → train → eval**
+  (`run_one.py --project … --spec …`,走 docker 则换 `run_in_docker.sh`);**失败诊断重试**
+  (OOM→降 batch / 配置错→改 spec / 数据形状错→改 recipe),跑完读回 `report.json` / `manifest.json` 上报。
+  它不碰共享状态:不装依赖(缺了上报)、不改评测协议、不动别的实验。
 - **铁律:修复只进 spec 或镜像,绝不进 live 容器。** 在运行中的容器里 `pip install` / 手改文件 = 不可复现
   (下次干净 `docker run` 就没了)。配置类改动写回 spec(进 manifest);依赖类改动 = 重 bump 镜像(换 digest)。
 - **铁律:subagent 绝不带着飞行中工作终止。** 发射了 nohup 训练/评测就要么等到 terminal、要么把自己发射的
