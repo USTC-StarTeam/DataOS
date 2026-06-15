@@ -4,23 +4,27 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dataos"
-version = "0.1.0"
-description = "DataOS Python package skeleton"
+version = "0.3.0a0"
+description = "DataOS autonomous SFT runtime (agent-version): deterministic v0.2.5 library + code-driven Agent SDK loop"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "USTC-StarTeam" }]
 dependencies = [
+  # --- deterministic executor library (v0.2.5, unchanged) ---
   "datasets>=2.19.0",
   "httpx>=0.28,<0.29",
   "pyarrow>=15.0.0",
-  "prompt_toolkit>=3.0.43",
-  "pyclean>=3.5.0",
-  "dataos-agent[openai] @ git+https://github.com/USTC-StarTeam/DataOS-Agent.git",
+  "dataos-operator @ git+https://github.com/USTC-StarTeam/DataOS-Operator.git@v0.1.0",
+  # --- autonomous layer (dataos_auto) ---
+  "dataos-agent[claude] @ git+https://github.com/USTC-StarTeam/DataOS-Agent.git",
+  "pydantic>=2.6",
+  "tenacity>=8.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "ruff>=0.6.0",
+  "pytest>=8.0",
 ]
 train = [
   "llamafactory[metrics]>=0.9.4,<0.10",
@@ -42,12 +46,10 @@ vllm = [
 
 [project.scripts]
 dataos = "dataos.cli:main"
+dataos-auto = "dataos_auto.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["dataos*"]
-
-[tool.setuptools.package-data]
-dataos = ["templates/**/*.json", "eval_tasks/**/*.yaml", "eval_tasks/**/*.jinja"]
+include = ["dataos*", "dataos_auto*"]
 
 [tool.ruff]
 line-length = 100
