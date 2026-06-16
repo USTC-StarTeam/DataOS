@@ -158,6 +158,18 @@ def run_auto(cfg: AutoRunConfig) -> dict[str, Any]:
             for s in plan.experiments:
                 d = s.model_dump()
                 d["eval"] = dict(eval_cfg)  # freeze: the planner may not touch the eval protocol
+                if cfg.train_executor == "slurm_h100":
+                    # ship training to H100; pin the base model so the planner only sweeps
+                    # hyperparams (consistent base across the study).
+                    tr = dict(d.get("train") or {})
+                    tr["executor"] = "slurm_h100"
+                    if cfg.slurm:
+                        tr["slurm"] = cfg.slurm
+                    if cfg.h100_base_model:
+                        tr["model_name_or_path"] = cfg.h100_base_model
+                    if cfg.base_model_id:
+                        tr["base_model_id"] = cfg.base_model_id
+                    d["train"] = tr
                 specs.append(d)
             study.set_plan({"goal": plan.goal, "experiments": specs})
             specs = study.plan["experiments"]

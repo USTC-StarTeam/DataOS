@@ -56,6 +56,12 @@ def run_train(
     if config is None or config.get("mode") == "stub":
         return _run_stub_training(dataset, workspace=workspace)
 
+    # Remote executor: ship training to an H100 Slurm cluster, keep data/eval local.
+    if config.get("executor") == "slurm_h100":
+        from dataos.train.slurm_h100 import run_train_slurm_h100
+
+        return run_train_slurm_h100(dataset, config, workspace=workspace)
+
     # The prepared dataset is already materialized to workspace.dataset_dir by the
     # data stage (it IS the Data artifact); re-saving here would fail because the
     # dataset passed in is memory-mapped from that same dir ("can't overwrite

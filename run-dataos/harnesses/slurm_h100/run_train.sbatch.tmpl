@@ -1,0 +1,26 @@
+#!/bin/bash
+#SBATCH --job-name={jobname}
+#SBATCH --partition={partition}
+#SBATCH --qos={qos}
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time={time}
+#SBATCH --output={run_root}/train_%j.out
+#SBATCH --error={run_root}/train_%j.err
+set -euo pipefail
+export HF_HOME={hf_home}
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 TOKENIZERS_PARALLELISM=false
+source {venv}/bin/activate
+cd {run_root}
+echo "[train] node=$(hostname) start=$(date)"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
+python {run_root}/train_sft.py \
+  --base-model "{base_model}" \
+  --data "{run_root}/train.jsonl" \
+  --output-dir "{run_root}/adapter" \
+  --max-len {max_len} --bs {bs} --grad-accum {grad_accum} \
+  --lr {lr} --epochs {epochs} --lora-r {lora_r} --lora-alpha {lora_alpha} {max_samples_arg}
+echo "[train] done=$(date); adapter contents:"
+ls -la {run_root}/adapter | head
+test -f {run_root}/adapter/adapter_config.json && touch {run_root}/TRAIN_DONE || { echo "NO ADAPTER PRODUCED" >&2; exit 7; }
