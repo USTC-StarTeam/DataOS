@@ -20,11 +20,14 @@ def freeze_eval(*, cfg: AutoRunConfig, agent=None) -> dict:
     """Return the single shared eval config used for the whole project.
 
     On agent-version-ptb the evaluation is FIXED to PostTrainBench — ``cfg.eval_cfg`` is
-    ignored; every experiment is scored by the frozen 7-bench PTB suite (profile from
-    ``cfg.ptb_profile``). ``cfg.stub`` still short-circuits to a stub score for tests/dev.
+    ignored. With ``cfg.target_bench`` set (the per-(base,bench) protocol) it returns that
+    single bench's official eval; otherwise the 7-bench suite (macro) as a reporting view.
+    ``cfg.stub`` still short-circuits to a stub score for tests/dev.
     """
     if cfg.stub:
         return {"provider": "stub", "provider_config": {"score": 0.5}}
-    from .ptb import ptb_suite
+    from .ptb import ptb_eval, ptb_suite
 
+    if cfg.target_bench:
+        return ptb_eval(cfg.target_bench, profile=cfg.ptb_profile)
     return ptb_suite(profile=cfg.ptb_profile)

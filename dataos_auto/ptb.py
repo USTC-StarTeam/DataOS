@@ -1,10 +1,11 @@
 """Fixed PostTrainBench evaluation protocol (agent-version-ptb branch).
 
-On this branch the evaluation is NOT configurable: every experiment is scored by the same
-frozen PostTrainBench suite — the 7 official benchmarks via the external harness
-(``run_ptb.sh`` -> official ``src/eval/tasks/<bench>/evaluate.py`` with the shared
-``--model-path/--limit/--json-output-file`` contract), aggregated by macro-average. The
-planner shapes training only; it can never touch the eval protocol.
+The official PTB-fixed-pool task is **per-(base_model, single bench)**: each run optimizes
+ONE benchmark for ONE base model (10h / 1 GPU, fixed training pool). So the primary entry is
+:func:`ptb_eval` — a single-bench eval config (the official ``src/eval/tasks/<bench>/
+evaluate.py`` via the harness, ``--model-path/--limit/--json-output-file``); its score IS the
+optimization target / stop criterion. :func:`ptb_suite` (all 7, macro) is kept only for an
+optional multi-bench reporting view. The planner shapes training only; never the eval.
 
 A bench whose external key/token is absent at run time fails inside ``run_ptb.sh`` and is
 isolated out by DataOS's suite combiner (``skipped_tasks``), so the macro is taken over
@@ -54,25 +55,34 @@ _BENCHES: list[tuple[str, str, tuple[int, int], tuple[int, int], str | None]] = 
 PTB_REQUIREMENTS = {name: need for name, _b, _f, _s, need in _BENCHES if need}
 
 
-def ptb_suite(*, profile: str = "formal", harness: str | None = None) -> dict:
-    """The fixed PostTrainBench suite eval config — all 7 benches, macro-averaged.
+PTB_BENCHES = [b for _n, b, _f, _s, _need in _BENCHES]
 
-    ``profile`` selects per-bench limits/timeouts ("formal" = real protocol; "smoke" =
-    fast, non-comparable). ``harness`` overrides the run_ptb.sh path (else ``PTB_HARNESS``
-    env, else the in-repo harness)."""
+
+def _resolve(profile: str, harness: str | None) -> str:
     if profile not in PTB_PROFILES:
         raise ValueError(f"unknown PTB profile {profile!r}; use one of {PTB_PROFILES}")
-    harness = str(harness or os.environ.get("PTB_HARNESS") or _DEFAULT_HARNESS)
-    entries = []
-    for name, bench, formal, smoke, _need in _BENCHES:
-        limit, timeout = formal if profile == "formal" else smoke
-        entries.append(
-            {
+    return str(harness or os.environ.get("PTB_HARNESS") or _DEFAULT_HARNESS)
+
+
+def ptb_eval(bench: str, *, profile: str = "formal", harness: str | None = None) -> dict:
+    """Single-bench PTB eval config (the per-(base,bench) optimization target).
+
+    Returns a ``provider="external"`` config whose receipt ``score`` is that bench's
+    official metric — used directly as the stop criterion."""
+    harness_path = _resolve(profile, harness)
+    for name, b, formal, smoke, _need in _BENCHES:
+        if b == bench:
+            limit, timeout = formal if profile == "formal" else smoke
+            return {
                 "name": name,
                 "provider": "external",
                 "timeout": timeout,
-                "command": f"bash {harness} {bench} {{model_path}} {{results_file}} {limit}",
+                "command": f"bash {harness_path} {bench} {{model_path}} {{results_file}} {limit}",
                 "harness": dict(PTB_HARNESS_IDENTITY),
             }
-        )
-    return {"suite": entries}
+    raise ValueError(f"unknown PTB bench {bench!r}; one of {PTB_BENCHES}")
+
+
+def ptb_suite(*, profile: str = "formal", harness: str | None = None) -> dict:
+    """All 7 benches as one suite (macro) — optional multi-bench reporting view."""
+    return {"suite": [ptb_eval(b, profile=profile, harness=harness) for b in PTB_BENCHES]}

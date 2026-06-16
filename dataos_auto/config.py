@@ -88,6 +88,7 @@ class AutoRunConfig:
     eval_cfg: dict | None = None  # IGNORED on agent-version-ptb (eval is fixed to PostTrainBench)
     stub: bool = False  # tiny data + stub train/eval, no GPU/HF
     ptb_profile: str = "formal"  # PostTrainBench limit profile: "formal" | "smoke"
+    target_bench: str | None = None  # PTB single-bench target (per-(base,bench)); None = 7-suite
 
     # hybrid execution: train on a remote H100 Slurm cluster, data/eval stay local
     train_executor: str = "local"  # "local" | "slurm_h100"

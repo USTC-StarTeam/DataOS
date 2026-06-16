@@ -60,6 +60,29 @@ def _global_best(proj) -> dict | None:
     return best
 
 
+def _best_model_over_project(proj):
+    """The historically BEST completed experiment across the whole project, as
+    (score, study_id, exp_name, model_path). The autonomous run declares THIS as its
+    final_model — not whatever the last round produced."""
+    best = None
+    for sid in proj.studies:
+        edir = Path(proj.project_dir) / sid / "experiments"
+        if not edir.is_dir():
+            continue
+        for slug in sorted(p.name for p in edir.iterdir() if p.is_dir()):
+            try:
+                rep = json.loads((edir / slug / "report.json").read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
+            score = rep.get("score")
+            if not isinstance(score, (int, float)):
+                continue
+            cand = (float(score), sid, rep.get("name", slug), (rep.get("model") or {}).get("path"))
+            if best is None or cand[0] > best[0]:
+                best = cand
+    return best
+
+
 def _resume_context(proj):
     """Rebuild (prev_digest, prev_review) from the last reviewed study, for the planner."""
     from .schemas import ReviewOut
@@ -83,11 +106,31 @@ def _resume_context(proj):
 
 
 def _finish(proj, reason: str, best: dict | None, rounds: int, events: list) -> dict:
+    # Declare the BEST model over all rounds (not the last) as the final_model, and persist
+    # a PostTrainBench-style status/final_model.json pointing at it.
+    from dataos._ids import _utc_now_iso
+    from dataos._io import atomic_write_json
+
+    chosen = _best_model_over_project(proj)
+    final_model = None
+    if chosen:
+        score, sid, name, mpath = chosen
+        final_model = {
+            "final_model": mpath,
+            "score": score,
+            "study": sid,
+            "experiment": name,
+            "source": "best_over_history",
+            "declared_at": _utc_now_iso(),
+        }
+        # a FILE at the project root (not a subdir — Project.studies counts every subdir)
+        atomic_write_json(Path(proj.project_dir) / "final_model.json", final_model)
     return {
         "project_id": proj.id,
         "stop_reason": reason,
         "rounds_completed": rounds,
         "best": best,
+        "final_model": final_model,
         "events": events,
         "summary": proj.summary(),
     }

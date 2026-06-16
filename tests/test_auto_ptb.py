@@ -1,8 +1,10 @@
 """agent-version-ptb: eval is fixed to the PostTrainBench suite (no GPU/LLM/network)."""
 
+import pytest
+
 from dataos_auto.config import AutoRunConfig
 from dataos_auto.eval_freeze import freeze_eval
-from dataos_auto.ptb import ptb_suite
+from dataos_auto.ptb import PTB_BENCHES, ptb_eval, ptb_suite
 
 _EXPECTED = [
     "ptb_gsm8k", "ptb_bfcl", "ptb_humaneval", "ptb_aime2025",
@@ -50,3 +52,35 @@ def test_freeze_eval_is_fixed_to_ptb_and_ignores_eval_cfg():
 def test_freeze_eval_stub_still_works():
     cfg = AutoRunConfig(project_id="p", stub=True)
     assert freeze_eval(cfg=cfg) == {"provider": "stub", "provider_config": {"score": 0.5}}
+
+
+def test_ptb_eval_single_bench():
+    e = ptb_eval("gsm8k", profile="formal")
+    assert "suite" not in e
+    assert e["provider"] == "external"
+    assert "gsm8k" in e["command"] and e["command"].rstrip().endswith(" 200")
+    assert e["harness"]["repo"] == "aisa-group/PostTrainBench"
+    # smoke profile changes the limit
+    assert ptb_eval("gsm8k", profile="smoke")["command"].rstrip().endswith(" 20")
+
+
+def test_ptb_eval_unknown_bench():
+    with pytest.raises(ValueError):
+        ptb_eval("not_a_bench")
+
+
+def test_ptb_benches_list():
+    assert PTB_BENCHES == ["gsm8k", "bfcl", "humaneval", "aime2025",
+                           "healthbench", "arenahardwriting", "gpqamain"]
+
+
+def test_freeze_eval_target_bench_is_single():
+    cfg = AutoRunConfig(project_id="p", target_bench="gsm8k")
+    fz = freeze_eval(cfg=cfg)
+    assert "suite" not in fz and fz["provider"] == "external" and "gsm8k" in fz["command"]
+
+
+def test_freeze_eval_no_target_is_suite():
+    cfg = AutoRunConfig(project_id="p")
+    fz = freeze_eval(cfg=cfg)
+    assert "suite" in fz and len(fz["suite"]) == 7
