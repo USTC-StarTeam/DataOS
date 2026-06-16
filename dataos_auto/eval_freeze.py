@@ -17,13 +17,14 @@ from .config import AutoRunConfig
 
 
 def freeze_eval(*, cfg: AutoRunConfig, agent=None) -> dict:
-    """Return the single shared eval config used for the whole project."""
-    if cfg.eval_cfg:
-        return dict(cfg.eval_cfg)
+    """Return the single shared eval config used for the whole project.
+
+    On agent-version-ptb the evaluation is FIXED to PostTrainBench — ``cfg.eval_cfg`` is
+    ignored; every experiment is scored by the frozen 7-bench PTB suite (profile from
+    ``cfg.ptb_profile``). ``cfg.stub`` still short-circuits to a stub score for tests/dev.
+    """
     if cfg.stub:
         return {"provider": "stub", "provider_config": {"score": 0.5}}
-    raise ValueError(
-        "non-stub run needs cfg.eval_cfg (the frozen evaluation protocol): an lm-eval "
-        "native config {'tasks': [...]} , a suite {'suite': [...]}, or provider='external'. "
-        "Autonomous eval discovery is deferred — supply eval_cfg explicitly."
-    )
+    from .ptb import ptb_suite
+
+    return ptb_suite(profile=cfg.ptb_profile)

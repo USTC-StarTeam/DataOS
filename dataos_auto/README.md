@@ -67,3 +67,13 @@ python -m pytest tests/test_auto_l1.py
   the CLI is for the `claude` backend.
 - Eval auto-discovery is deferred — supply the frozen eval via `--eval-cfg`.
 - Remote `SSHRunner` is a reserved seam; the MVP fans out locally.
+
+## Branch: agent-version-ptb (fixed PostTrainBench eval)
+
+On the `agent-version-ptb` branch the evaluation is **not configurable** — `freeze_eval`
+ignores `eval_cfg` and always returns the frozen PostTrainBench suite ([ptb.py](ptb.py)):
+the 7 official benches via the external harness (`run_ptb.sh` → official `evaluate.py`),
+macro-averaged. `--ptb-profile formal|smoke` picks limits (default `formal`). Benches whose
+key/token is absent (`~/.mimo_key` for healthbench/arenahard judge, `HF_TOKEN` for gpqamain)
+fail in the harness and are skipped by the suite combiner. Running requires the official
+scorer deployed and pointed at by `PTB_ROOT` (vllm 0.11.0); `--stub` still works for L0.

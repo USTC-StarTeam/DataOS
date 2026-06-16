@@ -85,5 +85,6 @@ class AutoRunConfig:
     # data / eval
     data_source: str | None = None  # hf://... or local path for prepare_once; None → tiny stub data
     data_limit: int | None = None
-    eval_cfg: dict | None = None  # pre-frozen eval config; skips discovery when given
+    eval_cfg: dict | None = None  # IGNORED on agent-version-ptb (eval is fixed to PostTrainBench)
     stub: bool = False  # tiny data + stub train/eval, no GPU/HF
+    ptb_profile: str = "formal"  # PostTrainBench limit profile: "formal" | "smoke"

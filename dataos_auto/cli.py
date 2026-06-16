@@ -35,6 +35,7 @@ def _build_config(args: argparse.Namespace) -> AutoRunConfig:
         data_limit=args.data_limit,
         eval_cfg=eval_cfg,
         stub=args.stub,
+        ptb_profile=args.ptb_profile,
     )
 
 
@@ -73,6 +74,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--data-limit", type=int, dest="data_limit")
     run.add_argument("--eval-cfg", dest="eval_cfg", help="frozen eval config as a JSON string")
     run.add_argument("--stub", action="store_true", help="tiny data + stub train/eval (no GPU/HF)")
+    run.add_argument(
+        "--ptb-profile", default="formal", choices=["formal", "smoke"], dest="ptb_profile",
+        help="PostTrainBench limit profile (eval is fixed to PTB on this branch)",
+    )
 
     args = ap.parse_args(argv)
 
