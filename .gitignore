@@ -209,3 +209,7 @@ __marimo__/
 
 # Project workspace
 workspace/
+
+# secrets / run outputs
+*.env
+workspace_*/

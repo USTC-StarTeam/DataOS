@@ -11,10 +11,13 @@ code and, only after exhausting retries, raised — never swallowed into a silen
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from dataos_agent.errors import OutputParseError
+
+log = logging.getLogger(__name__)
 
 
 def run_structured(
@@ -29,6 +32,7 @@ def run_structured(
     """Run ``agent.run(task, output=model)`` and return the validated instance.
 
     Raises the last exception only after retries are exhausted."""
+    name = getattr(model, "__name__", str(model))
     prompt = task
     parse_left, net_left = parse_retries, net_retries
     while True:
@@ -38,17 +42,25 @@ def run_structured(
             if out is None:
                 raise OutputParseError("facade returned output=None")
             return out
-        except OutputParseError:
+        except OutputParseError as e:
             if parse_left <= 0:
+                log.error("%s: output unparseable, retries exhausted: %s", name, e)
                 raise
             parse_left -= 1
+            log.warning("%s: output parse failed (%s); %d parse-retry left, re-asking JSON-only",
+                        name, e, parse_left)
             prompt = (
                 task
                 + "\n\nIMPORTANT: your previous reply was not valid JSON. Reply with ONLY "
                 "the JSON object — no prose, no markdown fence."
             )
-        except Exception:  # transient endpoint/SDK error: back off and retry
+        except Exception as e:  # transient endpoint/SDK error: back off and retry
             if net_left <= 0:
+                log.error("%s: LLM call failed, net-retries exhausted: %s: %s",
+                          name, type(e).__name__, e)
                 raise
             net_left -= 1
-            sleep(min(2 ** (net_retries - net_left), 30))
+            backoff = min(2 ** (net_retries - net_left), 30)
+            log.warning("%s: transient LLM error %s: %s; %d net-retry left, backoff %ss",
+                        name, type(e).__name__, e, net_left, backoff)
+            sleep(backoff)

@@ -1,6 +1,9 @@
 """Construct the dataos-agent ``Agent`` for a role — the single place that knows
 about endpoints, keys and backend choice.
 
+- ``backend == "claude_code"`` → local Claude Code via the CLI's own Claude-account
+  (subscription) login — NO API key. Used when the loop runs locally and the brain is the
+  logged-in ``claude`` CLI. See :mod:`dataos_auto._claude_code`.
 - ``backend == "claude"`` → Claude Agent SDK backend pointed at an Anthropic-compatible
   endpoint (MiMo ``/anthropic`` by default). Key comes from env, never from config.
 - ``backend == "stub"``  → the deterministic ``fake`` provider, constructed directly via
@@ -34,6 +37,17 @@ def make_agent(role: str, cfg: AutoRunConfig):
         reply = cfg.stub_replies.get(role, "")
         return Agent(
             AgentConfig(provider="fake", model="stub", workspace=ws, extra={"reply": reply})
+        )
+
+    if cfg.backend == "claude_code":
+        # Local Claude Code with the CLI's own Claude-account (subscription) login — no API key.
+        from ._claude_code import ClaudeCodeAgent
+
+        return ClaudeCodeAgent(
+            instructions=PROMPTS[role],
+            workspace=ws,
+            model=cfg.claude_code_model,  # None -> CLI default subscription model
+            max_steps=cfg.max_steps,
         )
 
     if cfg.backend == "claude":
@@ -76,4 +90,6 @@ def make_agent(role: str, cfg: AutoRunConfig):
             tools=[],
         )
 
-    raise ValueError(f"unknown backend {cfg.backend!r}; use 'claude', 'openai', or 'stub'")
+    raise ValueError(
+        f"unknown backend {cfg.backend!r}; use 'claude_code', 'claude', 'openai', or 'stub'"
+    )

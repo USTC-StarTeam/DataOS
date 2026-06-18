@@ -1,12 +1,10 @@
-"""The three hard stop conditions — pure functions, no LLM, no IO.
+"""The PTB stop policy — a pure function, no LLM, no IO.
 
-This is the runtime enforcement that the skill's prose budget never had: the loop
-stops on exactly one of three conditions, first to fire wins, and the LLM never
-participates in the decision.
-
-    1. criterion        — bench score target met
-    2. budget:rounds    — max rounds reached
-    3. budget:wall_clock — max wall-clock seconds elapsed
+On agent-version-ptb the PostTrainBench protocol is a SINGLE stop condition: a wall-clock
+budget (10h / 1 GPU per (base, bench)). The run uses the full budget and submits the
+best-over-history model — neither a score target nor a round count stops it.
+``criterion_met`` is kept only as a reporting helper ("did the target get hit?"); it does
+NOT drive stopping.
 """
 
 from __future__ import annotations
@@ -38,27 +36,10 @@ def criterion_met(best: dict | None, c: Criterion) -> bool:
     return score >= c.threshold if c.direction == "max" else score <= c.threshold
 
 
-def stop_reason(
-    *,
-    round_idx: int,
-    started_at: float,
-    best: dict | None,
-    criterion: Criterion,
-    budget: Budget,
-    now: float | None = None,
-) -> str | None:
-    """Return the stop reason, or None to continue. Checked at the TOP of each round.
-
-    ``round_idx`` is the 0-based count of rounds already completed, so
-    ``round_idx >= max_rounds`` stops *after* that many rounds have run.
-    ``now`` is injectable for testing; defaults to ``time.monotonic()``.
-    """
-    if criterion_met(best, criterion):
-        return "criterion"
-    if budget.max_rounds is not None and round_idx >= budget.max_rounds:
-        return "budget:rounds"
-    if budget.max_wall_clock_s is not None:
-        elapsed = (now if now is not None else time.monotonic()) - started_at
-        if elapsed >= budget.max_wall_clock_s:
-            return "budget:wall_clock"
-    return None
+def stop_reason(*, started_at: float, budget: Budget, now: float | None = None) -> str | None:
+    """The single PTB stop condition: return "budget:wall_clock" once the wall-clock budget
+    is spent, else None. ``now`` is injectable for testing (defaults to ``time.monotonic()``)."""
+    if budget.max_wall_clock_s is None:
+        return None
+    elapsed = (now if now is not None else time.monotonic()) - started_at
+    return "budget:wall_clock" if elapsed >= budget.max_wall_clock_s else None

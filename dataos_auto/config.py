@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+PTB_WALL_CLOCK_S = 10 * 3600  # PostTrainBench: 10h / 1 GPU per (base, bench) — the single stop condition
+
 
 @dataclass
 class Criterion:
@@ -39,7 +41,8 @@ class Criterion:
 
 @dataclass
 class Budget:
-    """Stop conditions #2 and #3 — max rounds and max wall-clock seconds."""
+    """Wall-clock budget — ``max_wall_clock_s`` is the single PTB stop condition;
+    ``max_rounds`` is kept for the record only (NOT a stop condition)."""
 
     max_rounds: int | None = None
     max_wall_clock_s: float | None = None
@@ -57,8 +60,9 @@ class Budget:
 class AutoRunConfig:
     """Everything one autonomous run needs.
 
-    The stop policy is (criterion, budget) — at least one of budget's two fields
-    should be set so the loop always has a backstop (no unbounded auto-run)."""
+    The stop policy is a single wall-clock budget (default 10h, the PTB protocol);
+    ``criterion`` is only the eval target/metric for ranking + best-over-history,
+    NOT a stop condition."""
 
     project_id: str
     instruct: str = ""
@@ -66,7 +70,7 @@ class AutoRunConfig:
     scenario: str = "generic"
 
     criterion: Criterion = field(default_factory=Criterion)
-    budget: Budget = field(default_factory=Budget)
+    budget: Budget = field(default_factory=lambda: Budget(max_wall_clock_s=PTB_WALL_CLOCK_S))
 
     # execution
     gpus: list[str] = field(default_factory=lambda: ["0"])
@@ -75,9 +79,10 @@ class AutoRunConfig:
     run_one: str = "run-dataos/scripts/run_one.py"
 
     # LLM backend
-    backend: str = "claude"  # "claude" | "stub"
-    model: str = "mimo-v2.5-pro"
-    base_url: str = "https://token-plan-cn.xiaomimimo.com/anthropic"
+    backend: str = "claude_code"  # "claude_code" | "claude" | "openai" | "stub"
+    model: str = "mimo-v2.5-pro"  # model id for the claude/openai backends
+    base_url: str = "https://token-plan-cn.xiaomimimo.com/anthropic"  # for claude/openai backends
+    claude_code_model: str | None = None  # claude_code backend: None -> CLI default subscription model
     max_steps: int = 12
     # stub backend only: role ("planner"/"reviewer"/"freeze") -> fixed JSON reply string
     stub_replies: dict[str, str] = field(default_factory=dict)

@@ -3,7 +3,7 @@ to perform by hand.
 
 Everything here is owned Python: the round loop, the fan-out, the stop decision, and
 resume. The only LLM calls are ``planner.next_plan`` and ``reviewer.conclude``. Stopping
-is three hard conditions in :mod:`dataos_auto.budget` (the LLM never stops the loop).
+is a single wall-clock condition (10h) in :mod:`dataos_auto.budget` (the LLM never stops the loop).
 
 Resume is project-scoped and crash-safe: a round is "done" iff its study has a
 review.json; the loop restarts at the first round without one, reuses any plan already
@@ -136,18 +136,26 @@ def _finish(proj, reason: str, best: dict | None, rounds: int, events: list) -> 
     }
 
 
-def run_auto(cfg: AutoRunConfig) -> dict[str, Any]:
-    """Drive a project to a stop condition and return a result dict.
+def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
+    """Drive a project until the wall-clock budget is spent, then return a result dict.
 
-    Stop reasons: ``criterion`` (bench score target), ``budget:rounds`` (max rounds),
-    ``budget:wall_clock`` (max wall-clock seconds)."""
+    Single stop reason: ``budget:wall_clock`` (default 10h, the PTB protocol). ``_clock``
+    is an injectable monotonic clock for deterministic tests."""
     import dataos
 
     from .planner import next_plan
     from .reviewer import conclude
     from .backend import make_agent
+    from ._log import setup_run_logging
 
     cfg.workspace = os.path.abspath(cfg.workspace)
+    log, log_path = setup_run_logging(cfg.workspace, cfg.project_id)
+    log.info(
+        "run start: project=%s target_bench=%s executor=%s backend=%s profile=%s wall_budget=%ss",
+        cfg.project_id, cfg.target_bench, cfg.train_executor, cfg.backend,
+        cfg.ptb_profile, cfg.budget.max_wall_clock_s,
+    )
+    log.info("run log: %s", log_path)
 
     proj = dataos.project(id=cfg.project_id, workspace=cfg.workspace)
     proj.set_goal(
@@ -160,33 +168,38 @@ def run_auto(cfg: AutoRunConfig) -> dict[str, Any]:
     proj.load()  # rehydrate prior studies/experiments (no-op on first run)
 
     eval_cfg = freeze_eval(cfg=cfg)
-    data_dir = prepare_once(cfg=cfg)
+    # slurm_h100 prepares data inside the Slurm job (from the fixed pool on H100); only the
+    # local executor needs a prepared data dir here.
+    data_dir = None if cfg.train_executor == "slurm_h100" else prepare_once(cfg=cfg)
     catalog = _safe_catalog()
 
-    started = time.monotonic()
+    started = _clock()
     round_idx = len(_reviewed_studies(proj))
     best = _global_best(proj)
     prev_digest, prev_review = _resume_context(proj)
     events: list[dict] = []
+    if round_idx:
+        log.info("resuming: %d reviewed round(s) on disk; continuing at round %d (best=%s)",
+                 round_idx, round_idx, best)
 
     while True:
-        reason = _budget.stop_reason(
-            round_idx=round_idx,
-            started_at=started,
-            best=best,
-            criterion=cfg.criterion,
-            budget=cfg.budget,
-        )
+        reason = _budget.stop_reason(started_at=started, budget=cfg.budget, now=_clock())
         if reason:
-            return _finish(proj, reason, best, round_idx, events)
+            log.info("STOP: %s (after %d round(s))", reason, round_idx)
+            result = _finish(proj, reason, best, round_idx, events)
+            log.info("final_model: %s", result.get("final_model"))
+            return result
 
         study_id = f"round-{round_idx:04d}"
         study = proj.study(study_id)
 
+        log.info("round %d: start (study=%s)", round_idx, study_id)
         # reuse a plan already written for this round (crash mid-round), else ask the planner
         if study.plan and study.plan.get("experiments"):
             specs = study.plan["experiments"]
+            log.info("round %d: reusing on-disk plan (%d experiment(s))", round_idx, len(specs))
         else:
+            log.info("round %d: planning via %s backend...", round_idx, cfg.backend)
             plan = next_plan(
                 agent=make_agent("planner", cfg),
                 instruct=cfg.instruct,
@@ -216,26 +229,40 @@ def run_auto(cfg: AutoRunConfig) -> dict[str, Any]:
                 specs.append(d)
             study.set_plan({"goal": plan.goal, "experiments": specs})
             specs = study.plan["experiments"]
+            names = [s.get("name") for s in specs]
+            log.info("round %d: plan goal=%r -> %d experiment(s): %s",
+                     round_idx, plan.goal, len(specs), names)
 
-        _executor.fan_out(
-            project_id=cfg.project_id,
-            study_id=study_id,
-            workspace=cfg.workspace,
-            specs=specs,
-            data_dir=data_dir,
-            gpus=cfg.gpus,
-            run_one=cfg.run_one,
-            cwd=_REPO_ROOT,
-            poll_interval_s=cfg.poll_interval_s,
-            skip_completed=True,
-            limit=cfg.data_limit,
-        )
+        log.info("round %d: executing %d spec(s) via %s", round_idx, len(specs), cfg.train_executor)
+        if cfg.train_executor == "slurm_h100":
+            from . import h100_slurm
+
+            h100_slurm.fan_out(cfg=cfg, study_id=study_id, specs=specs)
+        else:
+            _executor.fan_out(
+                project_id=cfg.project_id,
+                study_id=study_id,
+                workspace=cfg.workspace,
+                specs=specs,
+                data_dir=data_dir,
+                gpus=cfg.gpus,
+                run_one=cfg.run_one,
+                cwd=_REPO_ROOT,
+                poll_interval_s=cfg.poll_interval_s,
+                skip_completed=True,
+                limit=cfg.data_limit,
+            )
 
         digest = study.summary()
+        log.info("round %d: results best=%s n_experiments=%s caution=%s",
+                 round_idx, digest.get("best"), digest.get("n_experiments"), digest.get("caution"))
+        log.info("round %d: reviewing...", round_idx)
         review = conclude(
             agent=make_agent("reviewer", cfg), digest=digest, goal=cfg.goal, round_idx=round_idx
         )
         study.review(conclusion={"conclusion": review.conclusion, "direction": review.direction})
+        log.info("round %d: review conclusion=%r direction=%r",
+                 round_idx, (review.conclusion or "")[:160], (review.direction or "")[:160])
 
         best = _better(best, digest.get("best"))
         prev_digest, prev_review = digest, review

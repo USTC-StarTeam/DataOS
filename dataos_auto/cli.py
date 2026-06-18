@@ -11,31 +11,41 @@ import argparse
 import json
 import sys
 
-from .config import AutoRunConfig, Budget, Criterion
+from .config import PTB_WALL_CLOCK_S, AutoRunConfig, Budget, Criterion
 
 
 def _build_config(args: argparse.Namespace) -> AutoRunConfig:
     eval_cfg = json.loads(args.eval_cfg) if args.eval_cfg else None
+    slurm = json.loads(args.slurm) if args.slurm else {}
     gpus = [g for g in (args.gpus.split(",") if args.gpus else []) if g != ""]
+    # PTB's single stop condition is wall-clock; if the user gave no cap, default to 10h so the
+    # loop always terminates (a bare --max-rounds is recorded but does NOT stop the loop).
+    wall = args.max_wall_clock_s if args.max_wall_clock_s is not None else PTB_WALL_CLOCK_S
     return AutoRunConfig(
         project_id=args.project,
         instruct=args.instruct or "",
         goal=args.goal or "",
         scenario=args.scenario,
         criterion=Criterion(metric=args.metric, threshold=args.target, direction=args.direction),
-        budget=Budget(max_rounds=args.max_rounds, max_wall_clock_s=args.max_wall_clock_s),
+        budget=Budget(max_rounds=args.max_rounds, max_wall_clock_s=wall),
         gpus=gpus,
         workspace=args.workspace,
         poll_interval_s=args.poll_interval_s,
         backend=args.backend,
         model=args.model,
         base_url=args.base_url,
+        claude_code_model=args.claude_code_model,
         max_steps=args.max_steps,
         data_source=args.data_source,
         data_limit=args.data_limit,
         eval_cfg=eval_cfg,
         stub=args.stub,
         ptb_profile=args.ptb_profile,
+        target_bench=args.target_bench,
+        train_executor=args.train_executor,
+        slurm=slurm,
+        h100_base_model=args.h100_base_model,
+        base_model_id=args.base_model_id,
     )
 
 
@@ -62,12 +72,38 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--poll-interval-s", type=float, default=10.0, dest="poll_interval_s")
 
     # LLM backend
-    run.add_argument("--backend", default="claude", choices=["claude", "stub"])
-    run.add_argument("--model", default="mimo-v2.5-pro")
+    run.add_argument(
+        "--backend", default="claude_code", choices=["claude_code", "claude", "openai", "stub"],
+        help="planner/reviewer backend (default claude_code = local Claude Code subscription)",
+    )
+    run.add_argument("--model", default="mimo-v2.5-pro", help="model id for claude/openai backends")
     run.add_argument(
         "--base-url", default="https://token-plan-cn.xiaomimimo.com/anthropic", dest="base_url"
     )
+    run.add_argument(
+        "--claude-code-model", dest="claude_code_model", default=None,
+        help="claude_code backend model override (None = CLI default subscription model)",
+    )
     run.add_argument("--max-steps", type=int, default=12, dest="max_steps")
+
+    # execution target — train locally, or ship train+gen to the H100 Slurm cluster
+    run.add_argument(
+        "--train-executor", dest="train_executor", default="local",
+        choices=["local", "slurm_h100"], help="where training/generation runs",
+    )
+    run.add_argument(
+        "--target-bench", dest="target_bench", default=None,
+        help="single PTB bench (per-(base,bench) optimization); omit for the 7-bench suite",
+    )
+    run.add_argument(
+        "--h100-base-model", dest="h100_base_model", default=None,
+        help="H100-local base-model path for slurm_h100 (e.g. /data/share_weight/Qwen3-1.7B-Base)",
+    )
+    run.add_argument("--base-model-id", dest="base_model_id", default=None, help="logical HF id")
+    run.add_argument(
+        "--slurm", default=None,
+        help="JSON overriding h100_slurm defaults (user/host/key/runs_base/judge_model/...)",
+    )
 
     # data / eval
     run.add_argument("--data-source", dest="data_source", help="hf://... or local path (prepare-once)")
@@ -81,8 +117,9 @@ def main(argv: list[str] | None = None) -> int:
 
     args = ap.parse_args(argv)
 
-    if args.target is None and args.max_rounds is None and args.max_wall_clock_s is None:
-        ap.error("need a stop policy: pass --target and/or --max-rounds / --max-wall-clock-s")
+    # Stop policy always exists: --max-wall-clock-s defaults to PTB's 10h in _build_config, so the
+    # loop is guaranteed to terminate even with no explicit cap. (--target/--max-rounds are recorded
+    # but do NOT stop the loop on this PTB-fixed branch.)
 
     from .loop import run_auto
 
