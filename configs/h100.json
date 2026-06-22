@@ -1,0 +1,31 @@
+{
+  "cluster": {
+    "host": "114.214.215.159",
+    "user": "hcgu",
+    "port": 22,
+    "key": "~/.ssh/ghc_miyao",
+    "partition": "gpu",
+    "qos": "gpu_priv",
+    "gres": "gpu:1"
+  },
+  "paths": {
+    "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
+    "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
+    "fixed_pool": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full",
+    "hf_cache": "/data/hcgu/hf_cache",
+    "conda_sh": "/data/software/miniconda3/etc/profile.d/conda.sh",
+    "train_env": "/data/hcgu/.conda/envs/train",
+    "eval_env": "/data/hcgu/.conda/envs/lm-eval"
+  },
+  "gateway": {
+    "base_url": "https://api2.starteam.wang/v1",
+    "model": "claude-haiku-4-5",
+    "key_file": "/data/hcgu/users/tjh/.gateway_key"
+  },
+  "judge": {
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model": "qwen3.5-plus",
+    "key_file": "/data/hcgu/users/tjh/.bailian_keys",
+    "workers": 16
+  }
+}

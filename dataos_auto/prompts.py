@@ -107,13 +107,15 @@ HARD RULES:
   self-heal execution failures (env, network, sbatch, missing deps).
 - Read run-dataos/harnesses/posttrainbench/PLAYBOOK.md for the exact commands, paths, conda
   envs, H100 ssh, the gateway for LLM-scoring operators, and the report.json contract. Follow it.
+  The RUNTIME CONFIG block in the task prompt is authoritative for host, paths, envs, Slurm,
+  cache, and gateway settings.
 - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
   submit sbatch, poll sacct/squeue (sleep ≥30s), and run BOUNDED internet steps (the judge;
   `llm_*` scoring on a SMALL sample). ALL data processing / training / eval-generation runs
   INSIDE the sbatch GPU job, NEVER on the login node. NEVER recursively scan the filesystem
   (no `grep -r` / `find` / `du` over /data) — every path you need (keys, pool, models) is named
-  in the PLAYBOOK, so you never have to search for anything.
-- GPU work (training, vLLM eval) goes through `sbatch --qos=gpu_priv` on H100; poll sacct;
+  in RUNTIME CONFIG, so you never have to search for anything.
+- GPU work (training, vLLM eval) goes through Slurm using RUNTIME CONFIG; poll sacct;
   retry ssh on transient network errors; never let a campus-net blip abort the experiment.
 - ALWAYS write the report.json at the path given — `status:"completed"` only if you got a real
   score, else `status:"failed"` with an `error`. A failed report is still mandatory.

@@ -4,7 +4,7 @@ The main-agent (loop + planner) fixes WHAT each experiment is (data operator rec
 hyperparameters) and which nodes to expand. This module hands each experiment to an agentic
 Claude Code sub-agent (same brain as the loop, via the gateway) that figures out HOW to
 realize it — run the operator recipe to build the data, submit training to H100 (ssh/sbatch,
-gpu_priv), run the frozen official PostTrainBench eval, and write ``report.json`` — self-healing
+configured Slurm), run the frozen official PostTrainBench eval, and write ``report.json`` — self-healing
 around env/network/sbatch failures. It does NOT change the recipe or the eval protocol.
 
 Same ``fan_out(cfg, study_id, specs) -> {name: report}`` contract the loop used for the old
@@ -30,11 +30,16 @@ from .prompts import SUBAGENT_SYSTEM
 log = logging.getLogger(__name__)
 
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent)
-_RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"  # H100 scratch root (cfg.slurm can override)
+_RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"  # legacy fallback; prefer runtime_config
 SUBAGENT_MAX_STEPS = 150  # an executor needs many turns (data → sbatch → poll → eval → report)
 _EXP_TIMEOUT_SMOKE_S = 1800.0  # hard per-experiment timeout: 30 min (smoke)
 _EXP_TIMEOUT_FORMAL_S = 10 * 3600.0  # PTB hard cap: 10 h / 1 H100
 _STATE_FILE = "subagent_state.json"
+_REQUIRED_CLUSTER_KEYS = ("host", "user", "port", "key", "partition", "qos", "gres")
+_REQUIRED_PATH_KEYS = (
+    "deploy_root", "runs_base", "fixed_pool", "hf_cache", "conda_sh", "train_env", "eval_env",
+)
+_REQUIRED_GATEWAY_KEYS = ("base_url", "model", "key_file")
 
 
 def _exp_timeout(cfg, deadline: float | None) -> float:
@@ -45,8 +50,54 @@ def _exp_timeout(cfg, deadline: float | None) -> float:
     return cap
 
 
+def _runtime_config(cfg) -> dict:
+    """Return runtime config with legacy --slurm values folded in for compatibility."""
+    runtime = json.loads(json.dumps(getattr(cfg, "runtime_config", {}) or {}))
+    paths = runtime.setdefault("paths", {})
+    cluster = runtime.setdefault("cluster", {})
+    legacy = getattr(cfg, "slurm", {}) or {}
+
+    legacy_path_keys = {
+        "agentver": "deploy_root",
+        "deploy_root": "deploy_root",
+        "runs_base": "runs_base",
+        "fixed_pool": "fixed_pool",
+        "hf_cache": "hf_cache",
+        "conda_sh": "conda_sh",
+        "train_env": "train_env",
+        "eval_env": "eval_env",
+    }
+    for old_key, new_key in legacy_path_keys.items():
+        if old_key in legacy and new_key not in paths:
+            paths[new_key] = legacy[old_key]
+
+    for key in ("user", "host", "port", "key", "partition", "qos", "gres"):
+        if key in legacy and key not in cluster:
+            cluster[key] = legacy[key]
+
+    paths.setdefault("runs_base", _RUNS_BASE)
+    return runtime
+
+
+def _missing_runtime_config_keys(cfg) -> list[str]:
+    runtime = _runtime_config(cfg)
+    missing = [
+        f"cluster.{key}" for key in _REQUIRED_CLUSTER_KEYS
+        if not runtime.get("cluster", {}).get(key)
+    ]
+    missing.extend(
+        f"paths.{key}" for key in _REQUIRED_PATH_KEYS
+        if not runtime.get("paths", {}).get(key)
+    )
+    missing.extend(
+        f"gateway.{key}" for key in _REQUIRED_GATEWAY_KEYS
+        if not runtime.get("gateway", {}).get(key)
+    )
+    return missing
+
+
 def _run_root(cfg, study_id: str, name) -> str:
-    runs_base = (getattr(cfg, "slurm", {}) or {}).get("runs_base", _RUNS_BASE)
+    runs_base = _runtime_config(cfg).get("paths", {}).get("runs_base", _RUNS_BASE)
     return f"{runs_base}/{cfg.project_id}/{study_id}/{_slug(str(name))}"
 
 
@@ -147,6 +198,26 @@ def _state_seed(*, cfg, study_id: str, spec: dict, exp_dir: Path, report_path: P
     }
 
 
+def _runtime_prompt_block(*, cfg, study_id: str, spec: dict, exp_dir: Path,
+                          eval_limit: int) -> dict:
+    runtime = _runtime_config(cfg)
+    runtime.setdefault("paths", {})["run_root"] = _run_root(cfg, study_id, spec["name"])
+    runtime["paths"]["local_report"] = str(exp_dir / "report.json")
+    runtime["paths"]["local_state"] = str(exp_dir / _STATE_FILE)
+    runtime["model"] = {
+        "base_model": cfg.h100_base_model,
+        "base_model_id": getattr(cfg, "base_model_id", None),
+    }
+    runtime["posttrainbench"] = {
+        "bench": cfg.target_bench,
+        "profile": cfg.ptb_profile,
+        "eval_limit": eval_limit,
+    }
+    if getattr(cfg, "runtime_config_path", None):
+        runtime["source"] = str(cfg.runtime_config_path)
+    return runtime
+
+
 def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int) -> str:
     bench = cfg.target_bench
     run_root = _run_root(cfg, study_id, spec["name"])
@@ -162,6 +233,17 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         json.dumps(recipe, ensure_ascii=False),
         "SFT hyperparameters (fixed):",
         json.dumps(spec.get("train") or {}, ensure_ascii=False),
+        "",
+        "RUNTIME CONFIG (authoritative — use these values instead of any examples in PLAYBOOK):",
+        json.dumps(
+            _runtime_prompt_block(
+                cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
+                eval_limit=eval_limit,
+            ),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ),
         "",
         f"H100 scratch for this experiment: RUN_ROOT={run_root}",
         f"Write the report to this LOCAL path (absolute): {exp_dir / 'report.json'}",
@@ -306,6 +388,11 @@ def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -
         raise ValueError("subagent executor needs cfg.target_bench (the single PTB bench)")
     if not cfg.h100_base_model:
         raise ValueError("subagent executor needs cfg.h100_base_model (the -Base model path)")
+    missing_runtime = _missing_runtime_config_keys(cfg)
+    if missing_runtime:
+        raise ValueError(
+            "subagent executor needs --runtime-config with: " + ", ".join(missing_runtime)
+        )
     exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
     log.info("fan_out: %d agentic sub-agent(s), SEQUENTIAL (PTB: 1 H100 at a time) bench=%s",
              len(specs), cfg.target_bench)

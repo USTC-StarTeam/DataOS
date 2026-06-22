@@ -17,6 +17,8 @@ def _cfg(ws):
         max_steps=1,
         data_limit=20,
         slurm={},
+        runtime_config={},
+        runtime_config_path=None,
         poll_interval_s=0,
     )
 
@@ -72,3 +74,38 @@ def test_subagent_resumes_same_session_until_report(tmp_path, monkeypatch):
     )
     assert state["session_id"] == "session-123"
     assert state["status"] == "completed"
+
+
+def test_runtime_config_injected_into_subagent_prompt(tmp_path):
+    cfg = _cfg(tmp_path / "ws")
+    cfg.runtime_config = {
+        "cluster": {"host": "h100.example", "user": "hcgu", "qos": "gpu_priv"},
+        "paths": {
+            "deploy_root": "/remote/dataos",
+            "runs_base": "/remote/runs",
+            "fixed_pool": "/remote/pool",
+            "hf_cache": "/remote/hf_cache",
+            "train_env": "/envs/train",
+            "eval_env": "/envs/eval",
+        },
+        "gateway": {"base_url": "https://gateway.example/v1", "key_file": "/keys/gateway"},
+    }
+    cfg.runtime_config_path = "configs/h100.json"
+    spec = {"name": "explore-0", "data": {}, "train": {}}
+
+    prompt = subagent_exec._task_prompt(
+        cfg=cfg,
+        study_id="round-0000",
+        spec=spec,
+        exp_dir=tmp_path / "experiments" / "explore-0",
+        eval_limit=20,
+    )
+
+    assert "RUNTIME CONFIG (authoritative" in prompt
+    assert '"host": "h100.example"' in prompt
+    assert '"runs_base": "/remote/runs"' in prompt
+    assert '"run_root": "/remote/runs/p/round-0000/explore-0"' in prompt
+    assert '"base_url": "https://gateway.example/v1"' in prompt
+    assert subagent_exec._run_root(cfg, "round-0000", "explore-0") == (
+        "/remote/runs/p/round-0000/explore-0"
+    )

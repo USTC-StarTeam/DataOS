@@ -15,6 +15,29 @@
 部署:harness 环境在 a800 `/data/hcgu/dev/PostTrainBench`(独立 venv,`PINNED_COMMITS.txt` 为收据;
 判据 key 在 `~/.mimo_key`,只经 env 注入)。环境变更只归主 agent。
 
+## agent-version-ptb 运行入口
+
+当前 agent-version-ptb 的真实运行入口是 `dataos_auto` 的 subagent executor。机器、
+路径、conda env、Slurm 参数、HF cache、gateway key 文件路径都通过 runtime config
+提供,不要写死在 `PLAYBOOK.md` 里:
+
+```bash
+.venv/bin/python -m dataos_auto.cli run \
+  --project <project_id> \
+  --workspace <workspace> \
+  --backend claude_code \
+  --claude-code-model sonnet \
+  --train-executor subagent \
+  --runtime-config configs/h100.json \
+  --target-bench <bench> \
+  --h100-base-model <absolute -Base snapshot path on H100> \
+  --ptb-profile smoke
+```
+
+`configs/h100.json` 是环境配置源;`PLAYBOOK.md` 只描述执行纪律和 report contract。
+subagent prompt 会注入 `RUNTIME CONFIG` 块,并以它为 host/path/env/slurm/gateway 的
+权威来源。
+
 ## suite 配置(2026-06-11 实测校准:Qwen3-1.7B 基线 bfcl 0.85 / gsm8k 0.85,各 ~200s@limit20)
 
 `W=/data/hcgu/dev/DataOS/run-dataos/harnesses/posttrainbench/run_ptb.sh`;烟测/正式只差 limit 与 timeout。

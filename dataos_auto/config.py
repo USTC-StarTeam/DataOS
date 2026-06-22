@@ -99,5 +99,7 @@ class AutoRunConfig:
     # implements each experiment (operators + H100 train/eval) — the real PostTrainBench path.
     train_executor: str = "local"  # "local" | "subagent"
     slurm: dict = field(default_factory=dict)  # H100 connection overrides (runs_base/host/...)
+    runtime_config: dict = field(default_factory=dict)  # cluster paths/envs injected into sub-agents
+    runtime_config_path: str | None = None  # provenance for runtime_config when loaded from disk
     h100_base_model: str | None = None  # H100 -Base model path (e.g. /data/hcgu/hf_cache/hub/Qwen3-1.7B-Base)
     base_model_id: str | None = None  # logical HF id for the downstream local eval

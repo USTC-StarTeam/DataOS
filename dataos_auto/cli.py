@@ -10,13 +10,34 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from .config import PTB_WALL_CLOCK_S, AutoRunConfig, Budget, Criterion
 
 
+def _load_json_arg(value: str | None, *, label: str) -> tuple[dict, str | None]:
+    """Load a JSON object from a file path or inline JSON string."""
+    if not value:
+        return {}, None
+    raw = value[1:] if value.startswith("@") else value
+    path = Path(raw)
+    if path.is_file():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        source = str(path)
+    else:
+        data = json.loads(value)
+        source = None
+    if not isinstance(data, dict):
+        raise SystemExit(f"{label} must be a JSON object")
+    return data, source
+
+
 def _build_config(args: argparse.Namespace) -> AutoRunConfig:
     eval_cfg = json.loads(args.eval_cfg) if args.eval_cfg else None
-    slurm = json.loads(args.slurm) if args.slurm else {}
+    slurm, _ = _load_json_arg(args.slurm, label="--slurm")
+    runtime_config, runtime_config_path = _load_json_arg(
+        args.runtime_config, label="--runtime-config"
+    )
     gpus = [g for g in (args.gpus.split(",") if args.gpus else []) if g != ""]
     # PTB's single stop condition is wall-clock; if the user gave no cap, default to 10h so the
     # loop always terminates (a bare --max-rounds is recorded but does NOT stop the loop).
@@ -44,6 +65,8 @@ def _build_config(args: argparse.Namespace) -> AutoRunConfig:
         target_bench=args.target_bench,
         train_executor=args.train_executor,
         slurm=slurm,
+        runtime_config=runtime_config,
+        runtime_config_path=runtime_config_path,
         h100_base_model=args.h100_base_model,
         base_model_id=args.base_model_id,
     )
@@ -105,7 +128,11 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--base-model-id", dest="base_model_id", default=None, help="logical HF id")
     run.add_argument(
         "--slurm", default=None,
-        help="JSON overriding H100 connection defaults (runs_base/host/user/key/...)",
+        help="Legacy JSON overrides for H100 connection defaults; prefer --runtime-config",
+    )
+    run.add_argument(
+        "--runtime-config", dest="runtime_config", default=None,
+        help="JSON file or inline JSON with cluster paths/envs, e.g. configs/h100.json",
     )
 
     # data / eval
