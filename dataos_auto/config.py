@@ -82,7 +82,7 @@ class AutoRunConfig:
     backend: str = "claude_code"  # "claude_code" | "claude" | "openai" | "stub"
     model: str = "mimo-v2.5-pro"  # model id for the claude/openai backends
     base_url: str = "https://token-plan-cn.xiaomimimo.com/anthropic"  # for claude/openai backends
-    claude_code_model: str | None = None  # claude_code backend: None -> CLI default subscription model
+    claude_code_model: str | None = "claude-sonnet-4-6"  # DataOS runs use Sonnet (planner/reviewer/sub-agents)
     max_steps: int = 12
     # stub backend only: role ("planner"/"reviewer"/"freeze") -> fixed JSON reply string
     stub_replies: dict[str, str] = field(default_factory=dict)
@@ -95,8 +95,9 @@ class AutoRunConfig:
     ptb_profile: str = "formal"  # PostTrainBench limit profile: "formal" | "smoke"
     target_bench: str | None = None  # PTB single-bench target (per-(base,bench)); None = 7-suite
 
-    # hybrid execution: train on a remote H100 Slurm cluster, data/eval stay local
-    train_executor: str = "local"  # "local" | "slurm_h100"
-    slurm: dict = field(default_factory=dict)  # passed into each train spec's "slurm" block
-    h100_base_model: str | None = None  # H100-local base path (e.g. /data/share_weight/...)
+    # execution: "local" = deterministic run_one (stub/dev); "subagent" = an agentic sub-agent
+    # implements each experiment (operators + H100 train/eval) — the real PostTrainBench path.
+    train_executor: str = "local"  # "local" | "subagent"
+    slurm: dict = field(default_factory=dict)  # H100 connection overrides (runs_base/host/...)
+    h100_base_model: str | None = None  # H100 -Base model path (e.g. /data/hcgu/hf_cache/hub/Qwen3-1.7B-Base)
     base_model_id: str | None = None  # logical HF id for the downstream local eval

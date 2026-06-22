@@ -81,15 +81,17 @@ def main(argv: list[str] | None = None) -> int:
         "--base-url", default="https://token-plan-cn.xiaomimimo.com/anthropic", dest="base_url"
     )
     run.add_argument(
-        "--claude-code-model", dest="claude_code_model", default=None,
-        help="claude_code backend model override (None = CLI default subscription model)",
+        "--claude-code-model", dest="claude_code_model", default="claude-sonnet-4-6",
+        help="claude_code backend model (DataOS runs default to Sonnet)",
     )
     run.add_argument("--max-steps", type=int, default=12, dest="max_steps")
 
     # execution target — train locally, or ship train+gen to the H100 Slurm cluster
     run.add_argument(
         "--train-executor", dest="train_executor", default="local",
-        choices=["local", "slurm_h100"], help="where training/generation runs",
+        choices=["local", "subagent"],
+        help="local = deterministic run_one (stub/dev); subagent = an agentic sub-agent "
+             "implements each experiment (operators + H100 train/eval), the real PTB path",
     )
     run.add_argument(
         "--target-bench", dest="target_bench", default=None,
@@ -97,12 +99,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     run.add_argument(
         "--h100-base-model", dest="h100_base_model", default=None,
-        help="H100-local base-model path for slurm_h100 (e.g. /data/share_weight/Qwen3-1.7B-Base)",
+        help="H100 -Base model path for the subagent executor (e.g. "
+             "/data/hcgu/hf_cache/hub/Qwen3-1.7B-Base)",
     )
     run.add_argument("--base-model-id", dest="base_model_id", default=None, help="logical HF id")
     run.add_argument(
         "--slurm", default=None,
-        help="JSON overriding h100_slurm defaults (user/host/key/runs_base/judge_model/...)",
+        help="JSON overriding H100 connection defaults (runs_base/host/user/key/...)",
     )
 
     # data / eval

@@ -11,24 +11,22 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
-class ExperimentSpec(BaseModel):
-    """One experiment in a study plan: the open-config DataOS spec shape.
+class EdgeSpec(BaseModel):
+    """One tree EDGE the planner proposes for an assigned slot: a training recipe
+    (data mixture from the fixed pool + SFT hyperparameters). The skeleton fixes which
+    node it extends and the experiment name; the base model and eval are frozen by the
+    runtime — the planner only fills ``data`` and ``train``."""
 
-    ``eval`` is always overwritten by the loop with the frozen shared eval config
-    (the planner is not allowed to touch the evaluation protocol)."""
-
-    name: str = Field(description="short unique slug, used as the experiment dir name")
-    data: dict = Field(default_factory=dict, description="declarative data spec (MVP: shared, overwritten)")
-    train: dict = Field(default_factory=dict, description="LLaMA-Factory pass-through; stub: {'mode':'stub'}")
-    eval: dict = Field(default_factory=dict, description="overwritten by the frozen eval config")
+    data: dict = Field(default_factory=dict, description="fixed-pool recipe: benchmark_tag/sources/mix/n_samples")
+    train: dict = Field(default_factory=dict, description="SFT hparams: lora_rank/lora_alpha/learning_rate/num_train_epochs/...")
 
 
 class PlanOut(BaseModel):
-    """The planner's structured reply: one round's experiment plan."""
+    """The planner's structured reply: one edge per assigned slot, in slot order."""
 
     goal: str = Field(description="this round's goal in one sentence")
-    experiments: list[ExperimentSpec] = Field(description="experiments to run this round")
-    rationale: str = Field(default="", description="why these experiments (audit only, not persisted to plan)")
+    edges: list[EdgeSpec] = Field(description="one recipe per slot, in the given slot order")
+    rationale: str = Field(default="", description="why these recipes (audit only, not persisted)")
 
 
 class ReviewOut(BaseModel):

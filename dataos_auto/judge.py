@@ -19,10 +19,56 @@ from __future__ import annotations
 import json
 import logging
 import shlex
-
-from dataos_auto.h100_slurm import _ssh
+import subprocess
+import time
+from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# Self-contained H100 connection + ssh helper (the deterministic eval/judge tool the sub-agent
+# invokes — it does NOT improvise judging). cfg.slurm can override any of these.
+_DEFAULTS = {
+    "user": "hcgu", "host": "114.214.215.159", "port": "22",
+    "key": str(Path.home() / ".ssh" / "ghc_miyao"),
+    "agentver": "/data/hcgu/users/tjh/dataos_agentver",
+    "bailian_keys": "/data/hcgu/users/tjh/.bailian_keys",
+    "judge_conda_env": "/data/hcgu/.conda/envs/lm-eval",
+    "bailian_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "judge_model": "qwen3.5-plus", "judge_workers": "16",
+}
+
+
+def _conn(overrides: dict | None = None) -> dict:
+    d = dict(_DEFAULTS)
+    if overrides:
+        d.update({k: v for k, v in overrides.items() if k in d})
+    return d
+
+
+def _ssh_base(c: dict) -> list[str]:
+    return [
+        "ssh", "-i", c["key"], "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=25", "-o", "ServerAliveInterval=10",
+        "-p", str(c["port"]), f"{c['user']}@{c['host']}",
+    ]
+
+
+def _ssh(conn: dict, cmd: str, timeout: int = 90, retries: int = 4) -> tuple[int, str, str]:
+    """Run a command over ssh, retrying ssh-LAYER failures (exit 255 / timeouts) with backoff.
+    A non-255 exit is the remote command's real rc and is passed through unretried."""
+    last: tuple[int, str, str] = (255, "", "ssh not attempted")
+    for attempt in range(retries):
+        try:
+            p = subprocess.run(_ssh_base(conn) + [cmd], capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            last = (255, "", f"ssh client timed out after {timeout}s")
+        else:
+            if p.returncode != 255:
+                return p.returncode, p.stdout, p.stderr
+            last = (255, p.stdout, p.stderr)
+        if attempt < retries - 1:
+            time.sleep(min(2 ** attempt * 2, 30))
+    return last
 
 # protocol-eval gen artifact (written into the run's eval dir) per judge bench
 _PRED_FILE = {
@@ -131,3 +177,31 @@ def run_login_judge(
     score = _score_from_metrics(metrics)
     log.info("login judge done: bench=%s score=%s", bench, score)
     return score, metrics
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Deterministic CLI for the sub-agent: judge one bench's generated predictions.
+
+    e.g. ``python -m dataos_auto.judge --eval-dir <RUN_ROOT>/eval/<bench>_limit<N> \
+         --bench healthbench --model-alias ptb_healthbench``
+    Prints ``{"score": <0-100|null>, "metrics": {...}}``; exit 0 iff a score was produced."""
+    import argparse
+
+    ap = argparse.ArgumentParser(description="PostTrainBench login-node Bailian judge (deterministic)")
+    ap.add_argument("--eval-dir", required=True, help="dir holding <bench>_predictions.jsonl")
+    ap.add_argument("--bench", required=True, choices=sorted(_PRED_FILE))
+    ap.add_argument("--model-alias", required=True, help="e.g. ptb_<bench>")
+    ap.add_argument("--judge-model", default=_DEFAULTS["judge_model"])
+    ap.add_argument("--judge-workers", type=int, default=int(_DEFAULTS["judge_workers"]))
+    ap.add_argument("--limit", type=int, default=-1)
+    a = ap.parse_args(argv)
+    score, metrics = run_login_judge(
+        conn=_conn(), eval_dir=a.eval_dir, bench=a.bench, model_alias=a.model_alias,
+        judge_model=a.judge_model, judge_workers=a.judge_workers, limit=a.limit,
+    )
+    print(json.dumps({"score": score, "metrics": metrics}, ensure_ascii=False))
+    return 0 if score is not None else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

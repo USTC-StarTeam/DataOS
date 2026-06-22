@@ -1,4 +1,9 @@
-"""SFT gemma-3-4b-pt on prepared GSM8K-style math data using LoRA."""
+"""SFT a base model on a prepared {prompt,target,text} dataset.
+
+``--finetuning-type lora`` (default) trains LoRA adapters then merges them into the base to
+produce ``--merged-dir`` (final_model); ``--finetuning-type full`` trains all parameters and
+saves the result directly as ``--merged-dir``. The method + hyperparameters are chosen by the
+main-agent (planner) per experiment; this script just executes them."""
 from __future__ import annotations
 
 import argparse
@@ -48,8 +53,10 @@ def parse_args():
     p.add_argument("--grad-accum", type=int, default=8)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--epochs", type=float, default=1.0)
-    p.add_argument("--lora-r", type=int, default=64)
-    p.add_argument("--lora-alpha", type=int, default=128)
+    p.add_argument("--finetuning-type", default="lora", choices=["lora", "full"],
+                   help="lora = LoRA adapters then merge; full = full-parameter SFT (no merge)")
+    p.add_argument("--lora-r", type=int, default=64, help="LoRA rank (ignored for --finetuning-type full)")
+    p.add_argument("--lora-alpha", type=int, default=128, help="LoRA alpha (ignored for full)")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -94,17 +101,20 @@ def main():
         model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
 
-    print("[train] adding LoRA adapters")
-    lora_cfg = LoraConfig(
-        r=args.lora_r,
-        lora_alpha=args.lora_alpha,
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj", "gate_proj"],
-    )
-    model = get_peft_model(model, lora_cfg)
-    model.print_trainable_parameters()
+    if args.finetuning_type == "lora":
+        print("[train] adding LoRA adapters")
+        lora_cfg = LoraConfig(
+            r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj", "gate_proj"],
+        )
+        model = get_peft_model(model, lora_cfg)
+        model.print_trainable_parameters()
+    else:
+        print("[train] FULL-parameter fine-tuning — all weights trainable (no LoRA, no merge)")
 
     # pads input_ids AND the pre-masked labels (-100) to the batch max — handles variable
     # lengths; DataCollatorForLanguageModeling left pre-set labels unpadded (can't batch).
@@ -139,21 +149,26 @@ def main():
     )
     print("[train] starting training")
     trainer.train()
-    print("[train] done; saving adapter")
-    trainer.save_model(args.output_dir)
-    tok.save_pretrained(args.output_dir)
 
-    print("[train] merging LoRA into base for final_model")
-    # Reload base in bf16 and merge
-    del model, trainer
-    torch.cuda.empty_cache()
-    base = AutoModelForCausalLM.from_pretrained(args.base_model, torch_dtype=torch.bfloat16)
-    merged = PeftModel.from_pretrained(base, args.output_dir)
-    merged = merged.merge_and_unload()
     Path(args.merged_dir).mkdir(parents=True, exist_ok=True)
-    merged.save_pretrained(args.merged_dir, safe_serialization=True)
-    tok.save_pretrained(args.merged_dir)
-    print(f"[train] merged model written to {args.merged_dir}")
+    if args.finetuning_type == "lora":
+        print("[train] done; saving adapter + merging LoRA into base for final_model")
+        trainer.save_model(args.output_dir)
+        tok.save_pretrained(args.output_dir)
+        del model, trainer
+        torch.cuda.empty_cache()
+        base = AutoModelForCausalLM.from_pretrained(args.base_model, torch_dtype=torch.bfloat16)
+        merged = PeftModel.from_pretrained(base, args.output_dir)
+        merged = merged.merge_and_unload()
+        merged.save_pretrained(args.merged_dir, safe_serialization=True)
+        tok.save_pretrained(args.merged_dir)
+        print(f"[train] merged model written to {args.merged_dir}")
+    else:
+        # full-parameter SFT: the trained model IS the final model — save it directly, no merge
+        print("[train] done; saving full fine-tuned model as final_model")
+        trainer.save_model(args.merged_dir)
+        tok.save_pretrained(args.merged_dir)
+        print(f"[train] full model written to {args.merged_dir}")
 
 
 if __name__ == "__main__":

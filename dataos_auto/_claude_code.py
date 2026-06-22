@@ -41,6 +41,20 @@ def _final_text(messages: list) -> str:
     return "\n".join(parts)
 
 
+def _session_id(messages: list) -> str | None:
+    """Return the CLI session id emitted by the SDK stream, when available."""
+    for m in reversed(messages):
+        sid = getattr(m, "session_id", None)
+        if isinstance(sid, str) and sid:
+            return sid
+        data = getattr(m, "data", None)
+        if isinstance(data, dict):
+            sid = data.get("session_id") or data.get("sessionId")
+            if isinstance(sid, str) and sid:
+                return sid
+    return None
+
+
 class ClaudeCodeAgent:
     """Same ``.run(task, *, output=...)`` contract as ``dataos_agent.Agent``, backed by the
     local claude CLI's Claude-account (subscription) login — no API key."""
@@ -59,7 +73,8 @@ class ClaudeCodeAgent:
         self.max_steps = max_steps
         Path(self.workspace).mkdir(parents=True, exist_ok=True)
 
-    def run(self, task: str, *, output: Any = None, resume: Any = None) -> SimpleNamespace:
+    def run(self, task: str, *, output: Any = None, resume: Any = None,
+            timeout: float | None = None) -> SimpleNamespace:
         from claude_agent_sdk import ClaudeAgentOptions, query
         from dataos_agent._output import parse_output
 
@@ -80,6 +95,8 @@ class ClaudeCodeAgent:
         }
         if self.model:
             opts["model"] = self.model
+        if resume:
+            opts["resume"] = str(resume)
         # NOTE: no `env` -> no ANTHROPIC_API_KEY -> the CLI uses its own account login.
         options = ClaudeAgentOptions(**opts)
 
@@ -89,7 +106,13 @@ class ClaudeCodeAgent:
                 collected.append(message)
             return collected
 
-        messages = asyncio.run(_collect())
+        async def _collect_with_timeout() -> list:
+            return await asyncio.wait_for(_collect(), timeout)
+
+        try:
+            messages = asyncio.run(_collect_with_timeout() if timeout else _collect())
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            raise RuntimeError(f"claude_code timed out after {timeout}s") from e
         for m in messages:
             if getattr(m, "is_error", False):
                 raise RuntimeError(f"claude_code error: {getattr(m, 'result', 'unknown')}")
@@ -103,4 +126,11 @@ class ClaudeCodeAgent:
                 "…" if len(text) > 300 else "",
             )
         parsed = parse_output(text, output) if output is not None else None
-        return SimpleNamespace(text=text, output=parsed, plan=[], files={}, steps=[])
+        return SimpleNamespace(
+            text=text,
+            output=parsed,
+            plan=[],
+            files={},
+            steps=[],
+            session_id=_session_id(messages),
+        )

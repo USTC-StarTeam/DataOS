@@ -47,6 +47,32 @@ def _better(a: dict | None, b: dict | None) -> dict | None:
     return a if av >= bv else b
 
 
+def _read_report(exp_root: Path, name: str):
+    """(score, model_path, artifacts, scripts) from one experiment's report.json — executor-agnostic."""
+    from dataos._study import _slug
+
+    try:
+        rep = json.loads((exp_root / _slug(name) / "report.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None, None, {}, {}
+    score = rep.get("score")
+    return (
+        float(score) if isinstance(score, (int, float)) else None,
+        (rep.get("model") or {}).get("path"),
+        rep.get("artifacts") or {},
+        rep.get("scripts") or {},
+    )
+
+
+def _spec_from_node(node: dict, slot: int, eval_cfg: dict) -> dict:
+    """One experiment spec for a tree node: the data recipe + SFT hyperparams the main-agent
+    fixed, plus the frozen eval. B-only — the base model is the fixed root base, passed to the
+    executor via cfg (the sub-agent reads it from the task), not injected here."""
+    rc = node.get("recipe") or {}
+    return {"name": f"{node['role']}-{slot}", "data": rc.get("data") or {},
+            "train": dict(rc.get("train") or {}), "eval": dict(eval_cfg)}
+
+
 def _reviewed_studies(proj) -> list[str]:
     return sorted(
         sid for sid in proj.studies if (Path(proj.project_dir) / sid / "review.json").is_file()
@@ -105,24 +131,33 @@ def _resume_context(proj):
     return digest, review
 
 
-def _finish(proj, reason: str, best: dict | None, rounds: int, events: list) -> dict:
-    # Declare the BEST model over all rounds (not the last) as the final_model, and persist
-    # a PostTrainBench-style status/final_model.json pointing at it.
+def _finish(proj, reason: str, best: dict | None, rounds: int, events: list, tree=None) -> dict:
+    # final_model = the highest-scoring NODE over the whole tree (not the last round);
+    # persist a PostTrainBench-style final_model.json pointing at it.
     from dataos._ids import _utc_now_iso
     from dataos._io import atomic_write_json
 
-    chosen = _best_model_over_project(proj)
     final_model = None
-    if chosen:
-        score, sid, name, mpath = chosen
+    node = tree.best_node() if tree is not None else None
+    if node is not None:
         final_model = {
-            "final_model": mpath,
-            "score": score,
-            "study": sid,
-            "experiment": name,
-            "source": "best_over_history",
+            "final_model": node.get("model_path"),
+            "score": node.get("score"),
+            "node": node.get("id"),
+            "depth": node.get("depth"),
+            "source": "best_over_tree",
             "declared_at": _utc_now_iso(),
         }
+    else:  # tree empty (no scored node yet) — fall back to scanning reports
+        chosen = _best_model_over_project(proj)
+        if chosen:
+            score, sid, name, mpath = chosen
+            final_model = {
+                "final_model": mpath, "score": score, "study": sid,
+                "experiment": name, "source": "best_over_history",
+                "declared_at": _utc_now_iso(),
+            }
+    if final_model:
         # a FILE at the project root (not a subdir — Project.studies counts every subdir)
         atomic_write_json(Path(proj.project_dir) / "final_model.json", final_model)
     return {
@@ -147,6 +182,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     from .reviewer import conclude
     from .backend import make_agent
     from ._log import setup_run_logging
+    from .tree import TreeState
 
     cfg.workspace = os.path.abspath(cfg.workspace)
     log, log_path = setup_run_logging(cfg.workspace, cfg.project_id)
@@ -170,13 +206,17 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     eval_cfg = freeze_eval(cfg=cfg)
     # slurm_h100 prepares data inside the Slurm job (from the fixed pool on H100); only the
     # local executor needs a prepared data dir here.
-    data_dir = None if cfg.train_executor == "slurm_h100" else prepare_once(cfg=cfg)
+    data_dir = None if cfg.train_executor == "subagent" else prepare_once(cfg=cfg)
     catalog = _safe_catalog()
+
+    # the externalized search tree (root = the fixed base); owns state + node selection
+    base_model = cfg.h100_base_model or cfg.base_model_id or "base"
+    tree = TreeState.load(proj.project_dir, base_model)
 
     started = _clock()
     round_idx = len(_reviewed_studies(proj))
     best = _global_best(proj)
-    prev_digest, prev_review = _resume_context(proj)
+    _, prev_review = _resume_context(proj)
     events: list[dict] = []
     if round_idx:
         log.info("resuming: %d reviewed round(s) on disk; continuing at round %d (best=%s)",
@@ -186,7 +226,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         reason = _budget.stop_reason(started_at=started, budget=cfg.budget, now=_clock())
         if reason:
             log.info("STOP: %s (after %d round(s))", reason, round_idx)
-            result = _finish(proj, reason, best, round_idx, events)
+            result = _finish(proj, reason, best, round_idx, events, tree)
             log.info("final_model: %s", result.get("final_model"))
             return result
 
@@ -194,50 +234,60 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         study = proj.study(study_id)
 
         log.info("round %d: start (study=%s)", round_idx, study_id)
-        # reuse a plan already written for this round (crash mid-round), else ask the planner
-        if study.plan and study.plan.get("experiments"):
-            specs = study.plan["experiments"]
-            log.info("round %d: reusing on-disk plan (%d experiment(s))", round_idx, len(specs))
+        # The skeleton (not the LLM) picks this round's 3 slots off the tree: 2 exploit + 1 explore.
+        targets = tree.select_targets(round_idx)
+        for i, (pid, role) in enumerate(targets):
+            p = tree.get(pid)
+            log.info("round %d: slot %d = %s (parent=%s score=%s depth=%s)",
+                     round_idx, i, role, pid, p["score"], p["depth"])
+
+        # Materialize one child node per slot. Resume: if this round's nodes are already on
+        # disk (crash after save), reuse them — the recipe lives on the node, so we never re-plan.
+        node_ids = tree.nodes_for_round(round_idx)
+        plan_goal = (study.plan or {}).get("goal") if study.plan else None
+        if node_ids:
+            log.info("round %d: reusing %d on-disk tree node(s)", round_idx, len(node_ids))
         else:
             log.info("round %d: planning via %s backend...", round_idx, cfg.backend)
+            targets_info = [
+                {"role": role, "parent_recipe": tree.get(pid)["recipe"],
+                 "parent_score": tree.get(pid)["score"], "parent_depth": tree.get(pid)["depth"]}
+                for pid, role in targets
+            ]
+            explored = [n["recipe"] for n in tree.nodes if n["recipe"]]
             plan = next_plan(
-                agent=make_agent("planner", cfg),
-                instruct=cfg.instruct,
-                goal=cfg.goal,
-                prev_review=prev_review,
-                prev_digest=prev_digest,
-                eval_cfg=eval_cfg,
-                round_idx=round_idx,
-                catalog=catalog,
+                agent=make_agent("planner", cfg), targets=targets_info,
+                instruct=cfg.instruct, goal=cfg.goal, prev_review=prev_review,
+                explored=explored, eval_cfg=eval_cfg, round_idx=round_idx, catalog=catalog,
             )
-            specs = []
-            for s in plan.experiments:
-                d = s.model_dump()
-                d["eval"] = dict(eval_cfg)  # freeze: the planner may not touch the eval protocol
-                if cfg.train_executor == "slurm_h100":
-                    # ship training to H100; pin the base model so the planner only sweeps
-                    # hyperparams (consistent base across the study).
-                    tr = dict(d.get("train") or {})
-                    tr["executor"] = "slurm_h100"
-                    if cfg.slurm:
-                        tr["slurm"] = cfg.slurm
-                    if cfg.h100_base_model:
-                        tr["model_name_or_path"] = cfg.h100_base_model
-                    if cfg.base_model_id:
-                        tr["base_model_id"] = cfg.base_model_id
-                    d["train"] = tr
-                specs.append(d)
-            study.set_plan({"goal": plan.goal, "experiments": specs})
-            specs = study.plan["experiments"]
-            names = [s.get("name") for s in specs]
-            log.info("round %d: plan goal=%r -> %d experiment(s): %s",
-                     round_idx, plan.goal, len(specs), names)
+            edges = [e.model_dump() for e in plan.edges]
+            plan_goal = plan.goal
+            node_ids = []
+            for i, (pid, role) in enumerate(targets):
+                edge = edges[i] if i < len(edges) else edges[-1]
+                recipe = {"data": edge.get("data") or {}, "train": edge.get("train") or {}}
+                nid = tree.add_node(parent=pid, role=role, round_idx=round_idx, recipe=recipe)
+                node_ids.append(nid)
+                log.info("round %d: + node %s (%s of %s) n_samples=%s lr=%s lora_r=%s",
+                         round_idx, nid, role, pid, recipe["data"].get("n_samples"),
+                         recipe["train"].get("learning_rate"), recipe["train"].get("lora_rank"))
+            tree.save()
+
+        # Specs are derived from the tree nodes (single source of truth). B-only: every node
+        # trains FROM the fixed base, so the executor pins cfg.h100_base_model for all of them.
+        specs = [_spec_from_node(tree.get(nid), i, eval_cfg) for i, nid in enumerate(node_ids)]
+        # plan.json carries the experiments so run_one.py (subprocess) can look up each spec.
+        if not (study.plan and study.plan.get("experiments")):
+            study.set_plan({"goal": plan_goal or f"round {round_idx}", "experiments": specs})
 
         log.info("round %d: executing %d spec(s) via %s", round_idx, len(specs), cfg.train_executor)
-        if cfg.train_executor == "slurm_h100":
-            from . import h100_slurm
+        if cfg.train_executor == "subagent":
+            from . import subagent_exec
 
-            h100_slurm.fan_out(cfg=cfg, study_id=study_id, specs=specs)
+            # PTB: 1 H100 / 10h total → experiments run sequentially under the wall-clock deadline
+            deadline = (started + cfg.budget.max_wall_clock_s
+                        if cfg.budget.max_wall_clock_s else None)
+            subagent_exec.fan_out(cfg=cfg, study_id=study_id, specs=specs, deadline=deadline)
         else:
             _executor.fan_out(
                 project_id=cfg.project_id,
@@ -253,6 +303,15 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                 limit=cfg.data_limit,
             )
 
+        # attach each experiment's score back onto its tree node (executor-agnostic)
+        exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
+        for nid, spec in zip(node_ids, specs):
+            score, mpath, arts, scr = _read_report(exp_root, spec["name"])
+            tree.attach(nid, score, mpath, artifacts=arts, scripts=scr)
+            log.info("round %d: attach %s score=%s model=%s run_root=%s",
+                     round_idx, nid, score, mpath, arts.get("run_root"))
+        tree.save()
+
         digest = study.summary()
         log.info("round %d: results best=%s n_experiments=%s caution=%s",
                  round_idx, digest.get("best"), digest.get("n_experiments"), digest.get("caution"))
@@ -264,8 +323,13 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         log.info("round %d: review conclusion=%r direction=%r",
                  round_idx, (review.conclusion or "")[:160], (review.direction or "")[:160])
 
+        bn = tree.best_node()
+        st = tree.stats()
+        log.info("round %d: tree best=%s n_nodes=%s max_depth=%s", round_idx,
+                 {"id": bn["id"], "score": bn["score"], "depth": bn["depth"]} if bn else None,
+                 st["n_nodes"], st["max_depth"])
         best = _better(best, digest.get("best"))
-        prev_digest, prev_review = digest, review
+        prev_review = review
         events.append(
             {
                 "round": round_idx,
