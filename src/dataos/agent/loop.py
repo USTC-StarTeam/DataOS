@@ -162,6 +162,10 @@ def _remaining_hours(started: float, cfg: AutoRunConfig, now: float) -> float | 
     return max(0.0, (cap - (now - started)) / 3600.0)
 
 
+def _effective_eval_limit(cfg: AutoRunConfig) -> int:
+    return 20 if cfg.ptb_profile == "smoke" else 200
+
+
 def _plan_context(
     *,
     cfg: AutoRunConfig,
@@ -191,18 +195,28 @@ def _plan_context(
         "best": _global_best(proj),
         "recent_reviews": _recent_reviews(proj),
         "frozen_eval": eval_cfg,
+        "eval_policy": {
+            "mode": "sampled_loop_eval",
+            "limit": _effective_eval_limit(cfg),
+            "note": "The search loop uses sampled PTB eval for fast ranking; do not plan full eval.",
+        },
+        "fixed_pool": {
+            "path": (cfg.runtime_config.get("paths") or {}).get("fixed_pool"),
+        },
         "constraints": [
             "Return exactly one ExperimentPlan; no action/stop field.",
             "parent_node_id must be one of tree.growable_node_ids.",
             "Child nodes continue training from the selected parent's output model.",
+            "Use only the fixed pool at fixed_pool.path; source discovery/adaptation belongs to the experiment implementation.",
             "Do not set train.model_name_or_path; code injects the parent model path.",
             "One sub-agent owns the full data/train/eval experiment.",
+            "Use the frozen sampled eval only; full eval is reserved for a final/manual validation.",
             "GPU work must run through the configured executor, not on a login node.",
         ],
     }
 
 
-def _validate_plan(plan, tree) -> list[str]:
+def _validate_plan(plan, tree, cfg: AutoRunConfig) -> list[str]:
     errors: list[str] = []
     parent = plan.parent_node_id
     if not tree.has_node(parent):
@@ -393,7 +407,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     phase="plan",
                     round_idx=round_idx,
                 )
-                validation_errors = _validate_plan(plan, tree)
+                validation_errors = _validate_plan(plan, tree, cfg)
                 if not validation_errors:
                     break
                 log.warning(

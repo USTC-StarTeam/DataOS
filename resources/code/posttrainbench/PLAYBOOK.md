@@ -2,10 +2,12 @@
 
 You are an **execution sub-agent**. The main-agent already fixed the recipe (data operator
 pipeline + SFT hyperparameters); your job is to **realize ONE experiment** and write
-`report.json`. Do NOT change the recipe or the eval scorer — only decide *how* to run things
-and self-heal failures.
+`report.json`. Do NOT change the experiment intent, parent model, or eval scorer. You may make
+minimal mechanical compatibility fixes while running (operator API quirks, fixed-pool schema
+bridging, harmless parameter translation) and must record them in `report.json`.
 
-Three steps: **build data (operators) → train (H100 GPU) → eval (official scorer) → write report.json**.
+Three steps: **build data (operators) → train (H100 GPU) → sampled eval (official scorer)
+→ write report.json**.
 
 ## ⚠️ Login-node rules (READ FIRST)
 
@@ -13,6 +15,9 @@ The H100 login node is SHARED and fragile (no GPU). Abusing it stalls it for eve
 - On the login node you may ONLY: write/submit an `sbatch` script, poll `sacct`/`squeue` (sleep
   ≥30s between polls), and run BOUNDED internet steps (the judge; `llm_*` operator scoring on a
   SMALL sample). Nothing else heavy.
+- Do NOT run Python on the login node that imports `dataos`, `dataos_operator`, `datasets`, or
+  reads fixed-pool datasets. Do NOT inspect operator source on the login node. Put validation
+  imports and fixed-pool reads inside the Slurm job and inspect the job log instead.
 - ALL data processing (operators, reading the pool, `save_to_disk`), training, and eval
   generation MUST run INSIDE the Slurm GPU job (`sbatch`) — NEVER directly on the login node.
 - NEVER run a recursive / whole-filesystem scan: no `grep -r` / `find` / `du` over `/data…`.
@@ -21,14 +26,16 @@ The H100 login node is SHARED and fragile (no GPU). Abusing it stalls it for eve
 
 ## Runtime config
 
-The main-agent injects a `RUNTIME CONFIG` JSON block into your task prompt. It is the
-authoritative source for host, paths, conda envs, Slurm options, cache dirs, and gateway
-settings. Do not use machine-specific defaults from this playbook.
+The main-agent injects a `RUNTIME CONFIG` JSON block into your task prompt. It is derived
+from the single user run JSON plus runtime defaults, and is the authoritative source for host,
+paths, conda envs, Slurm options, cache dirs, and gateway settings. Do not use
+machine-specific defaults from this playbook.
 
 Expected keys:
-- `cluster`: `host`, `user`, `port`, `key`, `partition`, `qos`, `gres`
-- `paths`: `deploy_root`, `run_root`, `runs_base`, `fixed_pool`, `hf_cache`, `conda_sh`,
-  `train_env`, `eval_env`, `local_report`, `local_state`
+- `cluster`: `host`, `user`, `port`, `key`, `partition`, `qos`, `gres`,
+  `nodelist`, `cpus_per_task`
+- `paths`: `deploy_root`, `run_root`, `runs_base`, `fixed_pool`, `conda_sh`, `train_env`,
+  `eval_env`, `local_report`, `local_state`
 - `gateway`: `base_url`, `model`, `key_file`
 - `model`: `base_model`
 - `posttrainbench`: `bench`, `profile`, `eval_limit`
@@ -39,8 +46,6 @@ When writing remote scripts, derive shell variables from that block:
 AGENTVER=<paths.deploy_root>
 RUN_ROOT=<paths.run_root>
 FIXED_POOL=<paths.fixed_pool>
-HF_HOME=<paths.hf_cache>
-TRANSFORMERS_CACHE=<paths.hf_cache>
 ```
 
 GPU work goes through Slurm with the configured `partition` / `qos` / `gres`. The login node
@@ -49,33 +54,24 @@ has internet; compute nodes may not.
 ## 1. Build data — run the operator recipe (the main lever)
 
 The recipe is `{sources:[...], recipe:[{op,params},...]}`. Run it through `dataos` on H100
-(the pool lives there), then bridge to the SFT columns. In conda `train`, `PYTHONPATH=$AGENTVER`:
+(the pool lives there), then bridge to the SFT columns. In conda `train`, this repo uses a
+`src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`:
 
 ```python
-import json, os, dataos
-from datasets import Dataset
-from dataos.core.stage import run_recipe
-pool=os.environ["FIXED_POOL"]
-ds = None
-for sid in SOURCES:                         # load + concat the chosen pool sources
-    d = dataos.load(f"{pool}/{sid}/train")
-    ds = d if ds is None else ds.concat(d)  # (or use concat_mixer inside RECIPE)
-ds = run_recipe(ds, RECIPE)                 # the operator pipeline = the data-centric lever
-recs = ds.to_records() if hasattr(ds, "to_records") else list(ds)
-# BRIDGE to train_sft's contract — pool rows carry instruction/input/output; map them.
-rows=[]
-for r in recs:
-    instr=(r.get("instruction") or r.get("query") or "").strip()
-    inp=(r.get("input") or "").strip()
-    out=(r.get("output") or r.get("answer") or "").strip()
-    if not instr or not out: continue
-    prompt = instr if not inp else f"{instr}\n\n{inp}"
-    rows.append({"prompt":prompt,"target":out,"text":f"{prompt}\n\n{out}"})
-Dataset.from_list(rows).save_to_disk(f"{RUN_ROOT}/data/sft")   # train_sft reads {prompt,target,text}
+# Sketch only: inspect the installed dataos/dataos_operator APIs in the Slurm job log and adapt.
+# If fixed-pool sources have incompatible raw schemas, first bridge each row into a minimal
+# common text schema needed by the selected operators and by train_sft: prompt/target/text.
+# Then run the intended operator pipeline as closely as the installed operator APIs allow.
 ```
 - Operators come from `dataos_operator`; `dataos.catalog()` lists the 22 (read it). The operator
   pipeline is the EXPERIMENT — it filters / dedups / quality-scores / samples the raw pool rows;
   the bridge above is just the mechanical format step train_sft needs at the end.
+- If an operator rejects a parameter or an API differs from the plan text, make the smallest
+  equivalent compatibility fix that preserves the experiment intent, then record it in
+  `report.json` under a compatibility note.
+- You own the operator and dataset ports. Inspect installed operator signatures/APIs inside the
+  Slurm job, normalize fixed-pool source rows into fields expected by the selected operators and
+  by `train_sft.py`, and keep a short compatibility log in the report.
 - Where to run the data step: **fold it into the SAME Slurm GPU job as training** (step 2) — the
   compute node has the pool AND a GPU. So GPU-heavy operators are fine: `ifd/perplexity/deita/instag`
   read a local model's logits (need GPU), `embedding_*`/`domain2vec` use a small local model. The
@@ -117,9 +113,12 @@ sacct -j <id> --format=State --noheader -n \
 ```
 
 Retry ssh on transient network errors. Write the non-LLM data steps into the same job
-(compute node has the pool + GPU).
+(compute node has the pool + GPU). Try to keep the GPU busy: use sensible dataloader workers,
+batch size / grad accumulation choices compatible with the plan, and avoid CPU-only stalls before
+GPU work. For eval, use vLLM concurrency/settings that fit one GPU rather than serializing
+unnecessarily.
 
-## 3. Eval — the FROZEN official scorer (do not modify)
+## 3. Eval — the FROZEN official scorer, sampled during search
 
 In conda `lm-eval`, with the offline env above:
 ```bash
@@ -132,7 +131,9 @@ python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_posttr
   --python "$(command -v python)" --limit <EVAL_LIMIT>
 ```
 - Reads the score from `<eval_dir>/summary.json` → `score` (native percentage).
-- `smoke` → `EVAL_LIMIT=20`; `formal` → `200`.
+- The search loop uses sampled eval by default. Use the injected `EVAL_LIMIT`; do not run a full
+  evaluation unless the user/main thread explicitly asks for final validation.
+- Defaults: `smoke` → `EVAL_LIMIT=20`; `formal` → `200` unless the runtime config overrides it.
 - **Judge benches** (`healthbench`, `arenahardwriting`): the GPU job only generates predictions
   (compute node has no internet). Then run the DETERMINISTIC judge driver from the local repo —
   do NOT hand-roll it:

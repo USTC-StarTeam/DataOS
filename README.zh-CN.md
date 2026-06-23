@@ -51,14 +51,11 @@ tests/           按 agent/core/runtime/integrations 分组的测试
 ## CLI
 
 ```bash
-uv run dataos catalog
-
-uv run dataos-auto run \
-  --project gsm8k-smoke \
-  --target-bench gsm8k \
-  --ptb-profile smoke \
-  --runtime-config configs/runtimes/h100.json
+uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
 ```
+
+CLI 只接收一个 JSON 文件。这个 PTB 分支里，数据混合、训练样本量、eval sample
+数量、树上选哪个节点继续生长等策略都由 main-agent 决定，并写入每轮 plan。
 
 如果你希望 planning / review 走 DashScope，在 `uv run` 之前先导出环境变量：
 

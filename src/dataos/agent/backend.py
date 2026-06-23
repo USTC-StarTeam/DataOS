@@ -33,8 +33,10 @@ class _StubMainAgent:
 
     def __init__(self, replies: dict[str, Any]) -> None:
         self.replies = dict(replies)
+        self.plan_count = 0
+        self.review_count = 0
 
-    def _reply(self, *keys: str) -> str:
+    def _reply(self, *keys: str) -> str | None:
         for key in keys:
             if key not in self.replies:
                 continue
@@ -44,7 +46,31 @@ class _StubMainAgent:
                     return str(value.pop(0))
                 return str(value[0]) if value else "{}"
             return str(value)
-        return "{}"
+        return None
+
+    def _default_plan(self) -> str:
+        name = f"stub-child-{self.plan_count}"
+        self.plan_count += 1
+        return (
+            '{"parent_node_id":"n0000",'
+            f'"name":"{name}",'
+            f'"hypothesis":"stub experiment {name}",'
+            '"estimated_hours":0.01,'
+            '"data":{},'
+            '"train":{"mode":"stub"},'
+            '"eval_plan":"stub eval",'
+            '"expected_signal":"completed stub report",'
+            f'"subagent_brief":"run {name}",'
+            '"rationale":"default stub plan"}'
+        )
+
+    def _default_review(self) -> str:
+        self.review_count += 1
+        return (
+            '{"interpretation":"stub node completed",'
+            '"lesson":"stub loop is healthy",'
+            '"recommendation_for_future_growth":"continue with another small experiment"}'
+        )
 
     def run(self, task: str, *, output=None, resume=None) -> SimpleNamespace:  # noqa: ARG002
         if output is None:
@@ -52,9 +78,17 @@ class _StubMainAgent:
             return SimpleNamespace(text=text, output=None, session_id="stub-main-agent")
         name = getattr(output, "__name__", "")
         if name == "ReviewOut":
-            text = self._reply("review", "reviewer", "main_agent_review")
+            text = self._reply(
+                "review",
+                "reviewer",
+                "main_agent_review",
+            ) or self._default_review()
         else:
-            text = self._reply("plan", "planner", "main_agent_plan")
+            text = self._reply(
+                "plan",
+                "planner",
+                "main_agent_plan",
+            ) or self._default_plan()
         return SimpleNamespace(
             text=text,
             output=parse_output(text, output),

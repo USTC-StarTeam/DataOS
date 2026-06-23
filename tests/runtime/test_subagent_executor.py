@@ -84,13 +84,12 @@ def test_runtime_config_injected_into_subagent_prompt(tmp_path):
             "deploy_root": "/remote/dataos",
             "runs_base": "/remote/runs",
             "fixed_pool": "/remote/pool",
-            "hf_cache": "/remote/hf_cache",
             "train_env": "/envs/train",
             "eval_env": "/envs/eval",
         },
         "gateway": {"base_url": "https://gateway.example/v1", "key_file": "/keys/gateway"},
     }
-    cfg.runtime_config_path = "configs/runtimes/h100.json"
+    cfg.runtime_config_path = "workspace/p/resolved_config.json"
     spec = {"name": "explore-0", "data": {}, "train": {}, "init_model": "/models/parent"}
 
     prompt = subagent_exec._task_prompt(

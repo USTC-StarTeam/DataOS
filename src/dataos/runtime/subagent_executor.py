@@ -1,11 +1,10 @@
 """Agentic per-experiment executor — a sub-agent IMPLEMENTS one tree node.
 
-The main-agent fixes WHAT each experiment is (parent model, data operator recipe, and SFT
+The main-agent fixes WHAT each experiment is (parent model, data intent, and SFT
 hyperparameters). This module hands each experiment to an agentic Claude Code sub-agent that
-figures out HOW to realize it — run the operator recipe to build the data, submit training to
-H100 (ssh/sbatch, configured Slurm), run the frozen official PostTrainBench eval, and write
-``report.json`` — self-healing around env/network/sbatch failures. It does NOT change the
-recipe, parent model, or eval protocol.
+figures out HOW to realize it — run the data recipe, submit training to H100 (ssh/sbatch,
+configured Slurm), run the frozen official PostTrainBench eval, and write ``report.json`` —
+self-healing around env/network/sbatch/operator failures.
 
 Same ``fan_out(cfg, study_id, specs) -> {name: report}`` contract the loop used for the old
 deterministic Slurm backend, so the loop swaps executors with one line. PTB allows only ONE
@@ -32,12 +31,12 @@ log = logging.getLogger(__name__)
 _REPO_ROOT = str(Path(__file__).resolve().parents[3])
 _RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"  # legacy fallback; prefer runtime_config
 SUBAGENT_MAX_STEPS = 150  # an executor needs many turns (data → sbatch → poll → eval → report)
-_EXP_TIMEOUT_SMOKE_S = 1800.0  # hard per-experiment timeout: 30 min (smoke)
+_EXP_TIMEOUT_SMOKE_S = 2 * 3600.0  # hard per-experiment timeout: 2 h (smoke)
 _EXP_TIMEOUT_FORMAL_S = 10 * 3600.0  # PTB hard cap: 10 h / 1 H100
 _STATE_FILE = "subagent_state.json"
 _REQUIRED_CLUSTER_KEYS = ("host", "user", "port", "key", "partition", "qos", "gres")
 _REQUIRED_PATH_KEYS = (
-    "deploy_root", "runs_base", "fixed_pool", "hf_cache", "conda_sh", "train_env", "eval_env",
+    "deploy_root", "runs_base", "fixed_pool", "conda_sh", "train_env", "eval_env",
 )
 _REQUIRED_GATEWAY_KEYS = ("base_url", "model", "key_file")
 
@@ -62,7 +61,6 @@ def _runtime_config(cfg) -> dict:
         "deploy_root": "deploy_root",
         "runs_base": "runs_base",
         "fixed_pool": "fixed_pool",
-        "hf_cache": "hf_cache",
         "conda_sh": "conda_sh",
         "train_env": "train_env",
         "eval_env": "eval_env",
@@ -241,12 +239,14 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         f"Parent model to continue training from (use this exact path): {parent_model}",
         f"Root base model for provenance only: {cfg.h100_base_model}",
         f"Tree node: {spec.get('node_id')} parent={spec.get('parent_node_id')}",
-        f"eval limit: {eval_limit}    smoke→cap data to ≤1000 rows" if cfg.ptb_profile == "smoke"
-        else f"eval limit: {eval_limit}",
+        f"sampled eval limit: {eval_limit}    smoke→cap data to ≤1000 rows"
+        if cfg.ptb_profile == "smoke"
+        else f"sampled eval limit: {eval_limit}",
         "",
-        "DATA RECIPE (fixed by the main-agent — run it exactly, do not change it):",
+        "DATA RECIPE (main-agent intent — preserve it; use minimal mechanical compatibility "
+        "fixes if needed and record them in report.json):",
         json.dumps(recipe, ensure_ascii=False),
-        "SFT hyperparameters (fixed):",
+        "SFT hyperparameters (fixed unless an execution tool requires a harmless format cast):",
         json.dumps(spec.get("train") or {}, ensure_ascii=False),
         "Main-agent brief:",
         str(spec.get("subagent_brief") or "(none)"),
@@ -266,17 +266,31 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         f"Write the report to this LOCAL path (absolute): {exp_dir / 'report.json'}",
         f"Keep durable execution state at this LOCAL path: {exp_dir / _STATE_FILE}",
         "",
-        "Read resources/code/posttrainbench/PLAYBOOK.md for the exact commands, paths, "
-        "conda envs, ssh, eval scripts, and the report.json contract, then execute it: build "
-        "data → train on H100 → eval → write report.json. Self-heal execution failures; ALWAYS "
-        "write a report at the end (a failed report is still required). If a Slurm job is still "
-        "running, keep polling it to terminal state; do not return a final prose-only update.",
+        "Read resources/code/posttrainbench/PLAYBOOK.md for the commands, paths, conda envs, "
+        "ssh, eval scripts, and the report.json contract, then execute it: build data → train "
+        "on H100 → sampled eval → write report.json. Self-heal execution failures, including "
+        "operator-port/data-port mismatches, with minimal compatibility fixes that preserve the intent. "
+        "ALWAYS write a report at the end (a failed report is still required). If a Slurm job "
+        "is still running, keep polling it to terminal state; do not return a final prose-only "
+        "update.",
+        "You are responsible for operator-port and dataset-port adaptation: inspect installed "
+        "operator signatures inside the Slurm job, normalize fixed-pool source records into the "
+        "fields needed by operators/train_sft, and record any compatibility notes in report.json.",
+        "You are responsible for keeping GPU utilization high within the single-GPU budget: avoid "
+        "login-node work, batch data work with training where possible, choose reasonable dataloader "
+        "workers/batch/grad-accum/vLLM concurrency, and report any resource bottleneck.",
+        "Do not run Python data/operator inspection on the H100 login node. Your first remote "
+        "actions should be limited to mkdir/cat a job script, sbatch it, and poll Slurm. Put "
+        "dataos/dataos_operator imports and fixed-pool reads inside the sbatch script.",
+        "Important local facts: the remote deploy repo uses src layout, so remote Python commands "
+        "that import dataos need PYTHONPATH=$AGENTVER/src:$AGENTVER. When ssh/scp uses the configured "
+        "cluster.key, pass -o IdentitiesOnly=yes to avoid local agent key-flood failures.",
     ])
 
 
 def _continue_prompt(state: dict, last_text: str) -> str:
     return "\n".join([
-        "Continue the SAME experiment. Do not re-plan and do not change the recipe.",
+        "Continue the SAME experiment. Do not re-plan or change the experiment intent.",
         f"report.json is still missing at: {state['report_path']}",
         f"execution state path: {state['state_path']}",
         "",
@@ -305,9 +319,9 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
     exp_dir.mkdir(parents=True, exist_ok=True)
     report_path = exp_dir / "report.json"
     state_path = exp_dir / _STATE_FILE
-    eval_limit = cfg.data_limit if cfg.data_limit is not None else (
-        20 if cfg.ptb_profile == "smoke" else 200
-    )
+    eval_limit = getattr(cfg, "eval_limit", None)
+    if eval_limit is None:
+        eval_limit = 20 if cfg.ptb_profile == "smoke" else 200
     existing_report = _report_from_disk(report_path)
     if existing_report is not None and existing_report.get("status") in {"completed", "failed"}:
         report = _stamp_report(
@@ -408,7 +422,7 @@ def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -
     missing_runtime = _missing_runtime_config_keys(cfg)
     if missing_runtime:
         raise ValueError(
-            "subagent executor needs --runtime-config with: " + ", ".join(missing_runtime)
+            "subagent executor needs runtime config with: " + ", ".join(missing_runtime)
         )
     exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
     log.info("fan_out: %d agentic sub-agent(s), SEQUENTIAL (PTB: 1 H100 at a time) bench=%s",

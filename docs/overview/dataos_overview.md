@@ -85,7 +85,7 @@ operator catalog as fixed runtime/integration stages.
 | `src/dataos/core/` | Artifact model, project/study/experiment objects, workspace layout, reports, ids, IO, provenance. |
 | `src/dataos/runtime/` | Experiment execution helpers: local fan-out, sub-agent executor, data preparation, frozen eval selection. |
 | `src/dataos/integrations/` | Concrete external integrations: Claude Code, PostTrainBench, LLaMA-Factory, Slurm, lm-eval. |
-| `configs/` | Runtime and experiment configs, including `configs/runtimes/h100.json`. |
+| `configs/` | Run configs, including `configs/runs/ptb-h100-qwen-gsm8k.json`. |
 | `resources/data/` | HF datasets and benchmark data resources. |
 | `resources/code/` | Benchmark and harness code resources used by runtime/sub-agents. |
 | `scripts/` | Thin command-line helpers such as `scripts/run_one.py` and `scripts/doctor.py`. |
@@ -102,14 +102,13 @@ operator catalog as fixed runtime/integration stages.
 The CLI is intentionally small:
 
 ```bash
-uv run dataos catalog
-
-uv run dataos-auto run \
-  --project gsm8k-smoke \
-  --target-bench gsm8k \
-  --ptb-profile smoke \
-  --runtime-config configs/runtimes/h100.json
+uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
 ```
+
+The run config is the only user-facing interface for PTB/H100 runs. It records
+the run id, workspace, goal, bench, base model path, time budget, requested node
+/ GPU / CPU resources, and fixed remote paths. Runtime defaults are expanded
+into `resolved_config.json` inside the run workspace.
 
 ## Stable Paper Framing
 

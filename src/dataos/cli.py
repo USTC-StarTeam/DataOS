@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -10,30 +11,26 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     parser = _build_parser()
     args = parser.parse_args(argv)
-    result = args.func(args)
-    if result is not None:
-        print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False, default=str))
+    result = _cmd_run(args)
+    print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False, default=str))
     return 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="dataos")
-    parser.set_defaults(func=lambda args: parser.print_help())
-    subparsers = parser.add_subparsers(dest="command")
-    catalog = subparsers.add_parser(
-        "catalog",
-        help="List dataos_operator operators with their constructor parameters",
+    parser = argparse.ArgumentParser(
+        prog="dataos",
+        description="Run the PostTrainBench agent loop from one JSON config.",
     )
-    catalog.set_defaults(func=_cmd_catalog)
+    parser.add_argument("config", help="PTB run config JSON path")
     return parser
 
 
-def _cmd_catalog(args) -> list[dict[str, object]]:
-    del args
-    from dataos.core.catalog import catalog
+def _cmd_run(args: argparse.Namespace) -> dict[str, object]:
+    from dataos.agent.loop import run_auto
+    from dataos.agent.run_config import load_auto_run_config
 
-    return catalog()
+    return run_auto(load_auto_run_config(args.config))
 
 
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

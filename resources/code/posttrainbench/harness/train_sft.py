@@ -4,12 +4,10 @@
 produce ``--merged-dir`` (final_model); ``--finetuning-type full`` trains all parameters and
 saves the result directly as ``--merged-dir``. The method + hyperparameters are chosen by the
 main-agent (planner) per experiment; this script just executes them."""
+# ruff: noqa: E402
 from __future__ import annotations
 
 import argparse
-import os
-import sys
-import json
 from pathlib import Path
 
 # The shared `train` conda env ships an autoawq that is incompatible with its transformers

@@ -49,61 +49,45 @@ The real PostTrainBench path is:
 main-agent planner -> one exp sub-agent -> data operators -> Slurm train -> frozen eval
 ```
 
-Machine-specific details are provided through `--runtime-config`, not through the playbook:
+The user-facing entrypoint is one JSON file:
 
 ```bash
-.venv/bin/python -m dataos.agent.cli run \
-  --project ptb_gsm8k_run \
-  --workspace workspace_ptb \
-  --backend claude_code \
-  --claude-code-model sonnet \
-  --train-executor subagent \
-  --runtime-config configs/runtimes/h100.json \
-  --target-bench gsm8k \
-  --h100-base-model /data/hcgu/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/<snapshot> \
-  --ptb-profile smoke \
-  --max-wall-clock-s 3600 \
-  --poll-interval-s 30
+uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
 ```
 
-Use `--ptb-profile formal` for formal evaluation. `smoke` caps SFT data to
-1000 rows and uses a small eval limit for end-to-end checks.
+The JSON contains run identity, workspace, goal, bench, base model path, time
+budget, requested node/GPU/CPU resources, and fixed remote paths. Main-agent
+strategy is not configured here; each round writes its own plan.
 
-Resume: rerun the same `--project` and `--workspace`. Completed rounds
+Resume: rerun the same JSON. Completed rounds
 (`review.json` exists) are skipped. A sub-agent experiment resumes the same
 Claude Code session until it writes a terminal `report.json`.
 
-## Runtime Config
+## Run Config
 
-`configs/runtimes/h100.json` is the current H100 config example. It contains paths and
-key-file locations only, never secret values.
+`configs/runs/ptb-h100-qwen-gsm8k.json` is the current H100/PTB run config
+example. It contains no secret values.
 
 Expected shape:
 
 ```json
 {
-  "cluster": {
-    "host": "114.214.215.159",
-    "user": "hcgu",
-    "port": 22,
-    "key": "~/.ssh/ghc_miyao",
-    "partition": "gpu",
-    "qos": "gpu_priv",
-    "gres": "gpu:1"
+  "run_id": "ptb-h100-qwen-gsm8k",
+  "workspace": "workspace/ptb-h100-qwen-gsm8k",
+  "goal": "Use the fixed PTB data pool to improve the base model within a limited H100 budget.",
+  "bench": "gsm8k",
+  "base_model_path": "/data/hcgu/hf_cache/Qwen/Qwen2.5-0.5B-Instruct",
+  "time_budget_hours": 10,
+  "resource": {
+    "node": "gpu04",
+    "gpus": 1,
+    "cpus": 8
   },
   "paths": {
-    "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
-    "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
     "fixed_pool": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full",
-    "hf_cache": "/data/hcgu/hf_cache",
     "conda_sh": "/data/software/miniconda3/etc/profile.d/conda.sh",
     "train_env": "/data/hcgu/.conda/envs/train",
     "eval_env": "/data/hcgu/.conda/envs/lm-eval"
-  },
-  "gateway": {
-    "base_url": "https://api2.starteam.wang/v1",
-    "model": "claude-haiku-4-5",
-    "key_file": "/data/hcgu/users/tjh/.gateway_key"
   }
 }
 ```
@@ -112,20 +96,18 @@ Important fields:
 
 | field | meaning |
 | --- | --- |
-| `paths.deploy_root` | deployed DataOS-AgentVer repo on the cluster |
-| `paths.runs_base` | remote experiment artifact root |
+| `run_id` | resumable project/run id |
+| `workspace` | local run directory; it must end with `run_id` |
+| `bench` | one PostTrainBench bench to optimize |
+| `base_model_path` | exact H100 path of the base model |
+| `resource.*` | requested node, GPU count, and CPU count |
 | `paths.fixed_pool` | fixed PostTrainBench source pool |
-| `paths.hf_cache` | Hugging Face model/cache root used offline by compute nodes |
 | `paths.train_env` / `paths.eval_env` | conda envs for train/data and eval |
-| `gateway.*` | login-node LLM-scoring endpoint and key-file path |
 
-The main-agent injects this config into each sub-agent prompt as a
-`RUNTIME CONFIG` block. `resources/code/posttrainbench/PLAYBOOK.md`
-contains execution rules only; examples in the playbook must be parameterized
-from `RUNTIME CONFIG`.
-
-`--slurm` remains as a legacy inline JSON override, but new runs should use
-`--runtime-config`.
+The CLI writes `run_config.json` and `resolved_config.json` into the workspace.
+The resolved config expands internal defaults such as SSH, Slurm partition/qos,
+remote deploy root, remote runs base, and key-file paths. The main-agent injects
+that resolved runtime block into each sub-agent prompt.
 
 ## Verification
 

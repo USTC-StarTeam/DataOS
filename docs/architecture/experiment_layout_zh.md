@@ -105,26 +105,33 @@ workspace/
 - 不会重复复制整份 experiment artifact
 - 数据工件和报告更容易统一管理
 
-## 和 `--workspace` 的关系
+## 和 `workspace` 的关系
 
-`--workspace` 只是实验根集合的上层目录，不是单次实验目录本身。
+新入口中，JSON 里的 `workspace` 就是这次 run 的本地目录，例如：
 
-例如：
+```json
+{
+  "run_id": "ptb-h100-qwen-gsm8k",
+  "workspace": "workspace/ptb-h100-qwen-gsm8k"
+}
+```
+
+运行命令：
 
 ```bash
-uv run dataos-auto run \
-  --project gsm8k-smoke \
-  --target-bench gsm8k \
-  --ptb-profile smoke \
-  --runtime-config configs/runtimes/h100.json
+uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
 ```
 
-这条命令多跑几次时，会得到：
+这个目录下面会保存：
 
 ```text
-workspace/exp-a.../
-workspace/exp-b.../
-workspace/exp-c.../
+workspace/ptb-h100-qwen-gsm8k/
+  run_config.json
+  resolved_config.json
+  project.json
+  tree.json
+  round-0000/
+  ...
 ```
 
-所以共享同一个 `workspace` 没问题，真正区分不同实验的是自动生成的 `exp_id`。
+重新运行同一个 JSON 会复用这个 run 目录并从已有轮次继续。

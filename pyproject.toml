@@ -46,7 +46,6 @@ vllm = [
 
 [project.scripts]
 dataos = "dataos.cli:main"
-dataos-auto = "dataos.agent.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -55,6 +54,10 @@ include = ["dataos*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = [
+  "resources/code/inspect_evals",
+  "resources/code/posttrainbench/tasks",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

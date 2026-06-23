@@ -61,7 +61,8 @@ exp.data.set(ds).run()                    # 注入现成 Dataset,跳过 recipe(m
 
 1. **要用时再发现算子。** `dataos.catalog()` -> 每个算子的 `name`、`kind`、`description`、
    `operator_class`、`params`(构造参数,含 `query_key` / `answer_key` 这类字段键)。recipe 的 `op` 用
-   `name`(snake)或类名都行;`params` 就是这里的构造参数。命令行等价物 `dataos catalog`。
+   `name`(snake)或类名都行;`params` 就是这里的构造参数。Python 等价物是
+   `import dataos; dataos.catalog()`。
 2. **先归一到一种形状,再混。** `openai_message_mapper`(`source_format` 认 `qa` / `alpaca` /
    `sharegpt` / `messages`)把每个源先映射成 OpenAI messages,再 `ConcatMixer().run([ds_a, ds_b, ...])`
    合并。⚠️ **混多个源是多数据集操作,不能写进线性 recipe** —— 用 `set()` 逃生口手搭后注入。

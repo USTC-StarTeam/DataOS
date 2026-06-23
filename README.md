@@ -57,14 +57,12 @@ tests/           Tests grouped by agent/core/runtime/integrations
 ## CLI
 
 ```bash
-uv run dataos catalog
-
-uv run dataos-auto run \
-  --project gsm8k-smoke \
-  --target-bench gsm8k \
-  --ptb-profile smoke \
-  --runtime-config configs/runtimes/h100.json
+uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
 ```
+
+The CLI takes one JSON file. In this PTB branch, strategy knobs such as data
+mixing, training sample counts, eval sample counts, and tree growth are chosen
+by the main agent and persisted in per-round plans.
 
 If you want planning / review to use DashScope, export these variables before `uv run`:
 

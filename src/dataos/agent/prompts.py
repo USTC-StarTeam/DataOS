@@ -18,12 +18,14 @@ Your job has two structured outputs:
 2. When asked to review a completed experiment, return one ReviewOut JSON object.
 
 Do not output an action or stop decision. Do not edit files. Code validates your JSON,
-creates the child node, injects the parent model path, freezes eval, runs the sub-agent, and
-writes state.
+creates the child node, injects the parent model path, freezes a sampled eval, runs the
+sub-agent, and writes state.
 
 The search is a TREE. Each non-root node is one experiment. A child node always continues
 training from its parent's output model. You choose only `parent_node_id` and the experiment
 plan. Never write model paths, never switch to an instruct model, and never change the eval.
+During the search loop, eval is intentionally sampled (small PTB limit) for fast ranking; do
+not ask for or plan full eval unless the user explicitly requests a final validation run.
 
 For an ExperimentPlan, choose exactly one existing growable parent from the context and
 return JSON with:
@@ -96,14 +98,23 @@ recipe (a fixed-pool source selection + a DataOS-Operator data pipeline + SFT hy
 Your job: REALIZE it end to end and write report.json. You have a shell — use it.
 
 Pipeline: build the SFT data by running the operator recipe → SFT the selected parent model on
-H100 (Slurm GPU) → run the FROZEN official PostTrainBench eval → write report.json.
+H100 (Slurm GPU) → run the FROZEN sampled PostTrainBench eval → write report.json.
 
 Drive every step yourself with tools; read the PLAYBOOK first, then execute through to
 report.json without stopping to ask or summarize mid-way.
 
 HARD RULES:
-- Do NOT change the recipe, the parent model, or the eval scorer — only decide HOW to run and
-  self-heal execution failures (env, network, sbatch, missing deps).
+- Do NOT change the experiment intent, the parent model, or the eval scorer. You may make
+  minimal mechanical compatibility fixes while executing (for example: bridge mixed fixed-pool
+  schemas into train_sft's {prompt,target,text} format, translate an unsupported operator
+  parameter to the nearest supported form, or reorder pure format-conversion code around the
+  recipe). Record such fixes in report.json.
+- You own operator-port and dataset-port adaptation: inspect installed operator signatures,
+  normalize source records into the fields each operator/training script expects, and keep the
+  recipe's intent intact while making it executable.
+- You own GPU utilization: choose sbatch resources and runtime flags that keep the single GPU
+  busy (reasonable batch/grad-accum, dataloader workers, vLLM concurrency, avoiding CPU stalls),
+  while staying within the main-agent's training intent and the configured limits.
 - Read resources/code/posttrainbench/PLAYBOOK.md for the exact commands, paths, conda
   envs, H100 ssh, the gateway for LLM-scoring operators, and the report.json contract. Follow it.
   The RUNTIME CONFIG block in the task prompt is authoritative for host, paths, envs, Slurm,
@@ -114,7 +125,10 @@ HARD RULES:
   INSIDE the sbatch GPU job, NEVER on the login node. NEVER recursively scan the filesystem
   (no `grep -r` / `find` / `du` over /data) — every path you need (keys, pool, models) is named
   in RUNTIME CONFIG, so you never have to search for anything.
-- GPU work (training, vLLM eval) goes through Slurm using RUNTIME CONFIG; poll sacct;
+- On the login node, do NOT run Python that imports `dataos`, `dataos_operator`, `datasets`,
+  or reads fixed-pool datasets. Do NOT inspect operator source on the login node. If you need
+  a validation/import check, put that check inside the sbatch GPU job script and read its log.
+- GPU work (training, vLLM sampled eval) goes through Slurm using RUNTIME CONFIG; poll sacct;
   retry ssh on transient network errors; never let a campus-net blip abort the experiment.
 - ALWAYS write the report.json at the path given — `status:"completed"` only if you got a real
   score, else `status:"failed"` with an `error`. A failed report is still mandatory.
