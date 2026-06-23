@@ -61,7 +61,7 @@ def test_subagent_resumes_same_session_until_report(tmp_path, monkeypatch):
     monkeypatch.setattr(subagent_exec, "ClaudeCodeAgent", FakeAgent)
     monkeypatch.setattr(subagent_exec.time, "sleep", lambda _seconds: None)
 
-    spec = {"name": "explore-0", "data": {}, "train": {}}
+    spec = {"name": "explore-0", "data": {}, "train": {}, "init_model": "/models/parent"}
     _, report = subagent_exec._run_one(
         _cfg(tmp_path / "ws"), "round-0000", spec, tmp_path / "experiments", timeout=10
     )
@@ -91,7 +91,7 @@ def test_runtime_config_injected_into_subagent_prompt(tmp_path):
         "gateway": {"base_url": "https://gateway.example/v1", "key_file": "/keys/gateway"},
     }
     cfg.runtime_config_path = "configs/runtimes/h100.json"
-    spec = {"name": "explore-0", "data": {}, "train": {}}
+    spec = {"name": "explore-0", "data": {}, "train": {}, "init_model": "/models/parent"}
 
     prompt = subagent_exec._task_prompt(
         cfg=cfg,
@@ -106,6 +106,8 @@ def test_runtime_config_injected_into_subagent_prompt(tmp_path):
     assert '"runs_base": "/remote/runs"' in prompt
     assert '"run_root": "/remote/runs/p/round-0000/explore-0"' in prompt
     assert '"base_url": "https://gateway.example/v1"' in prompt
+    assert "Parent model to continue training from (use this exact path): /models/parent" in prompt
+    assert '"parent_model": "/models/parent"' in prompt
     assert subagent_exec._run_root(cfg, "round-0000", "explore-0") == (
         "/remote/runs/p/round-0000/explore-0"
     )

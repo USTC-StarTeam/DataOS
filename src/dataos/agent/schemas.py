@@ -1,39 +1,60 @@
-"""Structured-output contracts for the two LLM judgment points.
+"""Structured-output contracts for the agentic main loop.
 
-These are the Pydantic models passed to ``Agent.run(task, output=...)`` — the
-dataos-agent facade injects the JSON schema into the prompt and validates the
-model's reply back into a typed instance (``result.output``). No file round-trip,
-no emit-tool: the parsing is a first-class facade capability.
+The main-agent is a Claude Code dialog. It proposes exactly one next experiment
+plan at a time, then reviews the completed report. Python owns validation and
+state mutation: a JSON reply becomes durable tree state only after it validates
+against these models and repository-side invariants.
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class EdgeSpec(BaseModel):
-    """One tree EDGE the planner proposes for an assigned slot: a training recipe
-    (data mixture from the fixed pool + SFT hyperparameters). The skeleton fixes which
-    node it extends and the experiment name; the base model and eval are frozen by the
-    runtime — the planner only fills ``data`` and ``train``."""
+class ExperimentPlan(BaseModel):
+    """The main-agent's next experiment plan.
 
-    data: dict = Field(default_factory=dict, description="fixed-pool recipe: benchmark_tag/sources/mix/n_samples")
-    train: dict = Field(default_factory=dict, description="SFT hparams: lora_rank/lora_alpha/learning_rate/num_train_epochs/...")
+    The agent chooses a parent node and executable data/train knobs. Code generates
+    the child node id, injects the parent model path, freezes eval, and writes state.
+    """
 
+    model_config = ConfigDict(extra="forbid")
 
-class PlanOut(BaseModel):
-    """The planner's structured reply: one edge per assigned slot, in slot order."""
-
-    goal: str = Field(description="this round's goal in one sentence")
-    edges: list[EdgeSpec] = Field(description="one recipe per slot, in the given slot order")
-    rationale: str = Field(default="", description="why these recipes (audit only, not persisted)")
+    parent_node_id: str = Field(description="existing tree node to continue training from")
+    name: str = Field(description="short experiment name, unique within this project")
+    hypothesis: str = Field(description="what this child experiment is testing")
+    estimated_hours: float | None = Field(
+        default=None,
+        description="rough wall-clock estimate for the full data/train/eval experiment",
+    )
+    data: dict = Field(
+        default_factory=dict,
+        description="executable fixed-pool data recipe: sources plus operator pipeline",
+    )
+    train: dict = Field(
+        default_factory=dict,
+        description="SFT hyperparameters; do not include model_name_or_path",
+    )
+    eval_plan: str = Field(
+        default="",
+        description="short note about what signal to read from the frozen evaluator",
+    )
+    expected_signal: str = Field(default="", description="what outcome would be informative")
+    subagent_brief: str = Field(
+        default="",
+        description="concrete instruction for the experiment sub-agent",
+    )
+    rationale: str = Field(default="", description="why this is the next tree growth")
 
 
 class ReviewOut(BaseModel):
-    """The reviewer's structured reply: conclusion + next-round direction only.
+    """The main-agent's interpretation of one completed node."""
 
-    The reviewer does NOT decide whether to stop — stopping is three hard
-    conditions enforced in :mod:`dataos.agent.budget`."""
+    model_config = ConfigDict(extra="forbid")
 
-    conclusion: str = Field(description="qualitative conclusion of this round, grounded in the digest")
-    direction: str = Field(default="", description="hint for the next round's planner")
+    interpretation: str = Field(description="what the report means, grounded in metrics/logs")
+    lesson: str = Field(default="", description="what this node teaches the future search")
+    recommendation_for_future_growth: str = Field(
+        default="",
+        description="a concrete hint for later parent/plan choices",
+    )

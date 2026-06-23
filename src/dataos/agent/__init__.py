@@ -1,10 +1,9 @@
-"""DataOS autonomous runtime (agent-version).
+"""DataOS autonomous runtime.
 
-A code-driven Agent SDK loop that reimplements the skill's full-auto execution mode:
-the loop, fan-out, budget, stop-decision and resume are *owned Python code* (runtime
-enforcement); only "write the next plan" and "read the review, set direction" call an
-LLM via the dataos-agent Claude SDK backend. The deterministic executor library
-(``dataos``, v0.2.5) is unchanged underneath.
+The main loop is a code-owned state machine around a persistent main-agent dialog:
+Claude Code proposes one next experiment plan and reviews one completed node; Python
+validates JSON, updates the tree, injects the parent model, launches execution, and
+persists reports/reviews.
 """
 
 from __future__ import annotations

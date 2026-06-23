@@ -1,35 +1,39 @@
-"""LLM judgment point #2 — read the study digest, write conclusion + direction.
-
-The reviewer does NOT decide whether to stop (that is the runtime budget's job). It
-only produces a grounded conclusion and a steer for the next round's planner.
-"""
+"""Main-agent review prompt for one completed tree node."""
 
 from __future__ import annotations
 
 import json
 
-from dataos.integrations.llm.structured import run_structured
+from dataos.integrations.llm.structured import run_structured_dialog
+
 from .schemas import ReviewOut
 
 
-def _build_prompt(*, digest: dict, goal: str, round_idx: int) -> str:
-    slim = {
-        k: digest.get(k)
-        for k in ("ranking", "best", "varied_keys", "metric_winners", "caution", "n_experiments")
-        if k in digest
-    }
+def _build_prompt(*, context: dict) -> str:
     return "\n\n".join(
         [
-            f"Round index: {round_idx}.",
-            f"User goal: {goal or '(unspecified)'}",
-            "Study digest:\n" + json.dumps(slim, ensure_ascii=False),
-            "Now produce the ReviewOut JSON (conclusion + direction). "
-            "If `caution` is set, say the ranking is unreliable and recommend a re-run.",
+            "Review the just-completed experiment node.",
+            "Return one ReviewOut JSON object only. Ground it in the report and metrics.",
+            "Review context:",
+            json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
         ]
     )
 
 
+def review_result(
+    *,
+    agent,
+    context: dict,
+    session_id: str | None = None,
+) -> tuple[ReviewOut, str | None]:
+    """Ask the main-agent dialog to interpret one completed node."""
+
+    return run_structured_dialog(agent, _build_prompt(context=context), ReviewOut, session_id=session_id)
+
+
 def conclude(*, agent, digest: dict, goal: str = "", round_idx: int = 0) -> ReviewOut:
-    """Ask the reviewer for a conclusion + next-round direction (typed ReviewOut)."""
-    task = _build_prompt(digest=digest, goal=goal, round_idx=round_idx)
-    return run_structured(agent, task, ReviewOut)
+    """Compatibility wrapper for older callers that expected a stateless reviewer."""
+
+    context = {"goal": goal, "round_idx": round_idx, "study_digest": digest}
+    review, _ = review_result(agent=agent, context=context)
+    return review

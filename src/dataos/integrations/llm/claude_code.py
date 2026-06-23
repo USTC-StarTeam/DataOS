@@ -1,11 +1,11 @@
 """A 'claude_code' agent backend — the local Claude Code, logged in with a Claude account.
 
-When the autonomous loop runs locally (mac) and the planner/reviewer brain is Claude Code's
+When the autonomous loop runs locally (mac) and the main-agent brain is Claude Code's
 own subscription login (NOT an API key, NOT a third-party endpoint), this drives the local
 ``claude`` CLI via claude-agent-sdk's ``query()`` with NO ``ANTHROPIC_API_KEY`` injected, so
 the SDK uses the CLI's stored login. Structured output reuses ``dataos_agent._output.parse_output``,
-so it presents the same ``.run(task, output=Model) -> result.output`` contract the planner /
-reviewer already use — no change to the (compiled) dataos-agent package.
+so it presents the same ``.run(task, output=Model) -> result.output`` contract the rest of
+the runtime uses — no change to the (compiled) dataos-agent package.
 """
 
 from __future__ import annotations
@@ -58,6 +58,8 @@ def _session_id(messages: list) -> str | None:
 class ClaudeCodeAgent:
     """Same ``.run(task, *, output=...)`` contract as ``dataos_agent.Agent``, backed by the
     local claude CLI's Claude-account (subscription) login — no API key."""
+
+    supports_dialog = True
 
     def __init__(
         self,

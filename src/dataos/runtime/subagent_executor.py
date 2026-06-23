@@ -1,11 +1,11 @@
-"""Agentic per-experiment executor — a sub-agent IMPLEMENTS one tree edge.
+"""Agentic per-experiment executor — a sub-agent IMPLEMENTS one tree node.
 
-The main-agent (loop + planner) fixes WHAT each experiment is (data operator recipe + SFT
-hyperparameters) and which nodes to expand. This module hands each experiment to an agentic
-Claude Code sub-agent (same brain as the loop, via the gateway) that figures out HOW to
-realize it — run the operator recipe to build the data, submit training to H100 (ssh/sbatch,
-configured Slurm), run the frozen official PostTrainBench eval, and write ``report.json`` — self-healing
-around env/network/sbatch failures. It does NOT change the recipe or the eval protocol.
+The main-agent fixes WHAT each experiment is (parent model, data operator recipe, and SFT
+hyperparameters). This module hands each experiment to an agentic Claude Code sub-agent that
+figures out HOW to realize it — run the operator recipe to build the data, submit training to
+H100 (ssh/sbatch, configured Slurm), run the frozen official PostTrainBench eval, and write
+``report.json`` — self-healing around env/network/sbatch failures. It does NOT change the
+recipe, parent model, or eval protocol.
 
 Same ``fan_out(cfg, study_id, specs) -> {name: report}`` contract the loop used for the old
 deterministic Slurm backend, so the loop swaps executors with one line. PTB allows only ONE
@@ -107,9 +107,10 @@ def _train_cmd(cfg, spec: dict, artifacts: dict) -> str:
     hyperparameters come from the main-agent's recipe; train_sft.py just executes them."""
     t = spec.get("train") or {}
     ft = t.get("finetuning_type", "lora")
+    base_model = t.get("model_name_or_path") or spec.get("init_model") or cfg.h100_base_model
     return (
         "python $AGENTVER/resources/code/posttrainbench/harness/train_sft.py "
-        f"--base-model {cfg.h100_base_model} --data-dir {artifacts['data']} "
+        f"--base-model {base_model} --data-dir {artifacts['data']} "
         f"--output-dir {artifacts['adapter']} --merged-dir {artifacts['model']} "
         f"--finetuning-type {ft} "
         f"--max-len {t.get('cutoff_len', 1024)} --bs {t.get('per_device_train_batch_size', 4)} "
@@ -204,8 +205,15 @@ def _runtime_prompt_block(*, cfg, study_id: str, spec: dict, exp_dir: Path,
     runtime.setdefault("paths", {})["run_root"] = _run_root(cfg, study_id, spec["name"])
     runtime["paths"]["local_report"] = str(exp_dir / "report.json")
     runtime["paths"]["local_state"] = str(exp_dir / _STATE_FILE)
+    parent_model = (
+        (spec.get("train") or {}).get("model_name_or_path")
+        or spec.get("init_model")
+        or cfg.h100_base_model
+    )
     runtime["model"] = {
-        "base_model": cfg.h100_base_model,
+        "base_model": parent_model,
+        "parent_model": parent_model,
+        "root_base_model": cfg.h100_base_model,
         "base_model_id": getattr(cfg, "base_model_id", None),
     }
     runtime["posttrainbench"] = {
@@ -221,11 +229,18 @@ def _runtime_prompt_block(*, cfg, study_id: str, spec: dict, exp_dir: Path,
 def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int) -> str:
     bench = cfg.target_bench
     run_root = _run_root(cfg, study_id, spec["name"])
+    parent_model = (
+        (spec.get("train") or {}).get("model_name_or_path")
+        or spec.get("init_model")
+        or cfg.h100_base_model
+    )
     recipe = {"sources": (spec.get("data") or {}).get("sources", []),
               "recipe": (spec.get("data") or {}).get("recipe", [])}
     return "\n".join([
         f"Implement experiment {spec['name']!r} (bench={bench}, profile={cfg.ptb_profile}).",
-        f"Base model (use this exact -Base, never instruct): {cfg.h100_base_model}",
+        f"Parent model to continue training from (use this exact path): {parent_model}",
+        f"Root base model for provenance only: {cfg.h100_base_model}",
+        f"Tree node: {spec.get('node_id')} parent={spec.get('parent_node_id')}",
         f"eval limit: {eval_limit}    smoke→cap data to ≤1000 rows" if cfg.ptb_profile == "smoke"
         else f"eval limit: {eval_limit}",
         "",
@@ -233,6 +248,8 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         json.dumps(recipe, ensure_ascii=False),
         "SFT hyperparameters (fixed):",
         json.dumps(spec.get("train") or {}, ensure_ascii=False),
+        "Main-agent brief:",
+        str(spec.get("subagent_brief") or "(none)"),
         "",
         "RUNTIME CONFIG (authoritative — use these values instead of any examples in PLAYBOOK):",
         json.dumps(

@@ -1,13 +1,10 @@
-"""The deterministic autonomous loop — the part the skill used to ask a human/Claude
-to perform by hand.
+"""Agentic autonomous loop.
 
-Everything here is owned Python: the round loop, the fan-out, the stop decision, and
-resume. The only LLM calls are ``planner.next_plan`` and ``reviewer.conclude``. Stopping
-is a single wall-clock condition (10h) in :mod:`dataos.agent.budget` (the LLM never stops the loop).
-
-Resume is project-scoped and crash-safe: a round is "done" iff its study has a
-review.json; the loop restarts at the first round without one, reuses any plan already
-written, and the executor's ``skip_completed`` reruns only unfinished experiments.
+The old main loop exposed the tree and deterministically picked three nodes per
+round. The current loop is simpler and more agentic: Python maintains durable
+state; one persistent main-agent dialog proposes the next single experiment plan;
+Python validates/applies it; one sub-agent executes data/train/eval; the main
+dialog reviews the report; Python writes the tree.
 """
 
 from __future__ import annotations
@@ -18,13 +15,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import budget as _budget
-from .config import AutoRunConfig
+from dataos.core.io import atomic_write_json
 from dataos.runtime import executor as _executor
 from dataos.runtime.data_prep import prepare_once
 from dataos.runtime.eval_freeze import freeze_eval
 
+from . import budget as _budget
+from .config import AutoRunConfig
+
 _REPO_ROOT = str(Path(__file__).resolve().parents[3])
+_MAIN_SESSION_FILE = "main_agent_session.json"
+_PLAN_RETRIES = 3
 
 
 def _safe_catalog() -> list[dict]:
@@ -37,7 +38,6 @@ def _safe_catalog() -> list[dict]:
 
 
 def _better(a: dict | None, b: dict | None) -> dict | None:
-    """Return whichever of two best-dicts has the higher score (None-safe)."""
     av = a.get("score") if a else None
     bv = b.get("score") if b else None
     if not isinstance(bv, (int, float)):
@@ -47,30 +47,36 @@ def _better(a: dict | None, b: dict | None) -> dict | None:
     return a if av >= bv else b
 
 
+def _report_score(report: dict) -> float | None:
+    score = report.get("score")
+    if isinstance(score, (int, float)):
+        return float(score)
+    evaluation = report.get("eval") or {}
+    macro = evaluation.get("macro_average")
+    if isinstance(macro, (int, float)):
+        return float(macro)
+    score = evaluation.get("score")
+    return float(score) if isinstance(score, (int, float)) else None
+
+
 def _read_report(exp_root: Path, name: str):
-    """(score, model_path, artifacts, scripts) from one experiment's report.json — executor-agnostic."""
+    """Read one experiment report as score/model/artifacts/scripts/status."""
     from dataos.core.study import _slug
 
+    path = exp_root / _slug(name) / "report.json"
     try:
-        rep = json.loads((exp_root / _slug(name) / "report.json").read_text(encoding="utf-8"))
+        report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
-        return None, None, {}, {}
-    score = rep.get("score")
+        return None, None, {}, {}, None, str(path)
+    model = report.get("model") or {}
     return (
-        float(score) if isinstance(score, (int, float)) else None,
-        (rep.get("model") or {}).get("path"),
-        rep.get("artifacts") or {},
-        rep.get("scripts") or {},
+        _report_score(report),
+        model.get("path"),
+        report.get("artifacts") or {},
+        report.get("scripts") or {},
+        report.get("status"),
+        str(path),
     )
-
-
-def _spec_from_node(node: dict, slot: int, eval_cfg: dict) -> dict:
-    """One experiment spec for a tree node: the data recipe + SFT hyperparams the main-agent
-    fixed, plus the frozen eval. B-only — the base model is the fixed root base, passed to the
-    executor via cfg (the sub-agent reads it from the task), not injected here."""
-    rc = node.get("recipe") or {}
-    return {"name": f"{node['role']}-{slot}", "data": rc.get("data") or {},
-            "train": dict(rc.get("train") or {}), "eval": dict(eval_cfg)}
 
 
 def _reviewed_studies(proj) -> list[str]:
@@ -81,15 +87,12 @@ def _reviewed_studies(proj) -> list[str]:
 
 def _global_best(proj) -> dict | None:
     best = None
-    for s in proj.summary().get("studies", []):
-        best = _better(best, s.get("best"))
+    for study in proj.summary().get("studies", []):
+        best = _better(best, study.get("best"))
     return best
 
 
 def _best_model_over_project(proj):
-    """The historically BEST completed experiment across the whole project, as
-    (score, study_id, exp_name, model_path). The autonomous run declares THIS as its
-    final_model — not whatever the last round produced."""
     best = None
     for sid in proj.studies:
         edir = Path(proj.project_dir) / sid / "experiments"
@@ -100,42 +103,148 @@ def _best_model_over_project(proj):
                 rep = json.loads((edir / slug / "report.json").read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError, ValueError):
                 continue
-            score = rep.get("score")
-            if not isinstance(score, (int, float)):
+            score = _report_score(rep)
+            if score is None:
                 continue
-            cand = (float(score), sid, rep.get("name", slug), (rep.get("model") or {}).get("path"))
+            cand = (score, sid, rep.get("name", slug), (rep.get("model") or {}).get("path"))
             if best is None or cand[0] > best[0]:
                 best = cand
     return best
 
 
-def _resume_context(proj):
-    """Rebuild (prev_digest, prev_review) from the last reviewed study, for the planner."""
-    from .schemas import ReviewOut
-
-    reviewed = _reviewed_studies(proj)
-    if not reviewed:
-        return None, None
-    sid = reviewed[-1]
-    digest = proj.study(sid).summary()
-    review = None
+def _load_session(project_dir: Path) -> str | None:
+    path = project_dir / _MAIN_SESSION_FILE
     try:
-        rj = json.loads((Path(proj.project_dir) / sid / "review.json").read_text(encoding="utf-8"))
-        c = rj.get("conclusion")
-        if isinstance(c, dict):
-            review = ReviewOut(conclusion=c.get("conclusion", ""), direction=c.get("direction", ""))
-        elif isinstance(c, str):
-            review = ReviewOut(conclusion=c, direction="")
-    except Exception:
-        pass
-    return digest, review
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    sid = data.get("session_id")
+    return sid if isinstance(sid, str) and sid else None
+
+
+def _save_session(project_dir: Path, *, session_id: str | None, phase: str, round_idx: int) -> None:
+    if not session_id:
+        return
+    atomic_write_json(
+        project_dir / _MAIN_SESSION_FILE,
+        {
+            "session_id": session_id,
+            "phase": phase,
+            "round": round_idx,
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        },
+    )
+
+
+def _recent_reviews(proj, *, limit: int = 5) -> list[dict]:
+    rows: list[dict] = []
+    for sid in _reviewed_studies(proj)[-limit:]:
+        path = Path(proj.project_dir) / sid / "review.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        rows.append(
+            {
+                "study_id": sid,
+                "best": data.get("best"),
+                "conclusion": data.get("conclusion"),
+                "caution": data.get("caution"),
+            }
+        )
+    return rows
+
+
+def _remaining_hours(started: float, cfg: AutoRunConfig, now: float) -> float | None:
+    cap = cfg.budget.max_wall_clock_s
+    if cap is None:
+        return None
+    return max(0.0, (cap - (now - started)) / 3600.0)
+
+
+def _plan_context(
+    *,
+    cfg: AutoRunConfig,
+    tree,
+    proj,
+    round_idx: int,
+    eval_cfg: dict,
+    started: float,
+    now: float,
+) -> dict:
+    return {
+        "setting": {
+            "project_id": cfg.project_id,
+            "goal": cfg.goal or cfg.instruct,
+            "scenario": cfg.scenario,
+            "target_bench": cfg.target_bench,
+            "ptb_profile": cfg.ptb_profile,
+            "train_executor": cfg.train_executor,
+            "runtime_config": cfg.runtime_config_path,
+        },
+        "budget": {
+            "max_wall_clock_s": cfg.budget.max_wall_clock_s,
+            "remaining_hours": _remaining_hours(started, cfg, now),
+        },
+        "round_idx": round_idx,
+        "tree": tree.to_context(),
+        "best": _global_best(proj),
+        "recent_reviews": _recent_reviews(proj),
+        "frozen_eval": eval_cfg,
+        "constraints": [
+            "Return exactly one ExperimentPlan; no action/stop field.",
+            "parent_node_id must be one of tree.growable_node_ids.",
+            "Child nodes continue training from the selected parent's output model.",
+            "Do not set train.model_name_or_path; code injects the parent model path.",
+            "One sub-agent owns the full data/train/eval experiment.",
+            "GPU work must run through the configured executor, not on a login node.",
+        ],
+    }
+
+
+def _validate_plan(plan, tree) -> list[str]:
+    errors: list[str] = []
+    parent = plan.parent_node_id
+    if not tree.has_node(parent):
+        errors.append(f"parent_node_id {parent!r} does not exist")
+    elif parent not in {node["id"] for node in tree.growable_nodes()}:
+        errors.append(f"parent_node_id {parent!r} is not growable because it has no model")
+
+    name = (plan.name or "").strip()
+    if not name:
+        errors.append("name is required")
+    elif name in tree.experiment_names():
+        errors.append(f"name {name!r} already exists in the tree")
+
+    if "model_name_or_path" in (plan.train or {}):
+        errors.append("train.model_name_or_path must be omitted; code injects the parent model")
+    if plan.estimated_hours is not None and plan.estimated_hours <= 0:
+        errors.append("estimated_hours must be positive when provided")
+    return errors
+
+
+def _spec_from_node(node: dict, eval_cfg: dict) -> dict:
+    plan = dict(node.get("plan") or {})
+    train = dict(plan.get("train") or {})
+    init_model = node.get("init_model_path")
+    if init_model:
+        train["model_name_or_path"] = init_model
+    return {
+        "name": node["experiment_name"],
+        "node_id": node["id"],
+        "parent_node_id": node.get("parent"),
+        "init_model": init_model,
+        "data": dict(plan.get("data") or {}),
+        "train": train,
+        "eval": dict(eval_cfg),
+        "hypothesis": plan.get("hypothesis", ""),
+        "expected_signal": plan.get("expected_signal", ""),
+        "subagent_brief": plan.get("subagent_brief", ""),
+    }
 
 
 def _finish(proj, reason: str, best: dict | None, rounds: int, events: list, tree=None) -> dict:
-    # final_model = the highest-scoring NODE over the whole tree (not the last round);
-    # persist a PostTrainBench-style final_model.json pointing at it.
     from dataos.core.ids import _utc_now_iso
-    from dataos.core.io import atomic_write_json
 
     final_model = None
     node = tree.best_node() if tree is not None else None
@@ -148,17 +257,19 @@ def _finish(proj, reason: str, best: dict | None, rounds: int, events: list, tre
             "source": "best_over_tree",
             "declared_at": _utc_now_iso(),
         }
-    else:  # tree empty (no scored node yet) — fall back to scanning reports
+    else:
         chosen = _best_model_over_project(proj)
         if chosen:
             score, sid, name, mpath = chosen
             final_model = {
-                "final_model": mpath, "score": score, "study": sid,
-                "experiment": name, "source": "best_over_history",
+                "final_model": mpath,
+                "score": score,
+                "study": sid,
+                "experiment": name,
+                "source": "best_over_history",
                 "declared_at": _utc_now_iso(),
             }
     if final_model:
-        # a FILE at the project root (not a subdir — Project.studies counts every subdir)
         atomic_write_json(Path(proj.project_dir) / "final_model.json", final_model)
     return {
         "project_id": proj.id,
@@ -172,24 +283,26 @@ def _finish(proj, reason: str, best: dict | None, rounds: int, events: list, tre
 
 
 def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
-    """Drive a project until the wall-clock budget is spent, then return a result dict.
+    """Run the agentic tree loop until the wall-clock budget is spent."""
 
-    Single stop reason: ``budget:wall_clock`` (default 10h, the PTB protocol). ``_clock``
-    is an injectable monotonic clock for deterministic tests."""
     import dataos
 
-    from .planner import next_plan
-    from .reviewer import conclude
     from .backend import make_agent
     from .logging import setup_run_logging
+    from .planner import next_plan
+    from .reviewer import review_result
     from .state_tree import TreeState
 
     cfg.workspace = os.path.abspath(cfg.workspace)
     log, log_path = setup_run_logging(cfg.workspace, cfg.project_id)
     log.info(
-        "run start: project=%s target_bench=%s executor=%s backend=%s profile=%s wall_budget=%ss",
-        cfg.project_id, cfg.target_bench, cfg.train_executor, cfg.backend,
-        cfg.ptb_profile, cfg.budget.max_wall_clock_s,
+        "run start: project=%s bench=%s executor=%s backend=%s profile=%s wall_budget=%ss",
+        cfg.project_id,
+        cfg.target_bench,
+        cfg.train_executor,
+        cfg.backend,
+        cfg.ptb_profile,
+        cfg.budget.max_wall_clock_s,
     )
     log.info("run log: %s", log_path)
 
@@ -197,103 +310,147 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     proj.set_goal(
         goal=cfg.goal or None,
         instruct=cfg.instruct or None,
-        mode="autonomous",
+        mode="agentic_main_dialog",
         success_criterion=cfg.criterion.as_dict(),
         budget=cfg.budget.as_dict(),
     )
-    proj.load()  # rehydrate prior studies/experiments (no-op on first run)
+    proj.load()
 
     eval_cfg = freeze_eval(cfg=cfg)
-    # slurm_h100 prepares data inside the Slurm job (from the fixed pool on H100); only the
-    # local executor needs a prepared data dir here.
     data_dir = None if cfg.train_executor == "subagent" else prepare_once(cfg=cfg)
     catalog = _safe_catalog()
-
-    # the externalized search tree (root = the fixed base); owns state + node selection
     base_model = cfg.h100_base_model or cfg.base_model_id or "base"
     tree = TreeState.load(proj.project_dir, base_model)
+
+    main_agent = make_agent("main_agent", cfg)
+    session_id = _load_session(Path(proj.project_dir))
+    if session_id:
+        log.info("main-agent: resuming dialog session %s", session_id)
 
     started = _clock()
     round_idx = len(_reviewed_studies(proj))
     best = _global_best(proj)
-    _, prev_review = _resume_context(proj)
     events: list[dict] = []
     if round_idx:
-        log.info("resuming: %d reviewed round(s) on disk; continuing at round %d (best=%s)",
-                 round_idx, round_idx, best)
+        log.info(
+            "resuming: %d reviewed node(s) on disk; continuing at round %d (best=%s)",
+            round_idx,
+            round_idx,
+            best,
+        )
 
     while True:
-        reason = _budget.stop_reason(started_at=started, budget=cfg.budget, now=_clock())
+        now = _clock()
+        reason = _budget.stop_reason(started_at=started, budget=cfg.budget, now=now)
         if reason:
-            log.info("STOP: %s (after %d round(s))", reason, round_idx)
+            log.info("STOP: %s (after %d completed node(s))", reason, round_idx)
             result = _finish(proj, reason, best, round_idx, events, tree)
             log.info("final_model: %s", result.get("final_model"))
             return result
 
         study_id = f"round-{round_idx:04d}"
         study = proj.study(study_id)
-
         log.info("round %d: start (study=%s)", round_idx, study_id)
-        # The skeleton (not the LLM) picks this round's 3 slots off the tree: 2 exploit + 1 explore.
-        targets = tree.select_targets(round_idx)
-        for i, (pid, role) in enumerate(targets):
-            p = tree.get(pid)
-            log.info("round %d: slot %d = %s (parent=%s score=%s depth=%s)",
-                     round_idx, i, role, pid, p["score"], p["depth"])
 
-        # Materialize one child node per slot. Resume: if this round's nodes are already on
-        # disk (crash after save), reuse them — the recipe lives on the node, so we never re-plan.
         node_ids = tree.nodes_for_round(round_idx)
-        plan_goal = (study.plan or {}).get("goal") if study.plan else None
+        if len(node_ids) > 1:
+            raise RuntimeError(f"round {round_idx} has multiple tree nodes: {node_ids}")
+
         if node_ids:
-            log.info("round %d: reusing %d on-disk tree node(s)", round_idx, len(node_ids))
-        else:
-            log.info("round %d: planning via %s backend...", round_idx, cfg.backend)
-            targets_info = [
-                {"role": role, "parent_recipe": tree.get(pid)["recipe"],
-                 "parent_score": tree.get(pid)["score"], "parent_depth": tree.get(pid)["depth"]}
-                for pid, role in targets
-            ]
-            explored = [n["recipe"] for n in tree.nodes if n["recipe"]]
-            plan = next_plan(
-                agent=make_agent("planner", cfg), targets=targets_info,
-                instruct=cfg.instruct, goal=cfg.goal, prev_review=prev_review,
-                explored=explored, eval_cfg=eval_cfg, round_idx=round_idx, catalog=catalog,
+            node_id = node_ids[0]
+            node = tree.get(node_id)
+            log.info(
+                "round %d: reusing node %s parent=%s status=%s",
+                round_idx,
+                node_id,
+                node.get("parent"),
+                node.get("status"),
             )
-            edges = [e.model_dump() for e in plan.edges]
-            plan_goal = plan.goal
-            node_ids = []
-            for i, (pid, role) in enumerate(targets):
-                edge = edges[i] if i < len(edges) else edges[-1]
-                recipe = {"data": edge.get("data") or {}, "train": edge.get("train") or {}}
-                nid = tree.add_node(parent=pid, role=role, round_idx=round_idx, recipe=recipe)
-                node_ids.append(nid)
-                log.info("round %d: + node %s (%s of %s) n_samples=%s lr=%s lora_r=%s",
-                         round_idx, nid, role, pid, recipe["data"].get("n_samples"),
-                         recipe["train"].get("learning_rate"), recipe["train"].get("lora_rank"))
+        else:
+            validation_errors: list[str] | None = None
+            plan = None
+            for attempt in range(1, _PLAN_RETRIES + 1):
+                context = _plan_context(
+                    cfg=cfg,
+                    tree=tree,
+                    proj=proj,
+                    round_idx=round_idx,
+                    eval_cfg=eval_cfg,
+                    started=started,
+                    now=now,
+                )
+                log.info("round %d: asking main-agent for plan (attempt %d)", round_idx, attempt)
+                plan, session_id = next_plan(
+                    agent=main_agent,
+                    context=context,
+                    catalog=catalog,
+                    session_id=session_id,
+                    validation_errors=validation_errors,
+                )
+                _save_session(
+                    Path(proj.project_dir),
+                    session_id=session_id,
+                    phase="plan",
+                    round_idx=round_idx,
+                )
+                validation_errors = _validate_plan(plan, tree)
+                if not validation_errors:
+                    break
+                log.warning(
+                    "round %d: plan validation failed: %s",
+                    round_idx,
+                    validation_errors,
+                )
+            if validation_errors:
+                raise RuntimeError(
+                    "main-agent returned invalid ExperimentPlan after retries: "
+                    + "; ".join(validation_errors)
+                )
+            assert plan is not None
+            node_id = tree.add_planned_node(
+                parent=plan.parent_node_id,
+                round_idx=round_idx,
+                plan=plan.model_dump(),
+            )
+            node = tree.get(node_id)
             tree.save()
+            log.info(
+                "round %d: + node %s parent=%s name=%s init_model=%s estimated_hours=%s",
+                round_idx,
+                node_id,
+                node.get("parent"),
+                node.get("experiment_name"),
+                node.get("init_model_path"),
+                node.get("estimated_hours"),
+            )
 
-        # Specs are derived from the tree nodes (single source of truth). B-only: every node
-        # trains FROM the fixed base, so the executor pins cfg.h100_base_model for all of them.
-        specs = [_spec_from_node(tree.get(nid), i, eval_cfg) for i, nid in enumerate(node_ids)]
-        # plan.json carries the experiments so run_one.py (subprocess) can look up each spec.
+        spec = _spec_from_node(node, eval_cfg)
         if not (study.plan and study.plan.get("experiments")):
-            study.set_plan({"goal": plan_goal or f"round {round_idx}", "experiments": specs})
+            study.set_plan(
+                {
+                    "goal": spec.get("hypothesis") or f"round {round_idx}",
+                    "node_id": node_id,
+                    "parent_node_id": spec.get("parent_node_id"),
+                    "init_model": spec.get("init_model"),
+                    "experiments": [spec],
+                }
+            )
+            log.info("round %d: wrote plan.json for node %s", round_idx, node_id)
 
-        log.info("round %d: executing %d spec(s) via %s", round_idx, len(specs), cfg.train_executor)
+        tree.mark_running(node_id)
+        tree.save()
+        log.info("round %d: executing node %s via %s", round_idx, node_id, cfg.train_executor)
         if cfg.train_executor == "subagent":
             from dataos.runtime import subagent_executor
 
-            # PTB: 1 H100 / 10h total → experiments run sequentially under the wall-clock deadline
-            deadline = (started + cfg.budget.max_wall_clock_s
-                        if cfg.budget.max_wall_clock_s else None)
-            subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=specs, deadline=deadline)
+            deadline = started + cfg.budget.max_wall_clock_s if cfg.budget.max_wall_clock_s else None
+            subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)
         else:
             _executor.fan_out(
                 project_id=cfg.project_id,
                 study_id=study_id,
                 workspace=cfg.workspace,
-                specs=specs,
+                specs=[spec],
                 data_dir=data_dir,
                 gpus=cfg.gpus,
                 run_one=cfg.run_one,
@@ -303,39 +460,89 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                 limit=cfg.data_limit,
             )
 
-        # attach each experiment's score back onto its tree node (executor-agnostic)
         exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
-        for nid, spec in zip(node_ids, specs):
-            score, mpath, arts, scr = _read_report(exp_root, spec["name"])
-            tree.attach(nid, score, mpath, artifacts=arts, scripts=scr)
-            log.info("round %d: attach %s score=%s model=%s run_root=%s",
-                     round_idx, nid, score, mpath, arts.get("run_root"))
+        score, mpath, artifacts, scripts, status, report_path = _read_report(
+            exp_root,
+            spec["name"],
+        )
+        tree.attach_report(
+            node_id,
+            report_path=report_path,
+            status=status,
+            score=score,
+            model_path=mpath,
+            artifacts=artifacts,
+            scripts=scripts,
+        )
         tree.save()
+        log.info(
+            "round %d: report node=%s status=%s score=%s model=%s",
+            round_idx,
+            node_id,
+            status,
+            score,
+            mpath,
+        )
 
         digest = study.summary()
-        log.info("round %d: results best=%s n_experiments=%s caution=%s",
-                 round_idx, digest.get("best"), digest.get("n_experiments"), digest.get("caution"))
-        log.info("round %d: reviewing...", round_idx)
-        review = conclude(
-            agent=make_agent("reviewer", cfg), digest=digest, goal=cfg.goal, round_idx=round_idx
+        review_context = {
+            "round_idx": round_idx,
+            "node": tree.get(node_id),
+            "study_digest": digest,
+            "tree": tree.to_context(),
+            "goal": cfg.goal or cfg.instruct,
+        }
+        log.info("round %d: asking main-agent for review", round_idx)
+        review, session_id = review_result(
+            agent=main_agent,
+            context=review_context,
+            session_id=session_id,
         )
-        study.review(conclusion={"conclusion": review.conclusion, "direction": review.direction})
-        log.info("round %d: review conclusion=%r direction=%r",
-                 round_idx, (review.conclusion or "")[:160], (review.direction or "")[:160])
+        _save_session(
+            Path(proj.project_dir),
+            session_id=session_id,
+            phase="review",
+            round_idx=round_idx,
+        )
+        review_payload = review.model_dump()
+        study.review(conclusion=review_payload)
+        tree.attach_review(node_id, review_path=str(study.review_path), review=review_payload)
+        tree.save()
+        log.info(
+            "round %d: review interpretation=%r next=%r",
+            round_idx,
+            review.interpretation[:160],
+            review.recommendation_for_future_growth[:160],
+        )
 
-        bn = tree.best_node()
-        st = tree.stats()
-        log.info("round %d: tree best=%s n_nodes=%s max_depth=%s", round_idx,
-                 {"id": bn["id"], "score": bn["score"], "depth": bn["depth"]} if bn else None,
-                 st["n_nodes"], st["max_depth"])
+        stats = tree.stats()
+        best_node = tree.best_node()
+        log.info(
+            "round %d: tree best=%s n_nodes=%s n_growable=%s max_depth=%s",
+            round_idx,
+            (
+                {
+                    "id": best_node["id"],
+                    "score": best_node["score"],
+                    "depth": best_node["depth"],
+                }
+                if best_node
+                else None
+            ),
+            stats["n_nodes"],
+            stats["n_growable"],
+            stats["max_depth"],
+        )
         best = _better(best, digest.get("best"))
-        prev_review = review
         events.append(
             {
                 "round": round_idx,
                 "study": study_id,
+                "node": node_id,
+                "parent": node.get("parent"),
+                "status": status,
+                "score": score,
                 "best": digest.get("best"),
-                "n_experiments": digest.get("n_experiments"),
                 "caution": digest.get("caution"),
             }
         )

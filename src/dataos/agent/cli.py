@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     # LLM backend
     run.add_argument(
         "--backend", default="claude_code", choices=["claude_code", "claude", "openai", "stub"],
-        help="planner/reviewer backend (default claude_code = local Claude Code subscription)",
+        help="main-agent backend (default claude_code = local Claude Code subscription)",
     )
     run.add_argument("--model", default="mimo-v2.5-pro", help="model id for claude/openai backends")
     run.add_argument(

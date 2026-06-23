@@ -1,8 +1,7 @@
-"""L1 smoke: real LLM (claude backend / MiMo) returns a parseable PlanOut.
+"""L1 smoke: real LLM returns a parseable ExperimentPlan.
 
 Skipped unless a key (MIMO_API_KEY or ANTHROPIC_API_KEY) is set AND the `claude` CLI is
-on PATH. No GPU and no training — it only proves the structured-output contract is stable
-on the real Anthropic-compatible endpoint. Run on the a800 box where the MiMo key lives.
+on PATH. No GPU and no training — it only proves the structured-output contract is stable.
 """
 
 import os
@@ -18,11 +17,11 @@ _HAS_CLI = shutil.which("claude") is not None
     not (_HAS_KEY and _HAS_CLI),
     reason="needs MIMO_API_KEY/ANTHROPIC_API_KEY + the claude CLI on PATH",
 )
-def test_planner_real_llm(tmp_path):
+def test_main_agent_real_llm_plan(tmp_path):
     from dataos.agent.backend import make_agent
     from dataos.agent.config import AutoRunConfig, Budget, Criterion
     from dataos.agent.planner import next_plan
-    from dataos.agent.schemas import PlanOut
+    from dataos.agent.schemas import ExperimentPlan
 
     cfg = AutoRunConfig(
         project_id="l1",
@@ -33,13 +32,16 @@ def test_planner_real_llm(tmp_path):
         criterion=Criterion(threshold=0.5),
         budget=Budget(max_rounds=1),
     )
-    plan = next_plan(
-        agent=make_agent("planner", cfg),
-        instruct=cfg.instruct,
-        goal=cfg.goal,
-        eval_cfg={"tasks": ["gsm8k"]},
-        round_idx=0,
-        catalog=[],
-    )
-    assert isinstance(plan, PlanOut)
-    assert plan.experiments and all(e.name for e in plan.experiments)
+    context = {
+        "setting": {"goal": cfg.goal, "target_bench": "gsm8k"},
+        "budget": {"remaining_hours": 10},
+        "tree": {
+            "growable_node_ids": ["n0000"],
+            "nodes": [{"node_id": "n0000", "status": "completed", "has_model": True}],
+        },
+        "constraints": ["parent_node_id must be n0000"],
+    }
+    plan, _ = next_plan(agent=make_agent("main_agent", cfg), context=context, catalog=[])
+    assert isinstance(plan, ExperimentPlan)
+    assert plan.parent_node_id == "n0000"
+    assert plan.name
