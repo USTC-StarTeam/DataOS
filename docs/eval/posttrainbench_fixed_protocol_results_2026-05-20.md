@@ -152,5 +152,5 @@ The ShareGPT export script preserves provenance columns so later training runs
 can still audit `source_id`, source repo/config/split, domain tags, benchmark
 tags, license, and contamination notes. Both the processed-source registry and
 the ShareGPT view were updated on the H100 side and synchronized into
-`dataos/templates/fixed_pools/`; the ShareGPT extension export log is
+the fixed-pool resource area; the ShareGPT extension export log is
 `/data/hcgu/dataos_fixed_pools/logs/sharegpt_export_extension_20260520.log`.

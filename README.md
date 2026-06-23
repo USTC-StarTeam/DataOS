@@ -9,8 +9,10 @@ artifact persistence. Some evaluator and generator operators may optionally use
 an OpenAI-compatible model when the task explicitly requires scoring or
 augmentation.
 
-The current architecture is documented in [docs/dataos_overview.md](docs/dataos_overview.md).
-The operator catalog is documented in [docs/operators_zh.md](docs/operators_zh.md).
+The current architecture is documented in
+[docs/overview/dataos_overview.md](docs/overview/dataos_overview.md).
+The operator catalog is documented in
+[docs/architecture/operators_zh.md](docs/architecture/operators_zh.md).
 
 ## Scope
 
@@ -40,15 +42,28 @@ uv sync --extra train
 uv sync --extra eval
 ```
 
+## Repository Layout
+
+```text
+src/dataos/      DataOS package: agent loop, core objects, runtime, integrations
+configs/         Runtime and experiment configs
+resources/data/  HF datasets and benchmark data resources
+resources/code/  Benchmark/harness code resources used by experiments
+docs/            Architecture notes and runbooks
+scripts/         Thin command-line helpers
+tests/           Tests grouped by agent/core/runtime/integrations
+```
+
 ## CLI
 
 ```bash
-uv run dataos operators list
+uv run dataos catalog
 
-uv run dataos train \
-  --task dataos/templates/alpaca_gsm8k_stub_v1.json \
-  --dataset datasets/alpaca_eval,datasets/gsm8k \
-  --workspace workspace
+uv run dataos-auto run \
+  --project gsm8k-smoke \
+  --target-bench gsm8k \
+  --ptb-profile smoke \
+  --runtime-config configs/runtimes/h100.json
 ```
 
 If you want planning / review to use DashScope, export these variables before `uv run`:
@@ -70,7 +85,7 @@ export EVALUATOR_MODEL="your-evaluator-model"
 For mixed-dataset runs, the default conversational dataset shape is ShareGPT-style `conversations` rows.
 
 For the experiment directory layout and saved files, see
-[docs/experiment_layout_zh.md](docs/experiment_layout_zh.md).
+[docs/architecture/experiment_layout_zh.md](docs/architecture/experiment_layout_zh.md).
 
 ## Validation
 

@@ -191,6 +191,9 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# macOS metadata
+.DS_Store
+
 # PyPI configuration file
 .pypirc
 
@@ -213,3 +216,4 @@ workspace/
 # secrets / run outputs
 *.env
 workspace_*/
+run-dataos/harnesses/posttrainbench/_ptb_*

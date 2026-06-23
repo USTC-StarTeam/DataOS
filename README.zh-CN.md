@@ -7,8 +7,8 @@ LLM 主要负责数据算子的计划和实验结束后的 review；算子执行
 artifact 落盘仍由本地代码主导。对于显式需要打分或数据增强的场景，个别
 evaluator / generator 算子可以选择调用 OpenAI-compatible 模型。
 
-当前主文档是 [docs/dataos_overview.md](docs/dataos_overview.md)，算子中文说明见
-[docs/operators_zh.md](docs/operators_zh.md)。
+当前主文档是 [docs/overview/dataos_overview.md](docs/overview/dataos_overview.md)，
+算子中文说明见 [docs/architecture/operators_zh.md](docs/architecture/operators_zh.md)。
 
 ## 当前边界
 
@@ -36,15 +36,28 @@ uv sync --extra train
 uv sync --extra eval
 ```
 
+## 仓库结构
+
+```text
+src/dataos/      DataOS 源码：agent loop、core、runtime、integrations
+configs/         runtime / experiment 配置
+resources/data/  HF 数据集和 benchmark 数据资源
+resources/code/  benchmark / harness 代码资源
+docs/            架构说明和 runbook
+scripts/         薄命令行入口
+tests/           按 agent/core/runtime/integrations 分组的测试
+```
+
 ## CLI
 
 ```bash
-uv run dataos operators list
+uv run dataos catalog
 
-uv run dataos train \
-  --task dataos/templates/alpaca_gsm8k_stub_v1.json \
-  --dataset datasets/alpaca_eval,datasets/gsm8k \
-  --workspace workspace
+uv run dataos-auto run \
+  --project gsm8k-smoke \
+  --target-bench gsm8k \
+  --ptb-profile smoke \
+  --runtime-config configs/runtimes/h100.json
 ```
 
 如果你希望 planning / review 走 DashScope，在 `uv run` 之前先导出环境变量：
@@ -66,7 +79,7 @@ export EVALUATOR_MODEL="your-evaluator-model"
 多数据集混合运行时，默认的对话样本格式是 ShareGPT 风格的 `conversations` 行。
 
 实验目录结构和落盘文件说明单独放在
-[docs/experiment_layout_zh.md](docs/experiment_layout_zh.md)。
+[docs/architecture/experiment_layout_zh.md](docs/architecture/experiment_layout_zh.md)。
 
 ## 校验
 

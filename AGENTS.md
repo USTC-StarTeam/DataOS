@@ -29,25 +29,30 @@ user explicitly asks to change them.
 
 ## Repository Map
 
-- `dataos/core`
-  - Artifact types, sandbox layout, experiment state, operator interface,
-    registry, local artifact store, task template, planning agent
-- `dataos/operators`
-  - Built-in deterministic data operators
-- `dataos/train`
-  - Fixed LLaMA-Factory training runtime stage
-- `dataos/eval`
-  - lm-eval bridge, adapters, config, and natural-language eval helper
-- `dataos/llm`
-  - Minimal LLM client interface and OpenAI-compatible implementation
-- `dataos/prompts`
-  - Prompt builders and payload validation/normalization for plan/review flows
-- `dataos/runtime`
-  - `run_task()` entrypoint and fixed runtime stage wiring
-- `dataos/templates`
-  - Example task template JSON and import specs
+- `src/dataos/agent`
+  - Main-agent loop, state tree, node selection, planner/reviewer prompts,
+    schemas, budget, and CLI
+- `src/dataos/core`
+  - Artifact types, project/study/experiment objects, workspace layout,
+    reports, ids, IO, provenance, and local persistence
+- `src/dataos/runtime`
+  - Experiment execution helpers: local fan-out, sub-agent executor, shared
+    data prep, frozen eval selection, and report collection
+- `src/dataos/integrations`
+  - External integrations for Claude Code, PostTrainBench, LLaMA-Factory,
+    Slurm, and lm-eval
+- `configs`
+  - Runtime and experiment configs, including `configs/runtimes/h100.json`
+- `resources/data`
+  - HF datasets and benchmark data resources
+- `resources/code`
+  - Benchmark/harness code resources consumed by runtime and sub-agents
+- `scripts`
+  - Thin command-line helpers, especially `scripts/run_one.py` and
+    `scripts/doctor.py`
 - `docs`
-  - Current main project document only: `docs/dataos_overview.md`
+  - Architecture notes and runbooks, with the main overview at
+    `docs/overview/dataos_overview.md`
 
 ## Local Commands
 
@@ -157,7 +162,7 @@ Reports and review artifacts are expected under the sandbox root, especially:
 
 ### Artifact Model
 
-Supported artifact types are fixed in `dataos/core/artifact.py`:
+Supported artifact types are fixed in `src/dataos/core/artifact.py`:
 
 - `dataset`
 - `model`
@@ -170,10 +175,9 @@ local artifact store behavior together.
 
 ### Default Runtime
 
-The default operator registry is built from `dataos/operators/__init__.py` and
-contains deterministic data operators only. The planning agent may select those
-operators for the data stage, and its fallback plan uses the first registered
-operator if LLM output is invalid.
+The operator catalog is provided by the external `dataos_operator` package and
+surfaced through `src/dataos/core/catalog.py`. Operators are deterministic data
+operators only.
 
 `train_llamafactory` and `eval_model` are fixed runtime stages. They are called
 directly by `run_task()` after the agent-planned data-operator steps complete.
@@ -201,7 +205,7 @@ when local runtime code should own them.
 
 ### When Adding Or Changing An Operator
 
-- Implement against the `Operator` interface in `dataos/core/operator.py`.
+- Implement against the `dataos_operator` operator interface.
 - Accept `inputs` plus `sandbox`, and emit typed artifacts.
 - Prefer deriving from the latest relevant upstream artifact in `inputs`.
 - Write stable logs via `sandbox.log(...)`.
@@ -241,7 +245,7 @@ Do not recreate the old pytest suite unless the user explicitly asks for it.
 - Keep lines within Ruff's configured limit of 100 where practical.
 - Prefer small, explicit helpers over implicit magic.
 - Preserve type hints and dataclass usage patterns already used in
-  `dataos/core`.
+  `src/dataos/core`.
 - Keep comments sparse and only where they clarify non-obvious logic.
 - Prefer ASCII unless the file already requires Unicode content.
 
@@ -277,9 +281,10 @@ Do not recreate the old pytest suite unless the user explicitly asks for it.
 
 ## Useful Entry Points
 
-- Runtime entrypoint: `dataos/runtime/runner.py`
-- Planning agent: `dataos/core/agent.py`
-- Artifact definitions: `dataos/core/artifact.py`
-- Sandbox definition: `dataos/core/sandbox.py`
-- Task schema: `dataos/core/task.py`
-- Main document: `docs/dataos_overview.md`
+- Main-agent entrypoint: `src/dataos/agent/loop.py`
+- Agent CLI: `src/dataos/agent/cli.py`
+- Runtime executors: `src/dataos/runtime`
+- Artifact definitions: `src/dataos/core/artifact.py`
+- Workspace definition: `src/dataos/core/workspace.py`
+- PostTrainBench playbook: `resources/code/posttrainbench/PLAYBOOK.md`
+- Main document: `docs/overview/dataos_overview.md`
