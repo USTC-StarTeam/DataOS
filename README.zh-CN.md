@@ -104,24 +104,27 @@ config 只承载事实（路径、唯一 bench、预算、资源）。所有**�
 DataOS/
 ├── src/dataos/
 │   ├── cli.py                       # `dataos` 入口：读 run 配置 → run_auto
-│   ├── agent/                       # 自主循环
+│   ├── agent/                       # 自主循环 + 逐实验 sub-agent
 │   │   ├── loop.py                  #   run_auto：每轮 = 出plan → 执行 → 复盘 → 生长树
 │   │   ├── state_tree.py            #   实验树（节点、可生长集合、最优节点）
 │   │   ├── run_config.py            #   单 JSON 配置边界（只放事实）
 │   │   ├── planner.py · reviewer.py #   向 main-agent 要 ExperimentPlan / ReviewOut
-│   │   ├── prompts.py               #   main-agent + sub-agent 系统提示词
+│   │   ├── subagent_executor.py     #   驱动逐实验的 sub-agent（Claude Code + shell）
+│   │   ├── eval_freeze.py           #   每次运行冻结一次评测协议
+│   │   ├── backend.py               #   LLM 后端（Claude Code CLI）— 渲染角色提示词
 │   │   ├── schemas.py               #   ExperimentPlan / ReviewOut（校验过的 JSON）
-│   │   ├── backend.py               #   LLM 后端（Claude Code CLI）
 │   │   └── config.py · budget.py · logging.py
+│   ├── prompt/                      # 所有 prompt 作为 Jinja2 YAML 模板（用 config 事实渲染）
+│   │   ├── main_agent.yaml · subagent.yaml            #   系统提示
+│   │   ├── planner_task.yaml · reviewer_task.yaml     #   每轮任务消息
+│   │   ├── subagent_task.yaml · subagent_continue.yaml#   逐实验任务 / 续跑
+│   │   └── structured_*.yaml                          #   JSON 输出脚手架
 │   ├── core/                        # Project → Study → Experiment → Stage 数据模型
 │   │   ├── project.py · study.py · experiment.py · stage.py
 │   │   ├── artifact.py              #   Data · Model · Eval 工件
 │   │   ├── workspace.py             #   落盘的运行目录布局
 │   │   ├── catalog.py · loading.py  #   算子目录 + 数据集加载（DataOS-Operator）
 │   │   └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
-│   ├── runtime/
-│   │   ├── subagent_executor.py     #   驱动逐实验的 sub-agent（Claude Code + shell）
-│   │   └── eval_freeze.py           #   每次运行冻结一次评测协议
 │   └── integrations/
 │       ├── llm/                     #   Claude Code 后端 + 结构化输出 helper
 │       └── posttrainbench/adapter.py #  PTB bench 列表 + 各 profile 的采样 limit

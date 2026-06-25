@@ -1,0 +1,23 @@
+description: >
+  Per-round planner task message asking the main-agent dialog for one ExperimentPlan.
+  Render params: context_json, catalog_json, validation_errors_json (optional).
+template: |
+  Choose the next single experiment to grow on the tree.
+
+  Return one ExperimentPlan JSON object only. Do not return an action or stop decision.
+
+  Context bundle:
+
+  {{ context_json }}
+
+  Available data operators (name/kind/params):
+
+  {{ catalog_json }}
+  {% if validation_errors_json is defined and validation_errors_json %}
+
+  Your previous plan failed code validation:
+
+  {{ validation_errors_json }}
+
+  Return a corrected ExperimentPlan JSON object only.
+  {% endif %}

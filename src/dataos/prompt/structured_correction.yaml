@@ -1,0 +1,9 @@
+description: >
+  Dialog parse-retry correction. Render params: error, schema.
+template: |
+  Your previous reply did not validate as the required JSON object.
+  Validation error: {{ error }}
+
+  Return corrected JSON only, no prose and no markdown fence.
+  Schema:
+  {{ schema }}

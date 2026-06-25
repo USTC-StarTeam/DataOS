@@ -1,6 +1,6 @@
 """Full agentic loop, all-stub (no GPU / no LLM / no claude CLI).
 
-The loop's only executor is the sub-agent (``dataos.runtime.subagent_executor``); here we
+The loop's only executor is the sub-agent (``dataos.agent.subagent_executor``); here we
 replace its ``fan_out`` with a fake that just writes a completed ``report.json`` per spec, so
 the test exercises the loop's orchestration (plan → execute → review → tree → budget stop →
 resume) without a real sub-agent / H100.
@@ -13,7 +13,7 @@ import pytest
 
 from dataos.agent.config import AutoRunConfig, Budget
 from dataos.agent.loop import run_auto
-from dataos.runtime import subagent_executor
+from dataos.agent import subagent_executor
 
 
 def _plan(parent: str, name: str) -> str:

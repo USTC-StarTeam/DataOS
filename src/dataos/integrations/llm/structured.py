@@ -19,6 +19,8 @@ from typing import Any
 from dataos_agent._output import parse_output
 from dataos_agent.errors import OutputParseError
 
+from dataos import prompt as _prompt
+
 log = logging.getLogger(__name__)
 
 
@@ -51,11 +53,7 @@ def run_structured(
             parse_left -= 1
             log.warning("%s: output parse failed (%s); %d parse-retry left, re-asking JSON-only",
                         name, e, parse_left)
-            prompt = (
-                task
-                + "\n\nIMPORTANT: your previous reply was not valid JSON. Reply with ONLY "
-                "the JSON object — no prose, no markdown fence."
-            )
+            prompt = _prompt.render("structured_json_only", task=task)
         except Exception as e:  # transient endpoint/SDK error: back off and retry
             if net_left <= 0:
                 log.error("%s: LLM call failed, net-retries exhausted: %s: %s",
@@ -97,10 +95,7 @@ def run_structured_dialog(
 
     name = getattr(model, "__name__", str(model))
     schema = json.dumps(model.model_json_schema(), ensure_ascii=False)
-    base_prompt = (
-        f"{task}\n\nReply with ONLY a JSON object that validates against this JSON schema "
-        f"(no prose, no markdown fence):\n{schema}"
-    )
+    base_prompt = _prompt.render("structured_schema", task=task, schema=schema)
     prompt = base_prompt
     sid = session_id
     parse_left, net_left = parse_retries, net_retries
@@ -131,12 +126,7 @@ def run_structured_dialog(
                 e,
                 parse_left,
             )
-            prompt = (
-                "Your previous reply did not validate as the required JSON object.\n"
-                f"Validation error: {e}\n\n"
-                "Return corrected JSON only, no prose and no markdown fence.\n"
-                f"Schema:\n{schema}"
-            )
+            prompt = _prompt.render("structured_correction", error=e, schema=schema)
         except Exception as e:  # transient endpoint/SDK error
             if net_left <= 0:
                 log.error(

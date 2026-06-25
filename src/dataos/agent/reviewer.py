@@ -4,19 +4,16 @@ from __future__ import annotations
 
 import json
 
+from dataos import prompt as _prompt
 from dataos.integrations.llm.structured import run_structured_dialog
 
 from .schemas import ReviewOut
 
 
 def _build_prompt(*, context: dict) -> str:
-    return "\n\n".join(
-        [
-            "Review the just-completed experiment node.",
-            "Return one ReviewOut JSON object only. Ground it in the report and metrics.",
-            "Review context:",
-            json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
-        ]
+    return _prompt.render(
+        "reviewer_task",
+        context_json=json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
     )
 
 

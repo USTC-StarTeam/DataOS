@@ -22,8 +22,23 @@ from typing import Any
 from dataos_agent import Agent, AgentConfig
 from dataos_agent._output import parse_output
 
+from dataos import prompt as _prompt
+
 from .config import AutoRunConfig
-from .prompts import PROMPTS
+
+
+def _system_prompt(role: str, cfg: AutoRunConfig) -> str:
+    """Render the role's system prompt from src/dataos/prompt, injecting the run's facts."""
+    if role == "subagent":
+        return _prompt.render("subagent")
+    budget_h = (cfg.budget.max_wall_clock_s or 0) / 3600 or 10
+    budget_hours = int(budget_h) if budget_h == int(budget_h) else round(budget_h, 1)
+    gres = str((cfg.runtime_config.get("cluster") or {}).get("gres", "gpu:1"))
+    try:
+        gpus = int(gres.rsplit(":", 1)[-1])
+    except ValueError:
+        gpus = 1
+    return _prompt.render("main_agent", budget_hours=budget_hours, gpus=gpus)
 
 
 class _StubMainAgent:
@@ -119,7 +134,7 @@ def make_agent(role: str, cfg: AutoRunConfig):
         from dataos.integrations.llm.claude_code import ClaudeCodeAgent
 
         return ClaudeCodeAgent(
-            instructions=PROMPTS[role],
+            instructions=_system_prompt(role, cfg),
             workspace=ws,
             model=cfg.claude_code_model,  # None -> CLI default subscription model
             max_steps=cfg.max_steps,
@@ -136,7 +151,7 @@ def make_agent(role: str, cfg: AutoRunConfig):
             model=cfg.model,
             api_key=key,
             base_url=cfg.base_url,
-            instructions=PROMPTS[role],
+            instructions=_system_prompt(role, cfg),
             workspace=ws,
             max_steps=cfg.max_steps,
         )
@@ -159,7 +174,7 @@ def make_agent(role: str, cfg: AutoRunConfig):
             model=cfg.model,
             api_key=key,
             base_url=cfg.base_url,
-            instructions=PROMPTS[role],
+            instructions=_system_prompt(role, cfg),
             workspace=ws,
             max_steps=cfg.max_steps,
             tools=[],

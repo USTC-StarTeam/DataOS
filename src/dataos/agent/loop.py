@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from dataos.core.io import atomic_write_json
-from dataos.runtime.eval_freeze import freeze_eval
+from dataos.agent.eval_freeze import freeze_eval
 
 from . import budget as _budget
 from .config import AutoRunConfig
@@ -450,7 +450,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         tree.mark_running(node_id)
         tree.save()
         log.info("round %d: executing node %s via sub-agent", round_idx, node_id)
-        from dataos.runtime import subagent_executor
+        from dataos.agent import subagent_executor
 
         deadline = started + cfg.budget.max_wall_clock_s if cfg.budget.max_wall_clock_s else None
         subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)

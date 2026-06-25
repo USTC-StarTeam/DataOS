@@ -1,0 +1,23 @@
+description: >
+  Per-node reviewer task message asking the main-agent dialog for one ReviewOut.
+  Render params: context_json.
+template: |
+  Review the just-completed experiment node.
+
+  Reply with ONLY a ReviewOut JSON object, grounded in the report and metrics:
+    {"interpretation": "...", "lesson": "...", "recommendation_for_future_growth": "..."}
+
+  The digest contains: ranking, best {name, score}, varied_keys, metric_winners, caution.
+  - interpretation: grounded in the digest numbers — the best experiment, its bench score, and
+    what DATA MIXTURE / hyperparameters varied. An honest negative ("no recipe beat the
+    parent within noise") is a valid, valuable interpretation.
+  - recommendation_for_future_growth: a concrete next hint WITHIN PTB constraints, e.g.
+    "lr 1.5e-4 > 5e-5; next add more math sources / raise n_samples", "LoRA r64 plateaued, try
+    full-ft", or "data volume looks like the cap". Never propose changing the base model or eval.
+  - If `caution` is set (eval protocol / coverage inconsistency), say the ranking is unreliable
+    and recommend a clean re-eval rather than a new growth direction.
+  - Never invent numbers; use only what the digest contains.
+
+  Review context:
+
+  {{ context_json }}

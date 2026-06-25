@@ -110,24 +110,27 @@ cache (`paths.benchmarks`).
 DataOS/
 ├── src/dataos/
 │   ├── cli.py                       # `dataos` entrypoint: load the run config → run_auto
-│   ├── agent/                       # the autonomous loop
+│   ├── agent/                       # the autonomous loop + per-experiment sub-agent
 │   │   ├── loop.py                  #   run_auto: each round = plan → execute → review → grow tree
 │   │   ├── state_tree.py            #   the experiment tree (nodes, growable set, best node)
 │   │   ├── run_config.py            #   the single-JSON config boundary (facts only)
 │   │   ├── planner.py · reviewer.py #   ask the main-agent for an ExperimentPlan / ReviewOut
-│   │   ├── prompts.py               #   main-agent + sub-agent system prompts
+│   │   ├── subagent_executor.py     #   drives the per-experiment sub-agent (Claude Code + shell)
+│   │   ├── eval_freeze.py           #   freeze the eval protocol once per run
+│   │   ├── backend.py               #   LLM backend (Claude Code CLI) — renders the role prompt
 │   │   ├── schemas.py               #   ExperimentPlan / ReviewOut (validated JSON)
-│   │   ├── backend.py               #   LLM backend (Claude Code CLI)
 │   │   └── config.py · budget.py · logging.py
+│   ├── prompt/                      # every prompt as a Jinja2 YAML template (rendered with config facts)
+│   │   ├── main_agent.yaml · subagent.yaml            #   system prompts
+│   │   ├── planner_task.yaml · reviewer_task.yaml     #   per-round task messages
+│   │   ├── subagent_task.yaml · subagent_continue.yaml#   per-experiment task / resume
+│   │   └── structured_*.yaml                          #   JSON-output scaffolding
 │   ├── core/                        # the Project → Study → Experiment → Stage data model
 │   │   ├── project.py · study.py · experiment.py · stage.py
 │   │   ├── artifact.py              #   Data · Model · Eval artifacts
 │   │   ├── workspace.py             #   on-disk run layout
 │   │   ├── catalog.py · loading.py  #   operator catalog + dataset loading (DataOS-Operator)
 │   │   └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
-│   ├── runtime/
-│   │   ├── subagent_executor.py     #   drives the per-experiment sub-agent (Claude Code + shell)
-│   │   └── eval_freeze.py           #   freeze the eval protocol once per run
 │   └── integrations/
 │       ├── llm/                     #   Claude Code backend + structured-output helper
 │       └── posttrainbench/adapter.py #  PTB bench list + sampled limits per profile

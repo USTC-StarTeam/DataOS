@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+from dataos import prompt as _prompt
 from dataos.integrations.llm.structured import run_structured_dialog
 
 from .schemas import ExperimentPlan
@@ -32,23 +33,16 @@ def _build_prompt(
     catalog: list[dict] | None,
     validation_errors: list[str] | None = None,
 ) -> str:
-    parts = [
-        "Choose the next single experiment to grow on the tree.",
-        "Return one ExperimentPlan JSON object only. Do not return an action or stop decision.",
-        "Context bundle:",
-        json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
-        "Available data operators (name/kind/params):",
-        json.dumps(_summarize_catalog(catalog), ensure_ascii=False, indent=2),
-    ]
-    if validation_errors:
-        parts.extend(
-            [
-                "Your previous plan failed code validation:",
-                json.dumps(validation_errors, ensure_ascii=False, indent=2),
-                "Return a corrected ExperimentPlan JSON object only.",
-            ]
-        )
-    return "\n\n".join(parts)
+    return _prompt.render(
+        "planner_task",
+        context_json=json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
+        catalog_json=json.dumps(_summarize_catalog(catalog), ensure_ascii=False, indent=2),
+        validation_errors_json=(
+            json.dumps(validation_errors, ensure_ascii=False, indent=2)
+            if validation_errors
+            else None
+        ),
+    )
 
 
 def next_plan(

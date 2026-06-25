@@ -23,7 +23,7 @@ from dataos.core.ids import _make_id
 from dataos.core.io import atomic_write_json
 from dataos.core.study import _slug
 
-from dataos.agent.prompts import SUBAGENT_SYSTEM
+from dataos import prompt as _prompt
 from dataos.integrations.llm.claude_code import ClaudeCodeAgent
 
 log = logging.getLogger(__name__)
@@ -207,7 +207,8 @@ def _runtime_prompt_block(*, cfg, study_id: str, spec: dict, exp_dir: Path,
     return runtime
 
 
-def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int) -> str:
+def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
+                 remaining_minutes: int | None = None) -> str:
     bench = cfg.target_bench
     run_root = _run_root(cfg, study_id, spec["name"])
     parent_model = (
@@ -217,77 +218,40 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
     )
     recipe = {"sources": (spec.get("data") or {}).get("sources", []),
               "recipe": (spec.get("data") or {}).get("recipe", [])}
-    return "\n".join([
-        f"Implement experiment {spec['name']!r} (bench={bench}, profile={cfg.ptb_profile}).",
-        f"Parent model to continue training from (use this exact path): {parent_model}",
-        f"Root base model for provenance only: {cfg.h100_base_model}",
-        f"Tree node: {spec.get('node_id')} parent={spec.get('parent_node_id')}",
-        f"sampled eval limit: {eval_limit}    smoke→cap data to ≤1000 rows"
-        if cfg.ptb_profile == "smoke"
-        else f"sampled eval limit: {eval_limit}",
-        "",
-        "DATA RECIPE (main-agent intent — preserve it; use minimal mechanical compatibility "
-        "fixes if needed and record them in report.json):",
-        json.dumps(recipe, ensure_ascii=False),
-        "SFT hyperparameters (fixed unless an execution tool requires a harmless format cast):",
-        json.dumps(spec.get("train") or {}, ensure_ascii=False),
-        "Main-agent brief:",
-        str(spec.get("subagent_brief") or "(none)"),
-        "",
-        "RUNTIME CONFIG (authoritative — use these values instead of any examples in PLAYBOOK):",
-        json.dumps(
-            _runtime_prompt_block(
-                cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
-                eval_limit=eval_limit,
-            ),
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        ),
-        "",
-        f"H100 scratch for this experiment: RUN_ROOT={run_root}",
-        f"Write the report to this LOCAL path (absolute): {exp_dir / 'report.json'}",
-        f"Keep durable execution state at this LOCAL path: {exp_dir / _STATE_FILE}",
-        "",
-        "Read resources/code/posttrainbench/PLAYBOOK.md for the commands, paths, conda envs, "
-        "ssh, eval scripts, and the report.json contract, then execute it: build data → train "
-        "on H100 → sampled eval → write report.json. Self-heal execution failures, including "
-        "operator-port/data-port mismatches, with minimal compatibility fixes that preserve the intent. "
-        "ALWAYS write a report at the end (a failed report is still required). If a Slurm job "
-        "is still running, keep polling it to terminal state; do not return a final prose-only "
-        "update.",
-        "You are responsible for operator-port and dataset-port adaptation: inspect installed "
-        "operator signatures inside the Slurm job, normalize fixed-pool source records into the "
-        "fields needed by the operators and the LLaMA-Factory alpaca format, and record any "
-        "compatibility notes in report.json.",
-        "You are responsible for keeping GPU utilization high within the single-GPU budget: avoid "
-        "login-node work, batch data work with training where possible, choose reasonable dataloader "
-        "workers/batch/grad-accum/vLLM concurrency, and report any resource bottleneck.",
-        "Do not run Python data/operator inspection on the H100 login node. Your first remote "
-        "actions should be limited to mkdir/cat a job script, sbatch it, and poll Slurm. Put "
-        "dataos/dataos_operator imports and fixed-pool reads inside the sbatch script.",
-        "Important local facts: the remote deploy repo uses src layout, so remote Python commands "
-        "that import dataos need PYTHONPATH=$AGENTVER/src:$AGENTVER. When ssh/scp uses the configured "
-        "cluster.key, pass -o IdentitiesOnly=yes to avoid local agent key-flood failures.",
-    ])
+    runtime_block = _runtime_prompt_block(
+        cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir, eval_limit=eval_limit,
+    )
+    return _prompt.render(
+        "subagent_task",
+        exp_name=spec["name"],
+        bench=bench,
+        profile=cfg.ptb_profile,
+        parent_model=parent_model,
+        root_base_model=cfg.h100_base_model,
+        node_id=spec.get("node_id"),
+        parent_node_id=spec.get("parent_node_id"),
+        eval_limit=eval_limit,
+        is_smoke=cfg.ptb_profile == "smoke",
+        recipe_json=json.dumps(recipe, ensure_ascii=False),
+        train_json=json.dumps(spec.get("train") or {}, ensure_ascii=False),
+        subagent_brief=str(spec.get("subagent_brief") or "(none)"),
+        runtime_config_json=json.dumps(runtime_block, ensure_ascii=False, indent=2, sort_keys=True),
+        run_root=run_root,
+        report_path=str(exp_dir / "report.json"),
+        state_path=str(exp_dir / _STATE_FILE),
+        remaining_minutes=remaining_minutes,
+    )
 
 
-def _continue_prompt(state: dict, last_text: str) -> str:
-    return "\n".join([
-        "Continue the SAME experiment. Do not re-plan or change the experiment intent.",
-        f"report.json is still missing at: {state['report_path']}",
-        f"execution state path: {state['state_path']}",
-        "",
-        "Current runtime state:",
-        json.dumps(state, ensure_ascii=False),
-        "",
-        "Your previous message was:",
-        last_text[-2000:] if last_text else "(no previous assistant text captured)",
-        "",
-        "Keep going until you write report.json with status completed or failed. If you already "
-        "submitted Slurm jobs, poll sacct/squeue with sleeps to terminal state, then continue to "
-        "the next stage. A stage update is not a final answer.",
-    ])
+def _continue_prompt(state: dict, last_text: str, remaining_minutes: int | None = None) -> str:
+    return _prompt.render(
+        "subagent_continue",
+        report_path=state["report_path"],
+        state_path=state["state_path"],
+        state_json=json.dumps(state, ensure_ascii=False),
+        last_text=last_text[-2000:] if last_text else "(no previous assistant text captured)",
+        remaining_minutes=remaining_minutes,
+    )
 
 
 def _sleep_before_resume(cfg, remaining: float) -> None:
@@ -318,7 +282,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         return name, report
 
     agent = ClaudeCodeAgent(
-        instructions=SUBAGENT_SYSTEM,
+        instructions=_prompt.render("subagent"),
         workspace=_REPO_ROOT,  # cwd at repo root so it can read the playbook + run .venv/ssh
         model=cfg.claude_code_model,
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
@@ -337,7 +301,8 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
     started = time.monotonic()
     deadline = started + timeout if timeout else None
     prompt = _task_prompt(cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
-                          eval_limit=eval_limit)
+                          eval_limit=eval_limit,
+                          remaining_minutes=int(timeout / 60) if timeout else None)
     last_text = ""
     while True:
         remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
@@ -373,7 +338,10 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
             break
         log.info("subagent[%s]: no report.json yet; resuming same session", name)
         _sleep_before_resume(cfg, remaining if remaining is not None else 30.0)
-        prompt = _continue_prompt(state, last_text)
+        prompt = _continue_prompt(
+            state, last_text,
+            remaining_minutes=int(remaining / 60) if remaining is not None else None,
+        )
 
     report = _report_from_disk(report_path)
     if report is None or report.get("status") not in {"completed", "failed"}:

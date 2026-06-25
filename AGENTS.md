@@ -33,12 +33,14 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
 ## Repository map
 
 - `src/dataos/agent` — the loop: `loop.py` (`run_auto`), `state_tree`, `planner`, `reviewer`,
-  `prompts`, `schemas`, `run_config` (the single-JSON config boundary), `backend`, `budget`,
-  `config`, `logging`.
+  `subagent_executor` (drives the per-experiment sub-agent), `eval_freeze`, `schemas`,
+  `run_config` (the single-JSON config boundary), `backend`, `budget`, `config`, `logging`.
+- `src/dataos/prompt` — EVERY prompt as a Jinja2 YAML template (`<name>.yaml` with a `template:`).
+  No prompt text is hardcoded in `.py`; render via `from dataos import prompt; prompt.render(name, **facts)`.
+  Run facts (budget, GPUs, the per-experiment context) are passed in as render params.
 - `src/dataos/core` — the `Project → Study → Experiment → Stage` / `Data·Model·Eval` abstraction,
   `workspace`, `io`, `ids`, `report`, `provenance`, `catalog`, `loading`. (Kept as the data model;
   the `Stage.run()` train/eval executors were removed — execution is the sub-agent's.)
-- `src/dataos/runtime` — `subagent_executor` (drives the per-experiment sub-agent) + `eval_freeze`.
 - `src/dataos/integrations` — `llm/` (Claude Code backend) and `posttrainbench/` (the eval protocol
   `adapter.py`: bench list + sampled limits per profile).
 - `configs/runs/*.json` — the user-facing run config (one per run). `configs/experiments/` — plan template.
@@ -90,6 +92,9 @@ GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
   inline at run time. The config carries `base_url` / `model` / `key_file` paths only.
 - The main-agent returns JSON only (validated; it is re-asked on invalid output); it never writes
   model paths or changes the eval.
+- **Prompts live in `src/dataos/prompt/*.yaml`, never hardcoded in `.py`.** Add/edit a prompt by
+  editing its YAML template; pass run-specific facts as `prompt.render()` params (no literals like
+  "10h" / "60000" baked into the text).
 
 ## Coding style
 
@@ -109,7 +114,7 @@ relevant smoke command when the change affects runtime behavior (e.g. an H100 ev
 
 - Run entry: `src/dataos/agent/cli.py` → `dataos.agent.loop.run_auto`.
 - Config boundary: `src/dataos/agent/run_config.py`.
-- Sub-agent driver: `src/dataos/runtime/subagent_executor.py`.
+- Sub-agent driver: `src/dataos/agent/subagent_executor.py`.
 - Sub-agent manual: `resources/code/posttrainbench/PLAYBOOK.md`.
 - Eval: `resources/code/posttrainbench/lm_eval_bridge/`.
-- Prompts (main-agent + sub-agent): `src/dataos/agent/prompts.py`.
+- Prompts: `src/dataos/prompt/*.yaml` (loader: `src/dataos/prompt/__init__.py`).

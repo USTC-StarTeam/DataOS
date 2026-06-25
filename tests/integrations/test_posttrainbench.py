@@ -3,7 +3,7 @@
 import pytest
 
 from dataos.agent.config import AutoRunConfig
-from dataos.runtime.eval_freeze import freeze_eval
+from dataos.agent.eval_freeze import freeze_eval
 from dataos.integrations.posttrainbench.adapter import PTB_BENCHES, ptb_eval, ptb_suite
 
 _EXPECTED = [

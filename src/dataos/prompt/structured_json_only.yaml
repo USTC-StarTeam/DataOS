@@ -1,0 +1,6 @@
+description: >
+  Parse-retry nudge for the non-dialog structured call. Render params: task.
+template: |
+  {{ task }}
+
+  IMPORTANT: your previous reply was not valid JSON. Reply with ONLY the JSON object — no prose, no markdown fence.

@@ -17,6 +17,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from dataos import prompt as _prompt
+
 
 def _final_text(messages: list) -> str:
     """Reduce a claude-agent-sdk message stream to the final assistant text.
@@ -83,10 +85,7 @@ class ClaudeCodeAgent:
         prompt = task
         if output is not None:
             schema = json.dumps(output.model_json_schema())
-            prompt = (
-                f"{task}\n\nReply with ONLY a JSON object that validates against this JSON "
-                f"schema (no prose, no code fence):\n{schema}"
-            )
+            prompt = _prompt.render("structured_schema", task=task, schema=schema)
 
         opts: dict[str, Any] = {
             # the full Claude Code system prompt + our role instructions appended

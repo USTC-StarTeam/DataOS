@@ -1,0 +1,8 @@
+description: >
+  Schema instruction appended to a task so the LLM replies with schema-valid JSON.
+  Render params: task, schema.
+template: |
+  {{ task }}
+
+  Reply with ONLY a JSON object that validates against this JSON schema (no prose, no markdown fence):
+  {{ schema }}

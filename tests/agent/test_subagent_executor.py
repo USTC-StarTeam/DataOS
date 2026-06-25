@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
-from dataos.runtime import subagent_executor as subagent_exec
+from dataos.agent import subagent_executor as subagent_exec
 
 
 def _cfg(ws):

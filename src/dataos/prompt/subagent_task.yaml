@@ -1,0 +1,34 @@
+description: >
+  Per-experiment task prompt handed to the execution sub-agent. Render params: exp_name, bench,
+  profile, parent_model, root_base_model, node_id, parent_node_id, eval_limit, is_smoke,
+  recipe_json, train_json, subagent_brief, runtime_config_json, run_root, report_path,
+  state_path, remaining_minutes (optional).
+template: |
+  Implement experiment '{{ exp_name }}' (bench={{ bench }}, profile={{ profile }}).
+  Parent model to continue training from (use this exact path): {{ parent_model }}
+  Root base model for provenance only: {{ root_base_model }}
+  Tree node: {{ node_id }} parent={{ parent_node_id }}
+  sampled eval limit: {{ eval_limit }}{% if is_smoke %}    smoke→cap data to ≤1000 rows{% endif %}
+  {% if remaining_minutes is defined and remaining_minutes %}
+  TIME BUDGET: ~{{ remaining_minutes }} minutes of wall-clock remain for THIS experiment. Pace to FINISH within it: size training (n_samples / steps) to fit, run the sampled eval, and WRITE report.json before time runs out — a partial or failed report still counts, getting killed with no report does not. Do not schedule far-out wakeups; poll tightly and finish ASAP.
+  {% endif %}
+
+  DATA RECIPE (main-agent intent — preserve it; use minimal mechanical compatibility fixes if needed and record them in report.json):
+  {{ recipe_json }}
+  SFT hyperparameters (fixed unless an execution tool requires a harmless format cast):
+  {{ train_json }}
+  Main-agent brief:
+  {{ subagent_brief }}
+
+  RUNTIME CONFIG (authoritative — use these values instead of any examples in PLAYBOOK):
+  {{ runtime_config_json }}
+
+  H100 scratch for this experiment: RUN_ROOT={{ run_root }}
+  Write the report to this LOCAL path (absolute): {{ report_path }}
+  Keep durable execution state at this LOCAL path: {{ state_path }}
+
+  Read resources/code/posttrainbench/PLAYBOOK.md for the commands, paths, conda envs, ssh, eval scripts, and the report.json contract, then execute it: build data → train on H100 → sampled eval → write report.json. Self-heal execution failures, including operator-port/data-port mismatches, with minimal compatibility fixes that preserve the intent. ALWAYS write a report at the end (a failed report is still required). If a Slurm job is still running, keep polling it to terminal state; do not return a final prose-only update.
+  You are responsible for operator-port and dataset-port adaptation: inspect installed operator signatures inside the Slurm job, normalize fixed-pool source records into the fields needed by the operators and the LLaMA-Factory alpaca format, and record any compatibility notes in report.json.
+  You are responsible for keeping GPU utilization high within the single-GPU budget: avoid login-node work, batch data work with training where possible, choose reasonable dataloader workers/batch/grad-accum/vLLM concurrency, and report any resource bottleneck.
+  Do not run Python data/operator inspection on the H100 login node. Your first remote actions should be limited to mkdir/cat a job script, sbatch it, and poll Slurm. Put dataos/dataos_operator imports and fixed-pool reads inside the sbatch script.
+  Important local facts: the remote deploy repo uses src layout, so remote Python commands that import dataos need PYTHONPATH=$AGENTVER/src:$AGENTVER. When ssh/scp uses the configured cluster.key, pass -o IdentitiesOnly=yes to avoid local agent key-flood failures.

@@ -1,0 +1,18 @@
+description: >
+  Resume prompt when the sub-agent has not yet written report.json. Render params: report_path,
+  state_path, state_json, last_text, remaining_minutes (optional).
+template: |
+  Continue the SAME experiment. Do not re-plan or change the experiment intent.
+  report.json is still missing at: {{ report_path }}
+  execution state path: {{ state_path }}
+  {% if remaining_minutes is defined and remaining_minutes %}
+  TIME BUDGET: ~{{ remaining_minutes }} minutes of wall-clock remain — WRITE report.json before it runs out (partial/failed still counts). Poll tightly; do not schedule far-out wakeups.
+  {% endif %}
+
+  Current runtime state:
+  {{ state_json }}
+
+  Your previous message was:
+  {{ last_text }}
+
+  Keep going until you write report.json with status completed or failed. If you already submitted Slurm jobs, poll sacct/squeue with sleeps to terminal state, then continue to the next stage. A stage update is not a final answer.
