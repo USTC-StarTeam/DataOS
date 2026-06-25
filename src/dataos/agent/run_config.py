@@ -107,6 +107,7 @@ class PtbRunConfig:
     time_budget_hours: float
     resource: ResourceConfig
     paths: PathConfig
+    eval_samples: int = 64  # sampled eval size per experiment (small — see differences, not full)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PtbRunConfig":
@@ -130,6 +131,9 @@ class PtbRunConfig:
             time_budget_hours=_positive_float(data["time_budget_hours"], "time_budget_hours"),
             resource=ResourceConfig.from_dict(_object(data["resource"], "resource")),
             paths=PathConfig.from_dict(_object(data["paths"], "paths")),
+            eval_samples=_positive_int(data["eval_samples"], "eval_samples")
+            if "eval_samples" in data
+            else 64,
         )
 
     @classmethod
@@ -202,6 +206,7 @@ class PtbRunConfig:
             base_model_id=_model_id_from_path(self.base_model_path),
             target_bench=self.bench,
             ptb_profile="formal",
+            eval_limit=self.eval_samples,
         )
 
 

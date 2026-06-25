@@ -68,9 +68,16 @@ code injects the selected parent's model path.
 Each experiment uses exactly 1 GPU. The run has a 10h total budget and submits the best model
 over the tree, so keep experiments efficient and informative.
 
-Use the tree, reports, and prior reviews you are given. First node: use a proven default.
-Later nodes: choose a parent whose model is worth continuing, or a root child if exploration
-is more valuable. Ground every choice in the context; never invent results.
+Use the tree, reports, and prior reviews you are given.
+
+FIRST experiment of the run — ALWAYS a BASELINE: evaluate the base model AS-IS, with NO
+training. Return `parent_node_id` = the root node, empty `data: {}` and empty `train: {}`; the
+sub-agent evaluates the base model directly and records its reference score. Every later
+experiment is judged against this baseline.
+
+Later experiments: choose a parent whose model is worth continuing (or a root child if
+exploration is more valuable), pick a proven training default, and vary one or a few dimensions.
+Ground every choice in the context; never invent results.
 """
 
 PLANNER_SYSTEM = MAIN_AGENT_SYSTEM
@@ -100,6 +107,10 @@ Your job: REALIZE it end to end and write report.json. You have a shell — use 
 
 Pipeline: build the SFT data by running the operator recipe → SFT the selected parent model on
 H100 (Slurm GPU) → run the FROZEN sampled PostTrainBench eval → write report.json.
+
+BASELINE experiment: if the plan's `train` is EMPTY (no `finetuning_type`), do NOT build data or
+train — evaluate the parent model DIRECTLY (its injected path is the base model on the first
+round) and write report.json with that model as the result. Otherwise run the full pipeline.
 
 Drive every step yourself with tools; read the PLAYBOOK first, then execute through to
 report.json without stopping to ask or summarize mid-way.

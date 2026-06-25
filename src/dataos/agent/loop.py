@@ -160,6 +160,8 @@ def _remaining_hours(started: float, cfg: AutoRunConfig, now: float) -> float | 
 
 
 def _effective_eval_limit(cfg: AutoRunConfig) -> int:
+    if cfg.eval_limit:
+        return cfg.eval_limit
     return 20 if cfg.ptb_profile == "smoke" else 200
 
 

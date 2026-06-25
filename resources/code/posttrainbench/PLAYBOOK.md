@@ -9,6 +9,11 @@ bridging, harmless parameter translation) and must record them in `report.json`.
 Three steps: **build data (operators) → train (H100 GPU) → sampled eval (official scorer)
 → write report.json**.
 
+**BASELINE experiment** — if the plan's `train` is EMPTY (no `finetuning_type`), SKIP steps 1–2:
+do not build data or train. Evaluate the **parent model directly** (`--model-path` = the parent
+model path, which on the first round is the base model) with step 3, and write `report.json` with
+that model as `model.path`. This records the base model's reference score.
+
 ## ⚠️ Login-node rules (READ FIRST)
 
 The H100 login node is SHARED and fragile (no GPU). Abusing it stalls it for everyone — so:
