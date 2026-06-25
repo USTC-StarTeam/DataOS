@@ -3,7 +3,7 @@
   "workspace": "workspace/ptb-h100-qwen-gsm8k",
   "goal": "Use the fixed PTB data pool to improve the base model within a limited H100 budget.",
   "bench": "gsm8k",
-  "base_model_path": "/data/hcgu/hf_cache/Qwen/Qwen2.5-0.5B-Instruct",
+  "base_model_path": "/data/hcgu/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
   "time_budget_hours": 10,
   "resource": {
     "node": "gpu04",
