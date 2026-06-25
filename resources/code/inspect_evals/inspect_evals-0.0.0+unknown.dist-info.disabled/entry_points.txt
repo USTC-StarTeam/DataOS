@@ -1,2 +1,0 @@
-[inspect_ai]
-inspect_evals = inspect_evals._registry

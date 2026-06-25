@@ -165,30 +165,35 @@ Retry ssh on transient network errors. Keep the GPU busy: sensible dataloader wo
 batch/grad-accum compatible with the plan; avoid CPU-only stalls before GPU work. For eval, use
 vLLM concurrency/settings that fit one GPU rather than serializing unnecessarily.
 
-## 3. Eval — the FROZEN official scorer, sampled during search
+## 3. Eval — the lm-evaluation-harness protocol, sampled during search
 
-In conda `lm-eval`, with the offline env above:
+GPU Slurm job, conda `eval_env` (lm-eval + vllm). The deterministic-bench datasets are pre-cached
+in the HF cache, so force OFFLINE so they resolve without internet:
 ```bash
-python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_posttrainbench_protocol_eval.py \
+export HF_HOME=<HF cache, e.g. /data/hcgu/hf_cache> HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
+python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval_eval.py \
   --task <BENCH> --model-path $RUN_ROOT/final_model --model-name ptb_<BENCH> \
-  --output-dir $RUN_ROOT/eval/<BENCH>_limit<EVAL_LIMIT> \
-  --posttrainbench-eval-src $AGENTVER/resources/code/posttrainbench \
-  --benchmarks-dir $AGENTVER/resources/data/posttrainbench_benchmarks \
-  --inspect-pkgs $AGENTVER/resources/code/inspect_evals \
-  --python "$(command -v python)" --limit <EVAL_LIMIT>
+  --output-dir $RUN_ROOT/eval/<BENCH>_limit<EVAL_LIMIT> --limit <EVAL_LIMIT>
 ```
-- Reads the score from `<eval_dir>/summary.json` → `score` (native percentage).
-- The search loop uses sampled eval by default. Use the injected `EVAL_LIMIT`; do not run a full
-  evaluation unless the user/main thread explicitly asks for final validation.
-- Defaults: `smoke` → `EVAL_LIMIT=20`; `formal` → `200` unless the runtime config overrides it.
-- **Judge benches** (`healthbench`, `arenahardwriting`): the GPU job only generates predictions
-  (compute node has no internet). Then run the DETERMINISTIC judge driver from the local repo —
-  do NOT hand-roll it:
+- Reads the score from `<eval_dir>/summary.json` → `score` (native percentage 0-100).
+- The runner is self-contained (its task package + chat templates live next to it); it serves the
+  model with vLLM and computes the lm-eval metric in-job.
+- Sampled by default: use the injected `EVAL_LIMIT` (`smoke` 20 / `formal` 200 unless overridden);
+  no full eval unless the user/main thread asks for a final validation.
+- **Deterministic benches** (`gsm8k`, `humaneval`, `bfcl`, `gpqamain`, `aime2025`): scored in-job — done.
+- **Judge benches** (`healthbench`, `arenahardwriting`): the same runner GENERATES predictions only
+  (compute node has no internet) → writes `<eval_dir>/predictions.jsonl` + `summary.json`
+  (`score:null`, `needs_judge:true`). Then on the H100 LOGIN node (has internet) run the judge,
+  exporting the Bailian key inline (never write it to disk / report):
   ```bash
-  .venv/bin/python -m dataos.integrations.posttrainbench.judge --eval-dir <eval_dir> --bench <BENCH> --model-alias ptb_<BENCH>
+  ssh <login> 'export OPENAI_API_KEY=$(cat <gateway/bailian key file>) \
+    OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 \
+    POSTTRAINBENCH_JUDGE_MODEL=qwen3.5-plus; \
+    <eval_env>/bin/python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval_judge.py \
+      --bench <BENCH> --predictions <eval_dir>/predictions.jsonl --output <eval_dir>/summary.json'
   ```
-  It ssh's to the H100 login node, converts predictions, runs the configured judge, and prints
-  `{"score": <0-100|null>, "metrics": {...}}`. Put that score into report.json.
+  It applies the (pre-main) judge scoring and patches `summary.json` with the final `score`
+  (0-100). Put that into report.json.
 
 ## 4. Write the report (the contract)
 

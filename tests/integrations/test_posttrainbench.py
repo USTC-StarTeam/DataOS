@@ -12,33 +12,25 @@ _EXPECTED = [
 ]
 
 
-def test_ptb_suite_has_7_external_benches():
+def test_ptb_suite_has_7_lmeval_benches():
     entries = ptb_suite(profile="formal")["suite"]
     assert [e["name"] for e in entries] == _EXPECTED
     for e in entries:
-        assert e["provider"] == "external"
-        assert "run_ptb.sh" in e["command"]
-        assert "{model_path}" in e["command"] and "{results_file}" in e["command"]
-        assert e["harness"]["repo"] == "aisa-group/PostTrainBench"
+        assert e["provider"] == "lm_eval"
+        assert e["bench"] in PTB_BENCHES
+        assert isinstance(e["limit"], int)
         assert isinstance(e["timeout"], int)
 
 
 def test_profile_changes_limits():
-    formal = {e["name"]: e["command"] for e in ptb_suite(profile="formal")["suite"]}
-    smoke = {e["name"]: e["command"] for e in ptb_suite(profile="smoke")["suite"]}
-    assert formal["ptb_gsm8k"].endswith(" 200")
-    assert smoke["ptb_gsm8k"].endswith(" 20")
+    formal = {e["bench"]: e["limit"] for e in ptb_suite(profile="formal")["suite"]}
+    smoke = {e["bench"]: e["limit"] for e in ptb_suite(profile="smoke")["suite"]}
+    assert formal["gsm8k"] == 200
+    assert smoke["gsm8k"] == 20
     assert formal != smoke
 
 
-def test_harness_path_override():
-    s = ptb_suite(profile="formal", harness="/x/run_ptb.sh")
-    assert "/x/run_ptb.sh" in s["suite"][0]["command"]
-
-
 def test_unknown_profile_rejected():
-    import pytest
-
     with pytest.raises(ValueError):
         ptb_suite(profile="bogus")
 
@@ -57,11 +49,9 @@ def test_freeze_eval_stub_still_works():
 def test_ptb_eval_single_bench():
     e = ptb_eval("gsm8k", profile="formal")
     assert "suite" not in e
-    assert e["provider"] == "external"
-    assert "gsm8k" in e["command"] and e["command"].rstrip().endswith(" 200")
-    assert e["harness"]["repo"] == "aisa-group/PostTrainBench"
-    # smoke profile changes the limit
-    assert ptb_eval("gsm8k", profile="smoke")["command"].rstrip().endswith(" 20")
+    assert e["provider"] == "lm_eval" and e["bench"] == "gsm8k"
+    assert e["limit"] == 200
+    assert ptb_eval("gsm8k", profile="smoke")["limit"] == 20
 
 
 def test_ptb_eval_unknown_bench():
@@ -77,7 +67,7 @@ def test_ptb_benches_list():
 def test_freeze_eval_target_bench_is_single():
     cfg = AutoRunConfig(project_id="p", target_bench="gsm8k")
     fz = freeze_eval(cfg=cfg)
-    assert "suite" not in fz and fz["provider"] == "external" and "gsm8k" in fz["command"]
+    assert "suite" not in fz and fz["provider"] == "lm_eval" and fz["bench"] == "gsm8k"
 
 
 def test_freeze_eval_no_target_is_suite():
