@@ -54,24 +54,24 @@ has internet; compute nodes may not.
 ## 1. Build data — run the operator recipe (the main lever)
 
 The recipe is `{sources:[...], recipe:[{op,params},...]}`. Run it through `dataos` on H100
-(the pool lives there), then bridge to the SFT columns. In conda `train`, this repo uses a
-`src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`:
+(the pool lives there), then bridge to the SFT format. In the configured `train_env`, this
+repo uses a `src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`:
 
 ```python
 # Sketch only: inspect the installed dataos/dataos_operator APIs in the Slurm job log and adapt.
 # If fixed-pool sources have incompatible raw schemas, first bridge each row into a minimal
-# common text schema needed by the selected operators and by train_sft: prompt/target/text.
-# Then run the intended operator pipeline as closely as the installed operator APIs allow.
+# common text schema the selected operators need; the FINAL training format is LLaMA-Factory
+# alpaca ({instruction,input,output}) — see step 2. Run the operator pipeline as the APIs allow.
 ```
 - Operators come from `dataos_operator`; `dataos.catalog()` lists the 22 (read it). The operator
   pipeline is the EXPERIMENT — it filters / dedups / quality-scores / samples the raw pool rows;
-  the bridge above is just the mechanical format step train_sft needs at the end.
+  the bridge above is just the mechanical format step LLaMA-Factory needs at the end.
 - If an operator rejects a parameter or an API differs from the plan text, make the smallest
   equivalent compatibility fix that preserves the experiment intent, then record it in
   `report.json` under a compatibility note.
 - You own the operator and dataset ports. Inspect installed operator signatures/APIs inside the
   Slurm job, normalize fixed-pool source rows into fields expected by the selected operators and
-  by `train_sft.py`, and keep a short compatibility log in the report.
+  into the LLaMA-Factory alpaca format, and keep a short compatibility log in the report.
 - Where to run the data step: **fold it into the SAME Slurm GPU job as training** (step 2) — the
   compute node has the pool AND a GPU. So GPU-heavy operators are fine: `ifd/perplexity/deita/instag`
   read a local model's logits (need GPU), `embedding_*`/`domain2vec` use a small local model. The
@@ -87,24 +87,73 @@ The recipe is `{sources:[...], recipe:[{op,params},...]}`. Run it through `datao
 - `smoke` profile → cap the final dataset to **≤1000 rows** (`random_sample_selector` last).
 - If `dataos_operator` (or an operator's dep) is missing in the env, install it, then continue.
 
-## 2. Train — LoRA SFT from the Base, on H100 GPU (Slurm)
+## 2. Train — SFT from the parent model on H100 GPU (Slurm), with LLaMA-Factory
 
-Use the kept tool `train_sft.py` (do not rewrite it). Submit as a Slurm job (GPU):
+You WRITE the training yourself with **LLaMA-Factory** (`llamafactory-cli`, present in the
+`train_env` from RUNTIME CONFIG together with `dataos_operator` — one env does data + train).
+The main-agent's `train` dict (finetuning_type, learning_rate, num_train_epochs,
+per_device_train_batch_size, gradient_accumulation_steps, lora_rank, lora_alpha, cutoff_len, …)
+maps almost 1:1 onto LLaMA-Factory YAML keys — forward them, and you MAY use any LLaMA-Factory
+training key the plan asks for (`stage`, `lora_target`, `warmup_ratio`, …). This is a
+DEMONSTRATION: adapt paths/keys to the actual plan and the installed LF (`llamafactory-cli train -h`).
+
+**2a. Bridge the recipe output → LLaMA-Factory dataset (alpaca).** Write the kept rows as an
+alpaca JSON plus a `dataset_info.json`, into the deterministic data dir `$RUN_ROOT/data/sft`:
+
+```python
+# inside the Slurm job. `rows` = operator-pipeline output (each row: a question + its answer).
+import json, os
+d = f"{RUN_ROOT}/data/sft"; os.makedirs(d, exist_ok=True)
+json.dump([{"instruction": r["prompt"], "input": "", "output": r["target"]} for r in rows],
+          open(f"{d}/train.json", "w"), ensure_ascii=False)
+json.dump({"dataos_sft": {"file_name": "train.json"}}, open(f"{d}/dataset_info.json", "w"))
+# (alpaca columns instruction/input/output are LF's default; loss is on `output` only.)
+```
+
+**2b. Write the training YAML** (`$RUN_ROOT/train.yaml`) — example, fill from the plan's `train`:
+
+```yaml
+model_name_or_path: <PARENT_MODEL>     # RUNTIME CONFIG model.parent_model — never hardcode
+stage: sft
+do_train: true
+finetuning_type: lora                  # or "full" — the plan decides; lora_* ignored for full
+lora_target: all                       # lora only
+dataset: dataos_sft
+dataset_dir: <RUN_ROOT>/data/sft
+template: qwen3                         # Qwen3 family; see template note below
+cutoff_len: 1024
+learning_rate: 1.5e-4
+num_train_epochs: 1.0
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 8
+lora_rank: 64
+lora_alpha: 128
+bf16: true
+output_dir: <RUN_ROOT>/adapter         # lora → adapter dir; for full set this to <RUN_ROOT>/final_model
+overwrite_output_dir: true
+report_to: none
+```
+
+**2c. Train, then (lora) merge into the deterministic `final_model`:**
 
 ```bash
-python $AGENTVER/resources/code/posttrainbench/harness/train_sft.py \
-  --base-model <BASE> --data-dir $RUN_ROOT/data/sft \
-  --output-dir $RUN_ROOT/adapter --merged-dir $RUN_ROOT/final_model \
-  --finetuning-type <lora|full> \
-  --max-len <MAX_LEN> --bs <BS> --grad-accum <GRAD_ACCUM> \
-  --lr <LR> --epochs <EPOCHS> --lora-r <LORA_R> --lora-alpha <LORA_ALPHA>
+llamafactory-cli train $RUN_ROOT/train.yaml
+# lora → merge adapter + base into final_model (full → output_dir already IS final_model):
+llamafactory-cli export \
+  --model_name_or_path <PARENT_MODEL> --adapter_name_or_path $RUN_ROOT/adapter \
+  --template qwen3 --finetuning_type lora \
+  --export_dir $RUN_ROOT/final_model --export_size 5
 ```
-`--finetuning-type` comes from the recipe's `train.finetuning_type` (the main-agent decides
-LoRA vs full-parameter). `lora` → trains adapters then merges into `final_model/`; `full` →
-full-parameter SFT saved directly as `final_model/` (no merge; `lora_*` ignored). Either way
-the result is a merged `final_model/`. Wrap step 1 (data, can be same job/CPU) + step 2 in one
-Slurm script using the configured partition/qos/gres. Poll robustly because `sacct` may print
-leading spaces:
+Either way `$RUN_ROOT/final_model` MUST end up a COMPLETE HF model — downstream eval and the
+child node's continued training load it as a plain model (no adapter).
+
+**template note:** the parent is a Qwen3 **Base** model. `template: qwen3` teaches the Qwen3 chat
+format (matching how eval prompts it); `qwen3_nothink` drops thinking blocks for direct-answer
+benches like GSM8K. The template is a legitimate experiment axis — pick one consistent with eval
+and keep it stable across a tree branch (`llamafactory-cli train -h` / the LF template list).
+
+Fold 2a+2b+2c **and** step 1's data work into ONE Slurm script (compute node has pool + GPU),
+using the configured partition/qos/gres. Poll robustly because `sacct` may print leading spaces:
 
 ```bash
 sacct -j <id> --format=State --noheader -n \
@@ -112,11 +161,9 @@ sacct -j <id> --format=State --noheader -n \
   | grep -qE '^(COMPLETED|FAILED|CANCELLED|TIMEOUT)$'
 ```
 
-Retry ssh on transient network errors. Write the non-LLM data steps into the same job
-(compute node has the pool + GPU). Try to keep the GPU busy: use sensible dataloader workers,
-batch size / grad accumulation choices compatible with the plan, and avoid CPU-only stalls before
-GPU work. For eval, use vLLM concurrency/settings that fit one GPU rather than serializing
-unnecessarily.
+Retry ssh on transient network errors. Keep the GPU busy: sensible dataloader workers and
+batch/grad-accum compatible with the plan; avoid CPU-only stalls before GPU work. For eval, use
+vLLM concurrency/settings that fit one GPU rather than serializing unnecessarily.
 
 ## 3. Eval — the FROZEN official scorer, sampled during search
 

@@ -99,25 +99,6 @@ def _run_root(cfg, study_id: str, name) -> str:
     return f"{runs_base}/{cfg.project_id}/{study_id}/{_slug(str(name))}"
 
 
-def _train_cmd(cfg, spec: dict, artifacts: dict) -> str:
-    """The exact, deterministic train_sft.py command for this experiment (recipe → command),
-    recorded on the tree node so training is fully reproducible. The method (lora|full) and all
-    hyperparameters come from the main-agent's recipe; train_sft.py just executes them."""
-    t = spec.get("train") or {}
-    ft = t.get("finetuning_type", "lora")
-    base_model = t.get("model_name_or_path") or spec.get("init_model") or cfg.h100_base_model
-    return (
-        "python $AGENTVER/resources/code/posttrainbench/harness/train_sft.py "
-        f"--base-model {base_model} --data-dir {artifacts['data']} "
-        f"--output-dir {artifacts['adapter']} --merged-dir {artifacts['model']} "
-        f"--finetuning-type {ft} "
-        f"--max-len {t.get('cutoff_len', 1024)} --bs {t.get('per_device_train_batch_size', 4)} "
-        f"--grad-accum {t.get('gradient_accumulation_steps', 8)} "
-        f"--lr {t.get('learning_rate', 1.5e-4)} --epochs {t.get('num_train_epochs', 1)} "
-        f"--lora-r {t.get('lora_rank', 64)} --lora-alpha {t.get('lora_alpha', 128)}"
-    )
-
-
 def _artifacts(cfg, study_id: str, name, exp_dir: Path, eval_limit: int) -> dict:
     """The DETERMINISTIC artifact layout for one experiment (H100 RUN_ROOT + local report).
     Fixed by the runtime, recorded on the tree node — not left to the sub-agent's whim."""
@@ -157,8 +138,10 @@ def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: 
     report.setdefault("id", _make_id("exp"))
     report.setdefault("name", name)
     report["artifacts"] = _artifacts(cfg, study_id, name, exp_dir, eval_limit)
+    # The sub-agent writes its own training (LLaMA-Factory) and may record the commands it used
+    # under report["scripts"]; the runtime only guarantees the keys exist for provenance.
     scripts = report.setdefault("scripts", {})
-    scripts["train"] = _train_cmd(cfg, spec, report["artifacts"])
+    scripts.setdefault("train", "")
     scripts.setdefault("data", "")
     model = report.setdefault("model", {})
     if not model.get("path"):
@@ -275,7 +258,8 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         "update.",
         "You are responsible for operator-port and dataset-port adaptation: inspect installed "
         "operator signatures inside the Slurm job, normalize fixed-pool source records into the "
-        "fields needed by operators/train_sft, and record any compatibility notes in report.json.",
+        "fields needed by the operators and the LLaMA-Factory alpaca format, and record any "
+        "compatibility notes in report.json.",
         "You are responsible for keeping GPU utilization high within the single-GPU budget: avoid "
         "login-node work, batch data work with training where possible, choose reasonable dataloader "
         "workers/batch/grad-accum/vLLM concurrency, and report any resource bottleneck.",

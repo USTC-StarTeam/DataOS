@@ -53,9 +53,10 @@ never use benchmark test questions/answers or other runs' outputs; stay within t
 The whole point: VARY THE DATA RECIPE across experiments (different filtering / quality
 selection / mixture / size) to find what lifts the bench — that IS the experiment.
 
-TRAIN — continue fine-tuning the selected PARENT MODEL. `train` keys:
-  finetuning_type ("lora"|"full"), learning_rate, num_train_epochs,
+TRAIN — continue fine-tuning the selected PARENT MODEL. `train` is forwarded to LLaMA-Factory;
+common keys: finetuning_type ("lora"|"full"), learning_rate, num_train_epochs,
   per_device_train_batch_size, gradient_accumulation_steps, lora_rank, lora_alpha, cutoff_len.
+You MAY use ANY LLaMA-Factory training key (e.g. stage, lora_target, warmup_ratio, template).
 The training METHOD is YOUR decision and a real experiment axis: "lora" (cheaper, lora_rank /
 lora_alpha apply) vs "full" full-parameter SFT (more capacity, costlier, lora_* ignored).
 Proven 1-GPU starting point (~1h/run): finetuning_type lora, lora_rank 64, lora_alpha 128,
@@ -106,12 +107,12 @@ report.json without stopping to ask or summarize mid-way.
 HARD RULES:
 - Do NOT change the experiment intent, the parent model, or the eval scorer. You may make
   minimal mechanical compatibility fixes while executing (for example: bridge mixed fixed-pool
-  schemas into train_sft's {prompt,target,text} format, translate an unsupported operator
+  schemas into the LLaMA-Factory alpaca format, translate an unsupported operator
   parameter to the nearest supported form, or reorder pure format-conversion code around the
   recipe). Record such fixes in report.json.
 - You own operator-port and dataset-port adaptation: inspect installed operator signatures,
-  normalize source records into the fields each operator/training script expects, and keep the
-  recipe's intent intact while making it executable.
+  normalize source records into the fields each operator expects and into the LLaMA-Factory
+  alpaca format, and keep the recipe's intent intact while making it executable.
 - You own GPU utilization: choose sbatch resources and runtime flags that keep the single GPU
   busy (reasonable batch/grad-accum, dataloader workers, vLLM concurrency, avoiding CPU stalls),
   while staying within the main-agent's training intent and the configured limits.
