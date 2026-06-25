@@ -65,8 +65,7 @@ uv sync          # 构建 agent host 环境(只装 agent；训练/评测跑在 H
     "fixed_pool":  "/data/.../posttrainbench_fixed_pool_v1_full",
     "conda_sh":    "/.../miniconda3/etc/profile.d/conda.sh",
     "train_env":   "/.../envs/Llama",     // LLaMA-Factory + torch
-    "eval_env":    "/.../envs/lm-eval",   // lm-eval + vLLM
-    "benchmarks":  "/data/.../posttrainbench_benchmarks"
+    "eval_env":    "/.../envs/lm-eval"    // lm-eval + vLLM
   }
 }
 ```
@@ -96,7 +95,7 @@ config 只承载事实（路径、唯一 bench、预算、资源）。所有**�
 [`resources/code/posttrainbench/lm_eval_bridge`](resources/code/posttrainbench/lm_eval_bridge)：
 5 个确定性 bench（gsm8k、humaneval、bfcl、gpqamain、aime2025）在 GPU job 内打分，
 2 个 judge bench（healthbench、arenahardwriting）在 job 内生成、在登录节点用 OpenAI 兼容 judge 打分。
-数据集从 vendored benchmark 缓存（`paths.benchmarks`）离线解析。
+数据集从 repo 内置的 benchmark 缓存（`resources/data/posttrainbench_benchmarks`，随代码部署）离线解析。
 
 ## 仓库结构
 

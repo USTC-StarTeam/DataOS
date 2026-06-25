@@ -47,7 +47,10 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
 - `resources/code/posttrainbench/` — `PLAYBOOK.md` (the sub-agent manual) and
   `lm_eval_bridge/` (the self-contained lm-eval PostTrainBench eval: task package + `run_lmeval_eval.py`
   + `run_lmeval_judge.py`).
-- `resources/data/` — vendored datasets and `posttrainbench_benchmarks/` (HF cache + judge data).
+- `resources/data/posttrainbench_benchmarks/` — the eval's benchmark data (slim, ~16M, git-tracked):
+  `hf_datasets/` (offline HF cache for the deterministic benches) + `local/` (bfcl + judge jsonl).
+  Deployed with the code; the eval reads it via `$AGENTVER/resources/data/posttrainbench_benchmarks`
+  (no separate H100 data dir, no `paths.benchmarks` config knob).
 - `docs/` — architecture notes; **several predate the agent-version refactor and are stale**.
 - `tests/` — `pytest`, grouped by agent / core / runtime / integrations.
 
@@ -72,7 +75,8 @@ GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
 - Deploy (the repo on H100): `/data/hcgu/users/tjh/dataos_agentver` — a **git checkout of `origin/main`**.
   Deploy = `git push origin main` (host) then `ssh h100 'git -C <deploy_root> pull'`.
 - Run scratch (per experiment): `/data/hcgu/users/tjh/dataos_agentver_runs/...`.
-- Fixed pool: `/data/hcgu/dataos_fixed_pools/processed/...`. Benchmarks: `/data/hcgu/posttrainbench_benchmarks`.
+- Fixed pool: `/data/hcgu/dataos_fixed_pools/processed/...` (config `paths.fixed_pool`). Eval
+  benchmark data ships IN the repo (`$AGENTVER/resources/data/posttrainbench_benchmarks`).
 - Conda envs: train = `…/envs/Llama` (LLaMA-Factory + torch), eval = `…/envs/lm-eval` (lm-eval + vLLM).
 - Submit GPU work through Slurm (default `gpu04`); the login node is orchestration only.
 - **Compute nodes have no internet.** Datasets resolve offline from the benchmarks HF cache; the

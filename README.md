@@ -68,8 +68,7 @@ Everything one run needs is a single JSON (`configs/runs/<run>.json`) — only *
     "fixed_pool":  "/data/.../posttrainbench_fixed_pool_v1_full",
     "conda_sh":    "/.../miniconda3/etc/profile.d/conda.sh",
     "train_env":   "/.../envs/Llama",     // LLaMA-Factory + torch
-    "eval_env":    "/.../envs/lm-eval",   // lm-eval + vLLM
-    "benchmarks":  "/data/.../posttrainbench_benchmarks"
+    "eval_env":    "/.../envs/lm-eval"    // lm-eval + vLLM
   }
 }
 ```
@@ -101,8 +100,8 @@ Self-contained **lm-evaluation-harness** PostTrainBench protocol under
 [`resources/code/posttrainbench/lm_eval_bridge`](resources/code/posttrainbench/lm_eval_bridge):
 5 deterministic benches (gsm8k, humaneval, bfcl, gpqamain, aime2025) scored in the GPU job, and
 2 judge benches (healthbench, arenahardwriting) generated in the job then scored by an
-OpenAI-compatible judge on the login node. Datasets resolve offline from the vendored benchmark
-cache (`paths.benchmarks`).
+OpenAI-compatible judge on the login node. Datasets resolve offline from the repo's vendored
+benchmark cache (`resources/data/posttrainbench_benchmarks`, deployed with the code).
 
 ## Repository layout
 

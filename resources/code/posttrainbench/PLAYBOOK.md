@@ -40,7 +40,7 @@ Expected keys:
 - `cluster`: `host`, `user`, `port`, `key`, `partition`, `qos`, `gres`,
   `nodelist`, `cpus_per_task`
 - `paths`: `deploy_root`, `run_root`, `runs_base`, `fixed_pool`, `conda_sh`, `train_env`,
-  `eval_env`, `benchmarks`, `local_report`, `local_state`
+  `eval_env`, `local_report`, `local_state`
 - `gateway`: `base_url`, `model`, `key_file`
 - `model`: `base_model`
 - `posttrainbench`: `bench`, `profile`, `eval_limit`
@@ -172,14 +172,16 @@ vLLM concurrency/settings that fit one GPU rather than serializing unnecessarily
 
 ## 3. Eval — the lm-evaluation-harness protocol, sampled during search
 
-GPU Slurm job, conda `eval_env` (lm-eval + vllm). The benchmark datasets are vendored at
-`paths.benchmarks` (its `hf_datasets/` is a ready HF datasets cache for the 5 deterministic
-benches; `local/` holds the bfcl + judge-bench data) — point lm-eval at it and force OFFLINE.
-`POSTTRAINBENCH_BENCHMARKS_DIR` makes the class tasks (bfcl, healthbench, arenahardwriting) read
-their local jsonl from `local/` (bfcl thus bypasses the HF-cache load entirely):
+GPU Slurm job, conda `eval_env` (lm-eval + vllm). The benchmark datasets are vendored IN THE
+REPO at `$AGENTVER/resources/data/posttrainbench_benchmarks` (deployed with the code; its
+`hf_datasets/` is a ready HF datasets cache for the deterministic benches, `local/` holds the
+bfcl + judge-bench jsonl) — point lm-eval at it and force OFFLINE. `POSTTRAINBENCH_BENCHMARKS_DIR`
+makes the class tasks (bfcl, healthbench, arenahardwriting) read their local jsonl from `local/`
+(bfcl thus bypasses the HF-cache load entirely):
 ```bash
-export POSTTRAINBENCH_BENCHMARKS_DIR=<paths.benchmarks> \
-  HF_DATASETS_CACHE=<paths.benchmarks>/hf_datasets HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
+BENCH_DIR=$AGENTVER/resources/data/posttrainbench_benchmarks
+export POSTTRAINBENCH_BENCHMARKS_DIR=$BENCH_DIR \
+  HF_DATASETS_CACHE=$BENCH_DIR/hf_datasets HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
 python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval_eval.py \
   --task <BENCH> --model-path $RUN_ROOT/final_model --model-name ptb_<BENCH> \
   --output-dir $RUN_ROOT/eval/<BENCH>_limit<EVAL_LIMIT> --limit <EVAL_LIMIT>
@@ -197,7 +199,7 @@ python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval
   ```bash
   ssh <login> 'export OPENAI_API_KEY=$(cat <judge key file>) \
     OPENAI_BASE_URL=<gateway/judge base_url> POSTTRAINBENCH_JUDGE_MODEL=<judge model> \
-    POSTTRAINBENCH_BENCHMARKS_DIR=<paths.benchmarks>; \
+    POSTTRAINBENCH_BENCHMARKS_DIR=$AGENTVER/resources/data/posttrainbench_benchmarks; \
     <eval_env>/bin/python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval_judge.py \
       --bench <BENCH> --predictions <eval_dir>/predictions.jsonl --output <eval_dir>/summary.json'
   ```
