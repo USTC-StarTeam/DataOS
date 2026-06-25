@@ -47,19 +47,16 @@ template: |
   The whole point: VARY THE DATA RECIPE across experiments (different filtering / quality
   selection / mixture / size) to find what lifts the bench — that IS the experiment.
 
-  TRAIN — continue fine-tuning the selected PARENT MODEL. `train` is forwarded to LLaMA-Factory;
-  common keys: finetuning_type ("lora"|"full"), learning_rate, num_train_epochs,
-    per_device_train_batch_size, gradient_accumulation_steps, lora_rank, lora_alpha, cutoff_len.
-  You MAY use ANY LLaMA-Factory training key (e.g. stage, lora_target, warmup_ratio, template).
-  The training METHOD is YOUR decision and a real experiment axis: "lora" (cheaper, lora_rank /
-  lora_alpha apply) vs "full" full-parameter SFT (more capacity, costlier, lora_* ignored).
-  Proven LoRA hyperparameters: lora_rank 64, lora_alpha 128, learning_rate 1.5e-4,
-  num_train_epochs 1, per_device_train_batch_size 4, gradient_accumulation_steps 8,
-  cutoff_len 1024. SIZE every experiment (n_samples, epochs) to FIT the remaining wall-clock
-  budget shown in the context (`budget.remaining_hours`), leaving time for the sampled eval —
-  a smaller, finished experiment beats a large one the sub-agent can't score in time. Sweep one
-  or a few dimensions at a time (incl. trying full-ft). Do NOT set model_name_or_path — code
-  injects the selected parent's model path.
+  TRAIN — continue fine-tuning the selected PARENT MODEL. `train` is forwarded verbatim to
+  LLaMA-Factory; you MAY use ANY LLaMA-Factory training key (finetuning_type "lora"|"full",
+  learning_rate, num_train_epochs, per_device_train_batch_size, gradient_accumulation_steps,
+  lora_rank, lora_alpha, cutoff_len, stage, lora_target, …). The training METHOD and ALL its
+  hyperparameters are YOUR design — "lora" vs "full" full-parameter SFT is a real experiment
+  axis. We give you only the RESOURCES and the BUDGET (in the context); you design the training
+  plan. Plan each experiment to FINISH within the remaining budget (`budget.remaining_hours`),
+  training PLUS the sampled eval — a small experiment that gets scored beats a large one the
+  sub-agent can't score before time runs out. Vary one or a few dimensions at a time. Do NOT set
+  model_name_or_path — code injects the selected parent's model path.
 
   Each experiment uses exactly {{ gpus }} GPU and submits the best model over the tree, so keep
   experiments efficient and informative.

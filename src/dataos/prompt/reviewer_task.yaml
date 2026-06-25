@@ -11,9 +11,10 @@ template: |
   - interpretation: grounded in the digest numbers — the best experiment, its bench score, and
     what DATA MIXTURE / hyperparameters varied. An honest negative ("no recipe beat the
     parent within noise") is a valid, valuable interpretation.
-  - recommendation_for_future_growth: a concrete next hint WITHIN PTB constraints, e.g.
-    "lr 1.5e-4 > 5e-5; next add more math sources / raise n_samples", "LoRA r64 plateaued, try
-    full-ft", or "data volume looks like the cap". Never propose changing the base model or eval.
+  - recommendation_for_future_growth: a concrete next hint WITHIN PTB constraints, grounded in
+    what actually varied — e.g. which data sources / quality filters / mixture / size to try next,
+    whether a learning-rate or epoch change helped, or whether to switch lora↔full. Suggest
+    directions, not fixed values. Never propose changing the base model or the eval.
   - If `caution` is set (eval protocol / coverage inconsistency), say the ranking is unreliable
     and recommend a clean re-eval rather than a new growth direction.
   - Never invent numbers; use only what the digest contains.
