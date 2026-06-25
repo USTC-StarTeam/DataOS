@@ -116,7 +116,9 @@ DataOS/
 │   │   ├── planner.py · reviewer.py #   ask the main-agent for an ExperimentPlan / ReviewOut
 │   │   ├── subagent_executor.py     #   drives the per-experiment sub-agent (Claude Code + shell)
 │   │   ├── eval_freeze.py           #   freeze the eval protocol once per run
-│   │   ├── backend.py               #   LLM backend (Claude Code CLI) — renders the role prompt
+│   │   ├── backend.py               #   builds the role agent (renders the role prompt)
+│   │   ├── llm/                     #   Claude Code driver (claude_code) + structured-output helper
+│   │   ├── posttrainbench.py        #   PTB eval protocol (bench list + sampled limits per profile)
 │   │   ├── schemas.py               #   ExperimentPlan / ReviewOut (validated JSON)
 │   │   └── config.py · budget.py · logging.py
 │   ├── prompt/                      # every prompt as a Jinja2 YAML template (rendered with config facts)
@@ -124,18 +126,14 @@ DataOS/
 │   │   ├── planner_task.yaml · reviewer_task.yaml     #   per-round task messages
 │   │   ├── subagent_task.yaml · subagent_continue.yaml#   per-experiment task / resume
 │   │   └── structured_*.yaml                          #   JSON-output scaffolding
-│   ├── core/                        # the Project → Study → Experiment → Stage data model
-│   │   ├── project.py · study.py · experiment.py · stage.py
-│   │   ├── artifact.py              #   Data · Model · Eval artifacts
-│   │   ├── workspace.py             #   on-disk run layout
-│   │   ├── catalog.py · loading.py  #   operator catalog + dataset loading (DataOS-Operator)
-│   │   └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
-│   └── integrations/
-│       ├── llm/                     #   Claude Code backend + structured-output helper
-│       └── posttrainbench/adapter.py #  PTB bench list + sampled limits per profile
+│   └── core/                        # the Project → Study → Experiment → Stage data model
+│       ├── project.py · study.py · experiment.py · stage.py
+│       ├── artifact.py              #   Data · Model · Eval artifacts
+│       ├── workspace.py             #   on-disk run layout
+│       ├── catalog.py · loading.py  #   operator catalog + dataset loading (DataOS-Operator)
+│       └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
 ├── configs/
-│   ├── runs/ptb-h100-qwen-gsm8k.json #  the user-facing run config (one JSON per run)
-│   └── experiments/plan.template.json
+│   └── runs/ptb-h100-qwen-gsm8k.json #  the user-facing run config (one JSON per run)
 ├── resources/
 │   ├── code/posttrainbench/
 │   │   ├── PLAYBOOK.md              #   the sub-agent manual (data → train → eval → report)
@@ -147,7 +145,7 @@ DataOS/
 │       ├── posttrainbench_benchmarks/ # hf_datasets/ (offline HF cache) + local/ (judge data)
 │       └── datasets/                  # small vendored datasets
 ├── docs/                            # architecture notes (some predate the agent-version refactor)
-├── tests/                           # agent / core / runtime / integrations
+├── tests/                           # agent / core
 ├── scripts/                         # dev helpers (doctor.py)
 ├── pyproject.toml · uv.lock
 └── README.md · README.zh-CN.md · AGENTS.md

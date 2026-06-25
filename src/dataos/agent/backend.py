@@ -3,7 +3,7 @@ about endpoints, keys and backend choice.
 
 - ``backend == "claude_code"`` → local Claude Code via the CLI's own Claude-account
   (subscription) login — NO API key. Used for the persistent main-agent dialog and
-  execution sub-agents. See :mod:`dataos.integrations.llm.claude_code`.
+  execution sub-agents. See :mod:`dataos.agent.llm.claude_code`.
 - ``backend == "claude"`` → Claude Agent SDK backend pointed at an Anthropic-compatible
   endpoint (MiMo ``/anthropic`` by default). Key comes from env, never from config.
 - ``backend == "stub"``  → the deterministic ``fake`` provider, constructed directly via
@@ -131,7 +131,7 @@ def make_agent(role: str, cfg: AutoRunConfig):
 
     if cfg.backend == "claude_code":
         # Local Claude Code with the CLI's own Claude-account (subscription) login — no API key.
-        from dataos.integrations.llm.claude_code import ClaudeCodeAgent
+        from dataos.agent.llm.claude_code import ClaudeCodeAgent
 
         return ClaudeCodeAgent(
             instructions=_system_prompt(role, cfg),

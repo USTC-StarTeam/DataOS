@@ -34,16 +34,16 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
 
 - `src/dataos/agent` — the loop: `loop.py` (`run_auto`), `state_tree`, `planner`, `reviewer`,
   `subagent_executor` (drives the per-experiment sub-agent), `eval_freeze`, `schemas`,
-  `run_config` (the single-JSON config boundary), `backend`, `budget`, `config`, `logging`.
+  `run_config` (the single-JSON config boundary), `backend`, `budget`, `config`, `logging`,
+  `llm/` (the Claude Code driver + structured-output helper), and `posttrainbench.py`
+  (the eval protocol: bench list + sampled limits per profile).
 - `src/dataos/prompt` — EVERY prompt as a Jinja2 YAML template (`<name>.yaml` with a `template:`).
   No prompt text is hardcoded in `.py`; render via `from dataos import prompt; prompt.render(name, **facts)`.
   Run facts (budget, GPUs, the per-experiment context) are passed in as render params.
 - `src/dataos/core` — the `Project → Study → Experiment → Stage` / `Data·Model·Eval` abstraction,
   `workspace`, `io`, `ids`, `report`, `provenance`, `catalog`, `loading`. (Kept as the data model;
   the `Stage.run()` train/eval executors were removed — execution is the sub-agent's.)
-- `src/dataos/integrations` — `llm/` (Claude Code backend) and `posttrainbench/` (the eval protocol
-  `adapter.py`: bench list + sampled limits per profile).
-- `configs/runs/*.json` — the user-facing run config (one per run). `configs/experiments/` — plan template.
+- `configs/runs/*.json` — the user-facing run config (one per run).
 - `resources/code/posttrainbench/` — `PLAYBOOK.md` (the sub-agent manual) and
   `lm_eval_bridge/` (the self-contained lm-eval PostTrainBench eval: task package + `run_lmeval_eval.py`
   + `run_lmeval_judge.py`).
@@ -52,7 +52,7 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
   Deployed with the code; the eval reads it via `$AGENTVER/resources/data/posttrainbench_benchmarks`
   (no separate H100 data dir, no `paths.benchmarks` config knob).
 - `docs/` — architecture notes; **several predate the agent-version refactor and are stale**.
-- `tests/` — `pytest`, grouped by agent / core / runtime / integrations.
+- `tests/` — `pytest`, grouped by agent / core.
 
 ## Local commands
 

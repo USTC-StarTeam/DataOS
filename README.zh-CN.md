@@ -110,7 +110,9 @@ DataOS/
 │   │   ├── planner.py · reviewer.py #   向 main-agent 要 ExperimentPlan / ReviewOut
 │   │   ├── subagent_executor.py     #   驱动逐实验的 sub-agent（Claude Code + shell）
 │   │   ├── eval_freeze.py           #   每次运行冻结一次评测协议
-│   │   ├── backend.py               #   LLM 后端（Claude Code CLI）— 渲染角色提示词
+│   │   ├── backend.py               #   构建角色 agent（渲染角色提示词）
+│   │   ├── llm/                     #   Claude Code 驱动（claude_code）+ 结构化输出 helper
+│   │   ├── posttrainbench.py        #   PTB 评测协议（bench 列表 + 各 profile 的采样 limit）
 │   │   ├── schemas.py               #   ExperimentPlan / ReviewOut（校验过的 JSON）
 │   │   └── config.py · budget.py · logging.py
 │   ├── prompt/                      # 所有 prompt 作为 Jinja2 YAML 模板（用 config 事实渲染）
@@ -118,18 +120,14 @@ DataOS/
 │   │   ├── planner_task.yaml · reviewer_task.yaml     #   每轮任务消息
 │   │   ├── subagent_task.yaml · subagent_continue.yaml#   逐实验任务 / 续跑
 │   │   └── structured_*.yaml                          #   JSON 输出脚手架
-│   ├── core/                        # Project → Study → Experiment → Stage 数据模型
-│   │   ├── project.py · study.py · experiment.py · stage.py
-│   │   ├── artifact.py              #   Data · Model · Eval 工件
-│   │   ├── workspace.py             #   落盘的运行目录布局
-│   │   ├── catalog.py · loading.py  #   算子目录 + 数据集加载（DataOS-Operator）
-│   │   └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
-│   └── integrations/
-│       ├── llm/                     #   Claude Code 后端 + 结构化输出 helper
-│       └── posttrainbench/adapter.py #  PTB bench 列表 + 各 profile 的采样 limit
+│   └── core/                        # Project → Study → Experiment → Stage 数据模型
+│       ├── project.py · study.py · experiment.py · stage.py
+│       ├── artifact.py              #   Data · Model · Eval 工件
+│       ├── workspace.py             #   落盘的运行目录布局
+│       ├── catalog.py · loading.py  #   算子目录 + 数据集加载（DataOS-Operator）
+│       └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
 ├── configs/
-│   ├── runs/ptb-h100-qwen-gsm8k.json #  面向用户的 run 配置（每次运行一个 JSON）
-│   └── experiments/plan.template.json
+│   └── runs/ptb-h100-qwen-gsm8k.json #  面向用户的 run 配置（每次运行一个 JSON）
 ├── resources/
 │   ├── code/posttrainbench/
 │   │   ├── PLAYBOOK.md              #   sub-agent 手册（数据 → 训练 → 评测 → report）
@@ -141,7 +139,7 @@ DataOS/
 │       ├── posttrainbench_benchmarks/ # hf_datasets/（离线 HF 缓存）+ local/（judge 数据）
 │       └── datasets/                  # 少量 vendored 数据集
 ├── docs/                            # 架构说明（部分早于 agent-version 重构）
-├── tests/                           # agent / core / runtime / integrations
+├── tests/                           # agent / core
 ├── scripts/                         # 开发辅助（doctor.py）
 ├── pyproject.toml · uv.lock
 └── README.md · README.zh-CN.md · AGENTS.md

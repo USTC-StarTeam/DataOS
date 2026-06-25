@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 from dataos import prompt as _prompt
-from dataos.integrations.llm.structured import run_structured_dialog
+from dataos.agent.llm.structured import run_structured_dialog
 
 from .schemas import ExperimentPlan
 

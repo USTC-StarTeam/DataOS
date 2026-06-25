@@ -24,7 +24,7 @@ from dataos.core.io import atomic_write_json
 from dataos.core.study import _slug
 
 from dataos import prompt as _prompt
-from dataos.integrations.llm.claude_code import ClaudeCodeAgent
+from dataos.agent.llm.claude_code import ClaudeCodeAgent
 
 log = logging.getLogger(__name__)
 

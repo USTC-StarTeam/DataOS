@@ -1,2 +1,0 @@
-"""PostTrainBench protocol integration."""
-
