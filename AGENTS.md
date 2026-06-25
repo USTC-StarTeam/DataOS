@@ -1,290 +1,115 @@
 # AGENTS.md
 
-## Purpose
+Operating guide for AI coding agents working in this repository. Read it before changing
+shared code, and keep these invariants unless the user explicitly asks to change them.
 
-This repository is `DataOS`, a local-first, single-experiment runtime for SFT
-data workflows.
+## What this repo is
 
-The runtime is intentionally narrow:
+`DataOS` is an **autonomous PostTrainBench agent**. It post-trains ONE base model to maximize ONE
+PostTrainBench benchmark, within a fixed data pool and a fixed GPU-time budget.
 
-- Internal dataset flow is standardized on Hugging Face `Dataset` and
-  `DatasetDict` directories created by `save_to_disk`.
-- The LLM is used for planning and review only.
-- Operators execute deterministically inside a local sandbox and emit typed
-  artifacts.
-- Experiments persist reports, plans, reviews, logs, and archived artifacts to
-  disk.
-- There is no research layer, daemon loop, project queue, or persistent agent
-  control plane.
+- A persistent **main-agent** (a Claude Code dialog) maintains an experiment **tree**. Each round it
+  returns ONE `ExperimentPlan` (parent node + data recipe + train config) and ONE `ReviewOut`. It
+  only proposes plans / reviews — it never executes, edits files, or writes model paths.
+- **Code** (`dataos.agent.loop.run_auto`) owns the tree, plan validation, parent-model injection,
+  frozen eval, and persistence.
+- A **sub-agent** (also Claude Code, with a shell) realizes ONE experiment end to end on the H100
+  cluster, following `resources/code/posttrainbench/PLAYBOOK.md`: build SFT data (DataOS-Operator) →
+  train with LLaMA-Factory (Slurm) → evaluate with the lm-eval PostTrainBench protocol → write
+  `report.json`.
+- Both agents run on the **agent host**; all GPU work ships to the **H100 cluster** over SSH.
 
-Agents working in this repository should preserve those constraints unless the
-user explicitly asks to change them.
+There is exactly ONE execution path: the agentic sub-agent. The old in-process "code-executor"
+(`run_one.py`, `runtime/executor.py`, in-process train/eval stages) was removed — do not reintroduce it.
 
 ## Stack
 
-- Python `>=3.11`
-- Package/build tooling: `uv`, `setuptools`
-- Linting: `ruff`
-- Core dependencies: `datasets`, `pyarrow`, `prompt_toolkit`, `pyclean`
+- Python `>=3.11`; env/build via `uv` + `setuptools`; lint `ruff`; tests `pytest`.
+- Core deps: `datasets`, `pyarrow`, `pydantic`, `tenacity`, `dataos-operator` (operator catalog),
+  `dataos-agent[claude]` (Claude Code backend). Training/eval stacks (LLaMA-Factory, lm-eval, vLLM,
+  torch) live in **H100 conda envs**, not the agent-host venv.
+- LLM backend: the **Claude Code CLI** (`backend="claude_code"`), authenticated on the agent host.
 
-## Repository Map
+## Repository map
 
-- `src/dataos/agent`
-  - Main-agent loop, state tree, node selection, planner/reviewer prompts,
-    schemas, budget, and CLI
-- `src/dataos/core`
-  - Artifact types, project/study/experiment objects, workspace layout,
-    reports, ids, IO, provenance, and local persistence
-- `src/dataos/runtime`
-  - Experiment execution helpers: local fan-out, sub-agent executor, shared
-    data prep, frozen eval selection, and report collection
-- `src/dataos/integrations`
-  - External integrations for Claude Code, PostTrainBench, LLaMA-Factory,
-    Slurm, and lm-eval
-- `configs`
-  - Runtime and experiment configs, including `configs/runtimes/h100.json`
-- `resources/data`
-  - HF datasets and benchmark data resources
-- `resources/code`
-  - Benchmark/harness code resources consumed by runtime and sub-agents
-- `scripts`
-  - Thin command-line helpers, especially `scripts/run_one.py` and
-    `scripts/doctor.py`
-- `docs`
-  - Architecture notes and runbooks, with the main overview at
-    `docs/overview/dataos_overview.md`
+- `src/dataos/agent` — the loop: `loop.py` (`run_auto`), `state_tree`, `planner`, `reviewer`,
+  `prompts`, `schemas`, `run_config` (the single-JSON config boundary), `backend`, `budget`,
+  `config`, `logging`.
+- `src/dataos/core` — the `Project → Study → Experiment → Stage` / `Data·Model·Eval` abstraction,
+  `workspace`, `io`, `ids`, `report`, `provenance`, `catalog`, `loading`. (Kept as the data model;
+  the `Stage.run()` train/eval executors were removed — execution is the sub-agent's.)
+- `src/dataos/runtime` — `subagent_executor` (drives the per-experiment sub-agent) + `eval_freeze`.
+- `src/dataos/integrations` — `llm/` (Claude Code backend) and `posttrainbench/` (the eval protocol
+  `adapter.py`: bench list + sampled limits per profile).
+- `configs/runs/*.json` — the user-facing run config (one per run). `configs/experiments/` — plan template.
+- `resources/code/posttrainbench/` — `PLAYBOOK.md` (the sub-agent manual) and
+  `lm_eval_bridge/` (the self-contained lm-eval PostTrainBench eval: task package + `run_lmeval_eval.py`
+  + `run_lmeval_judge.py`).
+- `resources/data/` — vendored datasets and `posttrainbench_benchmarks/` (HF cache + judge data).
+- `docs/` — architecture notes; **several predate the agent-version refactor and are stale**.
+- `tests/` — `pytest`, grouped by agent / core / runtime / integrations.
 
-## Local Commands
-
-Install dependencies:
+## Local commands
 
 ```bash
-uv sync --extra dev
+uv sync                          # agent-host env
+uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json   # start a run
+uv run ruff check src tests
+uv run pytest -q
 ```
 
-Run lint:
+Note: `uv sync` may need the proxy OFF and a domestic mirror (the proxy is for reaching the
+Claude/gateway endpoints, and breaks TLS to domestic PyPI):
+`unset HTTPS_PROXY HTTP_PROXY ALL_PROXY; UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple uv sync`.
 
-```bash
-uv run ruff check .
-```
+## H100 cluster facts
 
-## Remote GPU Hosts
+GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
 
-For heavy training or evaluation work that exceeds local capacity, these SSH
-hosts are available and accept key-based login directly:
+- SSH: `Host h100` → `HostName 114.214.215.159`, `User hcgu`, `IdentityFile ~/.ssh/ghc_miyao`.
+- Deploy (the repo on H100): `/data/hcgu/users/tjh/dataos_agentver` — a **git checkout of `origin/main`**.
+  Deploy = `git push origin main` (host) then `ssh h100 'git -C <deploy_root> pull'`.
+- Run scratch (per experiment): `/data/hcgu/users/tjh/dataos_agentver_runs/...`.
+- Fixed pool: `/data/hcgu/dataos_fixed_pools/processed/...`. Benchmarks: `/data/hcgu/posttrainbench_benchmarks`.
+- Conda envs: train = `…/envs/Llama` (LLaMA-Factory + torch), eval = `…/envs/lm-eval` (lm-eval + vLLM).
+- Submit GPU work through Slurm (default `gpu04`); the login node is orchestration only.
+- **Compute nodes have no internet.** Datasets resolve offline from the benchmarks HF cache; the
+  2 judge benches generate on the GPU node then score on the login node.
 
-- `bdaa_5090-1`
-  - `HostName 114.214.255.119`
-  - `User hcgu`
-  - `Port 1108`
-  - Verified on `2026-03-28`: reachable by SSH and exposes
-    `3 x NVIDIA GeForce RTX 5090`
-- `bdaa_5090-2`
-  - `HostName 114.214.255.119`
-  - `User hcgu`
-  - `Port 1109`
-  - Verified on `2026-03-28`: reachable by SSH and exposes
-    `2 x NVIDIA GeForce RTX 5090`
+## Invariants to respect
 
-Useful checks:
+- **Config = facts, not strategy.** `configs/runs/*.json` holds paths / the single bench / budget /
+  resources only. Data recipe, training method (LoRA vs full, hyperparameters), tree growth, and
+  eval sampling are the **main-agent's** decisions, persisted in per-round plans. Do not add strategy
+  knobs to the config or CLI.
+- **Training = LLaMA-Factory, authored by the sub-agent.** The sub-agent writes the LF YAML/commands
+  per the PLAYBOOK; there is no in-repo bespoke trainer.
+- **Eval = the `lm_eval_bridge`** (pre-main lm-eval protocol; baseline-comparable). Do not reintroduce
+  the InspectAI/external-scorer path.
+- **Secrets never enter git.** Gateway/judge API keys live in `0600` key_files on H100, exported
+  inline at run time. The config carries `base_url` / `model` / `key_file` paths only.
+- The main-agent returns JSON only (validated; it is re-asked on invalid output); it never writes
+  model paths or changes the eval.
 
-```bash
-ssh bdaa_5090-1 'hostname && nvidia-smi -L'
-ssh bdaa_5090-2 'hostname && nvidia-smi -L'
-```
+## Coding style
 
-### Lab H100 Runtime
+- **Do not over-engineer ("如无必要，勿增实体").** Prefer one path over a path + fallback; no
+  speculative abstractions, compat aliases, or config knobs the single PTB use case doesn't need.
+  When unsure, make the smaller change.
+- Follow the existing style; keep lines ≤ 100 (ruff). Prefer small explicit helpers; sparse comments
+  only where logic is non-obvious. ASCII unless the file already needs Unicode.
+- Preserve the `dataclass` / type-hint patterns in `src/dataos/core` and `src/dataos/agent`.
 
-PostTrainBench-style training runs should use the lab H100 Slurm cluster when
-the user asks for H100 execution.
+## Validation
 
-- SSH alias: `hcgu_h100`
-- Login user: `hcgu`
-- Persistent workspace root: `/data/hcgu`
-- Default DataOS agent-run root:
-  `/data/hcgu/dataos_agent_runs`
-- Fixed-pool processed root:
-  `/data/hcgu/dataos_fixed_pools/processed`
-- PostTrainBench containers:
-  `/data/hcgu/posttrainbench_containers`
-- Base-model cache:
-  `/data/hcgu/hf_cache`
+Before finishing a meaningful change: `uv run ruff check src tests` and `uv run pytest -q`. Run a
+relevant smoke command when the change affects runtime behavior (e.g. an H100 eval/train job).
 
-Important operating rules:
+## Useful entry points
 
-- The login node is for orchestration only; do not run GPU training or full
-  evaluation directly on it.
-- Submit GPU work through Slurm, and prefer `gpu04` unless the user explicitly
-  chooses another node.
-- Keep each agent experiment under
-  `/data/hcgu/dataos_agent_runs/<setting>/<coding_agent>/<base_model>/<task>/<run_id>`.
-- Do not store tokens, API keys, or private keys in run manifests.
-- For fixed-pool PostTrainBench experiments, training data must come only from
-  the DataOS fixed-pool manifest recorded in the run directory.
-
-Agent guidance for remote execution:
-
-- Prefer `bdaa_5090-1` for jobs that benefit from 3 GPUs; use `bdaa_5090-2`
-  for 2-GPU workloads or to split experiments across machines.
-- Treat these hosts as execution backends only. Keep DataOS artifacts, reports,
-  plans, and reviews durable in the repository workspace or copy them back
-  before claiming a run is complete.
-- Do not assume remote environments match local dependencies; verify Python,
-  CUDA, and required training stacks before launching long jobs.
-
-## Runtime Facts You Must Respect
-
-### Dataset Artifacts
-
-- `DatasetArtifact` only supports Hugging Face datasets saved on disk.
-- Do not introduce alternate dataset storage formats unless the task explicitly
-  requires it.
-- If code materializes a dataset artifact, refresh or preserve metadata
-  consistently with `DatasetArtifact.save()` /
-  `refresh_metadata_from_disk()`.
-
-### Sandbox Layout
-
-`Sandbox.prepare()` creates and relies on these directories:
-
-- `inputs/`
-- `outputs/`
-- `artifacts/`
-- `logs/`
-- `tmp/`
-- `code/`
-
-Reports and review artifacts are expected under the sandbox root, especially:
-
-- `plan.json`
-- `report.json`
-- `review.json`
-
-### Artifact Model
-
-Supported artifact types are fixed in `src/dataos/core/artifact.py`:
-
-- `dataset`
-- `model`
-- `eval`
-- `result`
-- `experiment`
-
-If you add a new artifact type, update the central type definitions and the
-local artifact store behavior together.
-
-### Default Runtime
-
-The operator catalog is provided by the external `dataos_operator` package and
-surfaced through `src/dataos/core/catalog.py`. Operators are deterministic data
-operators only.
-
-`train_llamafactory` and `eval_model` are fixed runtime stages. They are called
-directly by `run_task()` after the agent-planned data-operator steps complete.
-Do not register them in the operator registry.
-
-### LLM Boundary
-
-The LLM client is for structured plan/review generation. Runtime execution is
-still performed by local code.
-
-If no custom client is passed, `run_task()` expects one of:
-
-- `DASHSCOPE_API_KEY`
-- legacy `STARTEAM_API_KEY`
-
-Optional overrides:
-
-- `DASHSCOPE_BASE_URL` or legacy `STARTEAM_BASE_URL`
-- `DASHSCOPE_MODEL` or legacy `STARTEAM_MODEL`
-
-Keep this separation intact. Avoid pushing execution semantics into prompts
-when local runtime code should own them.
-
-## Change Guidance
-
-### When Adding Or Changing An Operator
-
-- Implement against the `dataos_operator` operator interface.
-- Accept `inputs` plus `sandbox`, and emit typed artifacts.
-- Prefer deriving from the latest relevant upstream artifact in `inputs`.
-- Write stable logs via `sandbox.log(...)`.
-- Persist operator outputs inside sandbox-managed artifact directories.
-- Register the operator in `build_default_registry()` if it should participate
-  in the standard runtime.
-- Do not add pytest coverage by default; this repository no longer maintains a
-  pytest suite.
-
-### When Changing Planning Or Review Behavior
-
-- Keep payloads JSON-structured and validated.
-- Preserve fallback behavior when LLM output is invalid.
-- Make sure experiment state still writes durable `plan.json` and `review.json`
-  files.
-
-### When Changing Artifacts Or Experiments
-
-- Preserve on-disk compatibility where practical.
-- Ensure `save_meta()` output remains JSON-serializable.
-- Keep parent-child artifact lineage intact.
-
-## Validation Expectations
-
-Before finishing a meaningful code change, run lint and any direct smoke command
-that is actually relevant to the change.
-
-Minimum expectation:
-
-- `uv run ruff check .`
-
-Do not recreate the old pytest suite unless the user explicitly asks for it.
-
-## Coding Style
-
-- Follow the existing Python style in the repository.
-- Keep lines within Ruff's configured limit of 100 where practical.
-- Prefer small, explicit helpers over implicit magic.
-- Preserve type hints and dataclass usage patterns already used in
-  `src/dataos/core`.
-- Keep comments sparse and only where they clarify non-obvious logic.
-- Prefer ASCII unless the file already requires Unicode content.
-
-## Safe Agent Behavior For This Repo
-
-- Read the surrounding module before editing shared runtime code.
-- Avoid destructive cleanup commands against user data or workspace artifacts
-  unless explicitly requested.
-- Do not silently change task template schemas, artifact directory conventions,
-  or operator names without updating all dependent code paths.
-- If a requested change conflicts with the repository's local-first /
-  fixed-runtime design, call that out and make the smallest coherent change
-  possible.
-
-## Local Feishu / Lark CLI Note
-
-- When operating on the user's Feishu / Lark resources from Codex Desktop, do
-  not rely on sandboxed execution.
-- In this environment, sandboxed threads may fail to access the local keychain
-  used by `lark-cli`, which can surface as `keychain not initialized` even when
-  the user has already authorized successfully.
-- Prefer running Feishu / Lark CLI commands outside the sandbox using the direct
-  Node entrypoint:
-
-```bash
-/opt/homebrew/bin/node /opt/homebrew/lib/node_modules/@larksuite/cli/scripts/run.js ...
-```
-
-- Do not rely on `PATH` containing Homebrew binaries inside Codex threads; use
-  absolute paths for both `node` and the CLI entrypoint.
-- For wiki URLs, first resolve the wiki node to its `obj_token`, then operate
-  on the underlying doc token.
-
-## Useful Entry Points
-
-- Main-agent entrypoint: `src/dataos/agent/loop.py`
-- Agent CLI: `src/dataos/agent/cli.py`
-- Runtime executors: `src/dataos/runtime`
-- Artifact definitions: `src/dataos/core/artifact.py`
-- Workspace definition: `src/dataos/core/workspace.py`
-- PostTrainBench playbook: `resources/code/posttrainbench/PLAYBOOK.md`
-- Main document: `docs/overview/dataos_overview.md`
+- Run entry: `src/dataos/agent/cli.py` → `dataos.agent.loop.run_auto`.
+- Config boundary: `src/dataos/agent/run_config.py`.
+- Sub-agent driver: `src/dataos/runtime/subagent_executor.py`.
+- Sub-agent manual: `resources/code/posttrainbench/PLAYBOOK.md`.
+- Eval: `resources/code/posttrainbench/lm_eval_bridge/`.
+- Prompts (main-agent + sub-agent): `src/dataos/agent/prompts.py`.
