@@ -5,10 +5,11 @@ template that records status / timing / error and persists itself to
 ``<exp>/<kind>.json``), and produces an :class:`~dataos.core.artifact.Artifact`. The
 three concrete stages are uniform in shape but differ in who executes:
 ``DataStage`` runs a deterministic operator recipe (or an injected dataset), while
-``TrainStage`` / ``EvalStage`` wrap the LLaMA-Factory / lm-eval executor bodies.
+``TrainStage`` / ``EvalStage`` are structural nodes whose execution is delegated to the
+sub-agent executor (:mod:`dataos.runtime.subagent_executor`) — it realizes train/eval on
+H100, so they carry no in-process executor body.
 
-Heavy deps (operators / torch / lm-eval) are imported lazily inside ``run`` so
-``import dataos`` stays light.
+Heavy deps (operators) are imported lazily inside ``run`` so ``import dataos`` stays light.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ import json
 import os
 import socket
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from dataos.core.artifact import Data, Eval, Model, artifact_from_dict
@@ -326,122 +326,26 @@ class DataStage(Stage):
 
 
 class TrainStage(Stage):
-    """Train a model from the upstream :class:`Data` via the LLaMA-Factory executor."""
+    """Train stage — a structural node of the experiment. Execution is delegated to the
+    sub-agent executor (:mod:`dataos.runtime.subagent_executor`), which realizes training on
+    H100; this in-process stage only carries the declarative config and tracks state."""
 
     kind = "train"
 
     def _run(self) -> Model:
-        from dataos.integrations.llamafactory.train import run_train
-
-        dataset = self._pull_dataset()
-        model = run_train(dataset, self.config or None, workspace=self.workspace)
-        model.inputs = list(self.inputs)
-        return model
-
-    def _pull_dataset(self) -> Any:
-        from dataos_operator import Dataset
-
-        data_art = self.experiment.data.artifact
-        self.inputs = [data_art.id] if data_art is not None else []
-        ddir = self.workspace.dataset_dir
-        # dataset_dir is pre-created (empty) by Workspace.prepare(), so .exists() is always True —
-        # require an actual save_to_disk payload, else raise the friendly (eval-symmetric) error
-        # instead of a cryptic datasets FileNotFoundError.
-        if not (ddir / "dataset_info.json").exists() and not (ddir / "dataset_dict.json").exists():
-            raise ValueError("train needs data: run exp.data.run() (or exp.data.set(ds).run()) first")
-        return Dataset.from_disk(str(ddir))
+        raise NotImplementedError(
+            "in-process training was removed; the sub-agent executor runs training on H100"
+        )
 
 
 class EvalStage(Stage):
-    """Evaluate the upstream :class:`Model` via the lm-eval bridge."""
+    """Eval stage — a structural node of the experiment. Execution is delegated to the
+    sub-agent executor (:mod:`dataos.runtime.subagent_executor`), which runs the frozen
+    PostTrainBench eval; this in-process stage only carries config and tracks state."""
 
     kind = "eval"
 
-    # eval-config keys that name a base model to evaluate directly (no upstream train).
-    # They are not EvalConfig fields, so they're consumed here and stripped before the runner.
-    _BASELINE_KEYS = ("model_name_or_path", "base_model")
-
     def _run(self) -> Eval:
-        from dataos.integrations.lm_eval.runner import run_eval_stage
-
-        model = self._pull_model()
-        config = self.config
-        if config:
-            config = {k: v for k, v in config.items() if k not in self._BASELINE_KEYS} or None
-        evaluation = run_eval_stage(model, config, workspace=self.workspace)
-        evaluation.inputs = list(self.inputs)
-        return evaluation
-
-    def _pull_model(self) -> Model:
-        train_status = self.experiment.train.status
-        model_art = self.experiment.train.artifact
-        if model_art is not None:
-            # an artifact whose stage is stale/failed/running is NOT scoreable: evaluating
-            # it launders an invalidated chain back into a "completed" report
-            if train_status != "completed":
-                raise ValueError(
-                    f"upstream train stage is {train_status!r} — its model is not current; "
-                    "run exp.train.run() first (or run(force=True) to rebuild the chain)"
-                )
-            self.inputs = [model_art.id]
-            return model_art
-        # cross-process: rebuild a ModelLike from the persisted train.json
-        train_json = self.workspace.stage_path("train")
-        if train_json.exists():
-            persisted = json.loads(train_json.read_text(encoding="utf-8")) or {}
-            art = persisted.get("artifact") or {}
-            if art:
-                if persisted.get("status") != "completed":
-                    raise ValueError(
-                        f"persisted train stage is {persisted.get('status')!r} — its model is "
-                        "not current; re-run training before evaluating"
-                    )
-                self.inputs = [art["id"]] if art.get("id") else []
-                return Model(
-                    model_id=art.get("id") or "model",
-                    path=art.get("path") or str(self.workspace.model_dir),
-                    meta=art.get("meta") or {},
-                    producer=art.get("producer") or "train",
-                )
-        # eval-only / baseline: no upstream train — evaluate a bare model named in the eval
-        # config (PostTrain "beat the baseline" needs this). The runner turns a non-LoRA Model
-        # into pretrained=<path> with no adapter (see eval/backend/native._default_pretrained_source).
-        base = self._baseline_model_source()
-        if base is not None:
-            self.inputs = []
-            # identity must come from WHAT is being evaluated, not from an assumed role:
-            # this path also scores trained models referenced by path (formal confirms),
-            # and labeling those "baseline" made the deciding receipts misname the candidates.
-            # basename alone is ambiguous (every merged model ends in ".../_merged") — add a
-            # short hash of the FULL reference so two candidates can't share an identity.
-            import hashlib
-
-            name = Path(str(base)).name or str(base)
-            digest = hashlib.sha1(str(base).encode("utf-8")).hexdigest()[:8]
-            return Model(
-                model_id=f"evalonly:{name}#{digest}",
-                path=base,
-                meta={"base_model": base, "finetuning_type": None, "eval_only": True},
-                producer="eval_only",
-            )
-        raise ValueError(
-            "eval needs a model: run exp.train.run() first, or for an eval-only baseline set "
-            "spec['eval']['model_name_or_path'] (or 'base_model', or model_args pretrained=...)"
+        raise NotImplementedError(
+            "in-process eval was removed; the sub-agent executor runs the frozen PTB eval"
         )
-
-    def _baseline_model_source(self) -> str | None:
-        """A base-model id/path to evaluate when there is no upstream train (PostTrain baseline)."""
-        config = self.config or {}
-        for key in self._BASELINE_KEYS:
-            value = config.get(key)
-            if value:
-                return str(value)
-        model_args = config.get("model_args")
-        if isinstance(model_args, dict) and model_args.get("pretrained"):
-            return str(model_args["pretrained"])
-        if isinstance(model_args, str):
-            for part in model_args.split(","):
-                part = part.strip()
-                if part.startswith("pretrained="):
-                    return part[len("pretrained=") :].strip()
-        return None

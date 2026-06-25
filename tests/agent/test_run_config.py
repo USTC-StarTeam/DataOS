@@ -32,7 +32,6 @@ def test_ptb_run_config_maps_to_auto_config(tmp_path):
     assert cfg.project_id == "ptb-h100-qwen-gsm8k"
     assert cfg.workspace == str(tmp_path)
     assert cfg.target_bench == "gsm8k"
-    assert cfg.train_executor == "subagent"
     assert cfg.h100_base_model == "/data/hcgu/hf_cache/Qwen/Qwen2.5-0.5B-Instruct"
     assert cfg.budget.max_wall_clock_s == 36000
     assert cfg.runtime_config["cluster"]["nodelist"] == "gpu04"

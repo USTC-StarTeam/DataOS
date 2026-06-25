@@ -1,2 +1,2 @@
-"""Experiment runtime executors and stage orchestration."""
+"""Experiment runtime: sub-agent executor + frozen-eval setup."""
 

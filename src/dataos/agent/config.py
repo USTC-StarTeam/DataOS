@@ -73,10 +73,8 @@ class AutoRunConfig:
     budget: Budget = field(default_factory=lambda: Budget(max_wall_clock_s=PTB_WALL_CLOCK_S))
 
     # execution
-    gpus: list[str] = field(default_factory=lambda: ["0"])
     workspace: str = "workspace"
     poll_interval_s: float = 10.0
-    run_one: str = "scripts/run_one.py"
 
     # LLM backend
     backend: str = "claude_code"  # "claude_code" | "claude" | "openai" | "stub"
@@ -88,16 +86,11 @@ class AutoRunConfig:
     stub_replies: dict[str, Any] = field(default_factory=dict)
 
     # data / eval
-    data_source: str | None = None  # hf://... or local path for prepare_once; None → tiny stub data
-    data_limit: int | None = None
     eval_cfg: dict | None = None  # IGNORED on agent-version-ptb (eval is fixed to PostTrainBench)
-    stub: bool = False  # tiny data + stub train/eval, no GPU/HF
+    stub: bool = False  # stub eval score for tests/dev (no GPU/HF)
     ptb_profile: str = "formal"  # PostTrainBench limit profile: "formal" | "smoke"
     target_bench: str | None = None  # PTB single-bench target (per-(base,bench)); None = 7-suite
 
-    # execution: "local" = deterministic run_one (stub/dev); "subagent" = an agentic sub-agent
-    # implements each experiment (operators + H100 train/eval) — the real PostTrainBench path.
-    train_executor: str = "local"  # "local" | "subagent"
     slurm: dict = field(default_factory=dict)  # H100 connection overrides (runs_base/host/...)
     runtime_config: dict = field(default_factory=dict)  # cluster paths/envs injected into sub-agents
     runtime_config_path: str | None = None  # provenance for runtime_config when loaded from disk

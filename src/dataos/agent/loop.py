@@ -16,14 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from dataos.core.io import atomic_write_json
-from dataos.runtime import executor as _executor
-from dataos.runtime.data_prep import prepare_once
 from dataos.runtime.eval_freeze import freeze_eval
 
 from . import budget as _budget
 from .config import AutoRunConfig
 
-_REPO_ROOT = str(Path(__file__).resolve().parents[3])
 _MAIN_SESSION_FILE = "main_agent_session.json"
 _PLAN_RETRIES = 3
 
@@ -183,7 +180,6 @@ def _plan_context(
             "scenario": cfg.scenario,
             "target_bench": cfg.target_bench,
             "ptb_profile": cfg.ptb_profile,
-            "train_executor": cfg.train_executor,
             "runtime_config": cfg.runtime_config_path,
         },
         "budget": {
@@ -310,10 +306,9 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     cfg.workspace = os.path.abspath(cfg.workspace)
     log, log_path = setup_run_logging(cfg.workspace, cfg.project_id)
     log.info(
-        "run start: project=%s bench=%s executor=%s backend=%s profile=%s wall_budget=%ss",
+        "run start: project=%s bench=%s backend=%s profile=%s wall_budget=%ss",
         cfg.project_id,
         cfg.target_bench,
-        cfg.train_executor,
         cfg.backend,
         cfg.ptb_profile,
         cfg.budget.max_wall_clock_s,
@@ -331,7 +326,6 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     proj.load()
 
     eval_cfg = freeze_eval(cfg=cfg)
-    data_dir = None if cfg.train_executor == "subagent" else prepare_once(cfg=cfg)
     catalog = _safe_catalog()
     base_model = cfg.h100_base_model or cfg.base_model_id or "base"
     tree = TreeState.load(proj.project_dir, base_model)
@@ -453,26 +447,11 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
 
         tree.mark_running(node_id)
         tree.save()
-        log.info("round %d: executing node %s via %s", round_idx, node_id, cfg.train_executor)
-        if cfg.train_executor == "subagent":
-            from dataos.runtime import subagent_executor
+        log.info("round %d: executing node %s via sub-agent", round_idx, node_id)
+        from dataos.runtime import subagent_executor
 
-            deadline = started + cfg.budget.max_wall_clock_s if cfg.budget.max_wall_clock_s else None
-            subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)
-        else:
-            _executor.fan_out(
-                project_id=cfg.project_id,
-                study_id=study_id,
-                workspace=cfg.workspace,
-                specs=[spec],
-                data_dir=data_dir,
-                gpus=cfg.gpus,
-                run_one=cfg.run_one,
-                cwd=_REPO_ROOT,
-                poll_interval_s=cfg.poll_interval_s,
-                skip_completed=True,
-                limit=cfg.data_limit,
-            )
+        deadline = started + cfg.budget.max_wall_clock_s if cfg.budget.max_wall_clock_s else None
+        subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)
 
         exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
         score, mpath, artifacts, scripts, status, report_path = _read_report(

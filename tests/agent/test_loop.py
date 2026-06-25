@@ -1,10 +1,19 @@
-"""Full agentic loop, all-stub (no GPU / no LLM / no claude CLI)."""
+"""Full agentic loop, all-stub (no GPU / no LLM / no claude CLI).
+
+The loop's only executor is the sub-agent (``dataos.runtime.subagent_executor``); here we
+replace its ``fan_out`` with a fake that just writes a completed ``report.json`` per spec, so
+the test exercises the loop's orchestration (plan → execute → review → tree → budget stop →
+resume) without a real sub-agent / H100.
+"""
 
 import json
 from pathlib import Path
 
+import pytest
+
 from dataos.agent.config import AutoRunConfig, Budget
 from dataos.agent.loop import run_auto
+from dataos.runtime import subagent_executor
 
 
 def _plan(parent: str, name: str) -> str:
@@ -15,9 +24,9 @@ def _plan(parent: str, name: str) -> str:
             "hypothesis": f"grow {name}",
             "estimated_hours": 0.1,
             "data": {},
-            "train": {"mode": "stub"},
-            "eval_plan": "stub eval",
-            "expected_signal": "completed stub score",
+            "train": {"finetuning_type": "lora"},
+            "eval_plan": "sampled eval",
+            "expected_signal": "completed score",
             "subagent_brief": f"run {name}",
             "rationale": "stub",
         }
@@ -33,13 +42,40 @@ REVIEW = json.dumps(
 )
 
 
+def _fake_fan_out(*, cfg, study_id, specs, deadline=None):
+    """Stand in for the sub-agent: write a completed report.json per spec at the path the loop
+    reads, with a stable id (so resume reuses it) and a model path (so the tree chains)."""
+    from dataos.core.study import _slug
+
+    exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
+    reports: dict[str, dict] = {}
+    for spec in specs:
+        name = spec["name"]
+        exp_dir = exp_root / _slug(name)
+        exp_dir.mkdir(parents=True, exist_ok=True)
+        report = {
+            "id": f"exp-{name}",
+            "name": name,
+            "status": "completed",
+            "score": 0.5,
+            "model": {"path": str(exp_dir / "final_model")},
+        }
+        (exp_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
+        reports[name] = report
+    return reports
+
+
+@pytest.fixture(autouse=True)
+def _stub_subagent(monkeypatch):
+    monkeypatch.setattr(subagent_executor, "fan_out", _fake_fan_out)
+
+
 def _cfg(ws):
     return AutoRunConfig(
         project_id="p",
         workspace=ws,
         backend="stub",
         stub=True,
-        gpus=[],
         poll_interval_s=0.05,
         stub_replies={
             "plan": [_plan("n0000", "child-0"), _plan("n0001", "child-1")],
@@ -68,7 +104,6 @@ def test_stop_wall_clock_after_n_rounds(tmp_path):
         rep = json.loads((pdir / r / "experiments" / exp / "report.json").read_text())
         assert rep["status"] == "completed"
 
-    assert (Path(ws) / "_prepared" / "p").exists()
     assert res["summary"]["n_studies"] == 2
 
     tree = json.loads((pdir / "tree.json").read_text())
