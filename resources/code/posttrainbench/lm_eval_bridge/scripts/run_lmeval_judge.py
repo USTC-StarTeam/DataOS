@@ -94,10 +94,11 @@ def score_healthbench(task_mod, predictions: list[dict[str, Any]]) -> list[float
 
 
 def score_arenahardwriting(task_mod, predictions: list[dict[str, Any]]) -> list[float]:
-    # Reuse pre-main's exact pairwise scoring. process_results normally reads the baseline
-    # from disk via _baseline_answer; here the baseline_answer is carried in predictions.jsonl,
-    # so we call _judge_pair directly with the same two-game / inversion / mean logic.
+    # Reuse pre-main's exact pairwise scoring (two games / baseline_first inversion / mean).
+    # The baseline answers come from disk via the task's own _baseline_answer; download() resolves
+    # _data_dir (<POSTTRAINBENCH_BENCHMARKS_DIR>/local/arena-hard-v2.0, with model_answer/).
     task = task_mod.PostTrainBenchArenaHardWriting.__new__(task_mod.PostTrainBenchArenaHardWriting)
+    task.download()
     strip = task_mod._strip_thinking
     limit = task_mod._limit_repetitions
     scores: list[float] = []
@@ -109,7 +110,7 @@ def score_arenahardwriting(task_mod, predictions: list[dict[str, Any]]) -> list[
         }
         try:
             answer = limit(strip(pred.get("answer", "")))
-            baseline = pred["baseline_answer"]
+            baseline = task._baseline_answer(doc)
             doc_scores: list[float] = []
             for score in task._judge_pair(doc, baseline, answer, baseline_first=True):
                 doc_scores.append(1.0 - score)

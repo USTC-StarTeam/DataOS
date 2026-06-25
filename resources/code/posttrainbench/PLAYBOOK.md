@@ -169,9 +169,12 @@ vLLM concurrency/settings that fit one GPU rather than serializing unnecessarily
 
 GPU Slurm job, conda `eval_env` (lm-eval + vllm). The benchmark datasets are vendored at
 `paths.benchmarks` (its `hf_datasets/` is a ready HF datasets cache for the 5 deterministic
-benches; `local/` holds the judge-bench data) — point lm-eval at it and force OFFLINE:
+benches; `local/` holds the bfcl + judge-bench data) — point lm-eval at it and force OFFLINE.
+`POSTTRAINBENCH_BENCHMARKS_DIR` makes the class tasks (bfcl, healthbench, arenahardwriting) read
+their local jsonl from `local/` (bfcl thus bypasses the HF-cache load entirely):
 ```bash
-export HF_DATASETS_CACHE=<paths.benchmarks>/hf_datasets HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
+export POSTTRAINBENCH_BENCHMARKS_DIR=<paths.benchmarks> \
+  HF_DATASETS_CACHE=<paths.benchmarks>/hf_datasets HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
 python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval_eval.py \
   --task <BENCH> --model-path $RUN_ROOT/final_model --model-name ptb_<BENCH> \
   --output-dir $RUN_ROOT/eval/<BENCH>_limit<EVAL_LIMIT> --limit <EVAL_LIMIT>
@@ -187,12 +190,15 @@ python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval
   (`score:null`, `needs_judge:true`). Then on the H100 LOGIN node (has internet) run the judge,
   exporting the Bailian key inline (never write it to disk / report):
   ```bash
-  ssh <login> 'export OPENAI_API_KEY=$(cat <gateway/bailian key file>) \
-    OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 \
-    POSTTRAINBENCH_JUDGE_MODEL=qwen3.5-plus; \
+  ssh <login> 'export OPENAI_API_KEY=$(cat <judge key file>) \
+    OPENAI_BASE_URL=<gateway/judge base_url> POSTTRAINBENCH_JUDGE_MODEL=<judge model> \
+    POSTTRAINBENCH_BENCHMARKS_DIR=<paths.benchmarks>; \
     <eval_env>/bin/python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval_judge.py \
       --bench <BENCH> --predictions <eval_dir>/predictions.jsonl --output <eval_dir>/summary.json'
   ```
+  (`POSTTRAINBENCH_BENCHMARKS_DIR` lets the arena judge load its baseline answers from
+  `local/arena-hard-v2.0/model_answer/` — the judge config base_url/model/key_file come from the
+  RUNTIME CONFIG `judge` block.)
   It applies the (pre-main) judge scoring and patches `summary.json` with the final `score`
   (0-100). Put that into report.json.
 
