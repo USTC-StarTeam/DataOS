@@ -1,85 +1,135 @@
-# DataOS 中文说明
+# DataOS — 自主 PostTrainBench Agent
 
 [English README](README.md)
 
-DataOS 当前收敛为一个面向 SFT 数据工作流的本地优先、单实验 runtime。
-LLM 主要负责数据算子的计划和实验结束后的 review；算子执行、训练、评测和
-artifact 落盘仍由本地代码主导。对于显式需要打分或数据增强的场景，个别
-evaluator / generator 算子可以选择调用 OpenAI-compatible 模型。
+DataOS 在**固定数据池**和**固定 GPU 时间预算**下，把**一个** base 模型 post-train 到在
+**一个** PostTrainBench bench 上分数最高 —— 全程由 agent 驱动。
 
-当前主文档是 [docs/overview/dataos_overview.md](docs/overview/dataos_overview.md)，
-算子中文说明见 [docs/architecture/operators_zh.md](docs/architecture/operators_zh.md)。
+一个常驻的 **main-agent**（Claude Code 长对话）维护一棵实验**树**。每一轮它给出一个实验方案 ——
+一份*数据配方*（对固定池跑一条 [DataOS-Operator](https://github.com/USTC-StarTeam/DataOS-Operator)
+算子流水线）加一组*训练*超参 —— 由 **sub-agent** 端到端实现：
 
-## 当前边界
+```
+构建 SFT 数据(算子)  →  在 H100 上用 LLaMA-Factory 训练(Slurm)
+        →  用 lm-eval 的 PostTrainBench 协议评测  →  写 report.json
+```
 
-- 数据工件统一使用 Hugging Face `Dataset` / `DatasetDict` 的
-  `save_to_disk` 目录。
-- `run_task()` 在本地实验目录中执行一次实验。
-- 数据算子来自本地 registry，执行过程是确定性的。
-- `train_llamafactory` 和 `eval_model` 是固定 runtime stage，不是 LLM
-  计划出来的 operator。
-- 评测层只保留 lm-eval 后端兼容和一个自然语言到 lm-eval task 的轻量 helper。
-- 不再维护 research 层、daemon loop、project queue 或异步 agent 控制面。
+main-agent 复盘结果，树从最有潜力的节点继续生长，直到耗尽时间预算。树上最优的模型即为提交。
 
-## 安装
+## 架构
 
-同步项目环境：
+```
+            ┌──────────────────────── agent host(本机) ────────────────────────┐
+  第 N 轮:  │  main-agent(CC 对话) ──plan──▶ code: 校验 · 建节点 · 注入父模型     │
+            │        ▲                                       │                  │
+            │     复盘 ◀── report.json ◀───────────┐         ▼                  │
+            │                                       │   sub-agent(CC + shell)   │
+            └───────────────────────────────────────┼──────────│────────────────┘
+                                                     │   ssh / slurm / rsync
+                                                     │          ▼
+                                           ┌─────────┴────────  H100 集群  ───────┐
+                                           │ 数据算子 · LLaMA-Factory 训练 · vLLM 评测 │
+                                           └────────────────────────────────────────┘
+```
+
+- **agent host** 在本地跑 *两个* agent。代码（`dataos.agent.loop`）负责树、plan 校验、父模型注入、
+  落盘；LLM 只负责出 plan 和复盘。
+- **H100 集群** 做全部 GPU 活。sub-agent 通过 SSH 把训练（Slurm + LLaMA-Factory）和评测
+  （vLLM + lm-eval）丢到 H100；judge bench 在登录节点打分。
+- 仓库以 git checkout 形式部署到 H100（`$AGENTVER`）；**部署 = `git pull`**。
+
+## 前置条件
+
+- [`uv`](https://docs.astral.sh/uv/)（Python 环境），Python ≥ 3.11。
+- 已登录的 Claude Code CLI —— 它是 main-agent 和 sub-agent 的后端。
+- 从 agent host 到 H100 集群的免密 SSH（集群上有预建的 conda 环境、固定数据池、base 模型、benchmark 缓存）。
 
 ```bash
-uv sync --extra dev
+uv sync          # 构建 agent host 环境(只装 agent；训练/评测跑在 H100 的 conda 环境里)
 ```
 
-可选训练 / 评测依赖：
+## 运行
 
-```bash
-uv sync --extra train
-uv sync --extra eval
+一次运行所需的一切就是一个 JSON（`configs/runs/<run>.json`）—— 只放**事实**，不放策略：
+
+```jsonc
+{
+  "run_id": "ptb-h100-qwen-gsm8k",
+  "workspace": "workspace/ptb-h100-qwen-gsm8k",
+  "goal": "在受限 H100 预算内用固定 PTB 数据池提升 base 模型。",
+  "bench": "gsm8k",                       // 唯一的 PostTrainBench 目标
+  "base_model_path": "/.../Qwen3-1.7B-Base",
+  "time_budget_hours": 10,
+  "resource": { "node": "gpu04", "gpus": 1, "cpus": 8 },
+  "paths": {
+    "fixed_pool":  "/data/.../posttrainbench_fixed_pool_v1_full",
+    "conda_sh":    "/.../miniconda3/etc/profile.d/conda.sh",
+    "train_env":   "/.../envs/Llama",     // LLaMA-Factory + torch
+    "eval_env":    "/.../envs/lm-eval",   // lm-eval + vLLM
+    "benchmarks":  "/data/.../posttrainbench_benchmarks"
+  }
+}
 ```
-
-## 仓库结构
-
-```text
-src/dataos/      DataOS 源码：agent loop、core、runtime、integrations
-configs/         runtime / experiment 配置
-resources/data/  HF 数据集和 benchmark 数据资源
-resources/code/  benchmark / harness 代码资源
-docs/            架构说明和 runbook
-scripts/         薄命令行入口
-tests/           按 agent/core/runtime/integrations 分组的测试
-```
-
-## CLI
 
 ```bash
 uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
 ```
 
-CLI 只接收一个 JSON 文件。这个 PTB 分支里，数据混合、训练样本量、eval sample
-数量、树上选哪个节点继续生长等策略都由 main-agent 决定，并写入每轮 plan。
+config 只承载事实（路径、唯一 bench、预算、资源）。所有**策略** —— 数据配方、训练方式
+（LoRA / 全参、超参）、选树上哪个节点生长、eval 采样 —— 都由 main-agent 每轮自主决定，并写进
+运行 workspace 下的每轮 plan。
 
-如果你希望 planning / review 走 DashScope，在 `uv run` 之前先导出环境变量：
+## 一次运行是怎么跑的
 
-```bash
-export DASHSCOPE_BASE_URL="your-base-url"
-export DASHSCOPE_API_KEY="your-api-key"
-export DASHSCOPE_MODEL="your-model"
+1. `freeze_eval` 一次性冻结评测协议（唯一 bench + 采样 limit）。
+2. 每轮代码把树、最近的复盘、算子目录发给 main-agent；它返回一个 `ExperimentPlan`（父节点 +
+   数据配方 + 训练配置）。代码校验、加子节点、注入父模型路径（子节点在父模型上续训）。
+3. sub-agent 在 H100 上按
+   [`resources/code/posttrainbench/PLAYBOOK.md`](resources/code/posttrainbench/PLAYBOOK.md) 执行计划，
+   写出 `report.json`。
+4. main-agent 复盘 report；代码附上分数、生长树，循环直到预算耗尽。最优节点的模型写入
+   `final_model.json`。
+
+## 评测
+
+自包含的 **lm-evaluation-harness** PostTrainBench 协议，位于
+[`resources/code/posttrainbench/lm_eval_bridge`](resources/code/posttrainbench/lm_eval_bridge)：
+5 个确定性 bench（gsm8k、humaneval、bfcl、gpqamain、aime2025）在 GPU job 内打分，
+2 个 judge bench（healthbench、arenahardwriting）在 job 内生成、在登录节点用 OpenAI 兼容 judge 打分。
+数据集从 vendored benchmark 缓存（`paths.benchmarks`）离线解析。
+
+## 仓库结构
+
+```text
+src/dataos/
+  agent/         自主循环 —— loop.py (run_auto) · planner · reviewer · state_tree ·
+                 run_config(JSON 配置边界) · prompts · backend · budget · logging
+  core/          Project → Study → Experiment → Stage / Data·Model·Eval 抽象 + workspace/io
+  runtime/       subagent_executor(逐实验 sub-agent 驱动) · eval_freeze
+  integrations/  llm/(Claude Code 后端) · posttrainbench/(评测协议 + bench 列表)
+configs/
+  runs/          每次运行一个 JSON(面向用户的配置)
+  experiments/   plan 模板
+resources/
+  code/posttrainbench/  PLAYBOOK.md(sub-agent 手册) · lm_eval_bridge/(自包含 lm-eval 评测)
+  data/                 vendored 数据集 + posttrainbench_benchmarks(HF 缓存 + judge 数据)
+docs/            架构说明(部分早于 agent-version 重构)
+scripts/         开发辅助
+tests/           按 agent / core / runtime / integrations 分组
 ```
 
-如果还会用到 `evaluate_llm_pair`，请单独配置 evaluator 接口：
+## 部署(H100)
+
+H100 上 `$AGENTVER` 是 `origin/main` 的 git checkout：
 
 ```bash
-export EVALUATOR_BASE_URL="your-evaluator-base-url"
-export EVALUATOR_API_KEY="your-evaluator-api-key"
-export EVALUATOR_MODEL="your-evaluator-model"
+git push origin main                                   # 在 agent host
+ssh <h100> 'git -C /data/.../dataos_agentver pull'     # 在集群上
 ```
-
-多数据集混合运行时，默认的对话样本格式是 ShareGPT 风格的 `conversations` 行。
-
-实验目录结构和落盘文件说明单独放在
-[docs/architecture/experiment_layout_zh.md](docs/architecture/experiment_layout_zh.md)。
 
 ## 校验
 
 ```bash
-uv run ruff check .
+uv run ruff check src tests
+uv run pytest -q
 ```
