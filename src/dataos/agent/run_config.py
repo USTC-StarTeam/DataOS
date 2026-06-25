@@ -27,14 +27,14 @@ DEFAULT_CLUSTER = {
 DEFAULT_DEPLOY_ROOT = "/data/hcgu/users/tjh/dataos_agentver"
 DEFAULT_RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"
 DEFAULT_GATEWAY = {
-    "base_url": "https://api2.starteam.wang/v1",
-    "model": "claude-haiku-4-5",
-    "key_file": "/data/hcgu/users/tjh/.gateway_key",
+    "base_url": "https://api.chatanywhere.tech/v1",
+    "model": "qwen3.5-plus",
+    "key_file": "/data/hcgu/users/tjh/.chatanywhere_key",
 }
 DEFAULT_JUDGE = {
-    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "base_url": "https://api.chatanywhere.tech/v1",
     "model": "qwen3.5-plus",
-    "key_file": "/data/hcgu/users/tjh/.bailian_keys",
+    "key_file": "/data/hcgu/users/tjh/.chatanywhere_key",
     "workers": 16,
 }
 
