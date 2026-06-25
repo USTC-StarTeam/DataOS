@@ -14,6 +14,7 @@
     "fixed_pool": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full",
     "conda_sh": "/data/software/miniconda3/etc/profile.d/conda.sh",
     "train_env": "/data/hcgu/.conda/envs/Llama",
-    "eval_env": "/data/hcgu/.conda/envs/lm-eval"
+    "eval_env": "/data/hcgu/.conda/envs/lm-eval",
+    "benchmarks": "/data/hcgu/posttrainbench_benchmarks"
   }
 }

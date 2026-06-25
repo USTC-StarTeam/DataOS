@@ -35,7 +35,7 @@ Expected keys:
 - `cluster`: `host`, `user`, `port`, `key`, `partition`, `qos`, `gres`,
   `nodelist`, `cpus_per_task`
 - `paths`: `deploy_root`, `run_root`, `runs_base`, `fixed_pool`, `conda_sh`, `train_env`,
-  `eval_env`, `local_report`, `local_state`
+  `eval_env`, `benchmarks`, `local_report`, `local_state`
 - `gateway`: `base_url`, `model`, `key_file`
 - `model`: `base_model`
 - `posttrainbench`: `bench`, `profile`, `eval_limit`
@@ -167,10 +167,11 @@ vLLM concurrency/settings that fit one GPU rather than serializing unnecessarily
 
 ## 3. Eval — the lm-evaluation-harness protocol, sampled during search
 
-GPU Slurm job, conda `eval_env` (lm-eval + vllm). The deterministic-bench datasets are pre-cached
-in the HF cache, so force OFFLINE so they resolve without internet:
+GPU Slurm job, conda `eval_env` (lm-eval + vllm). The benchmark datasets are vendored at
+`paths.benchmarks` (its `hf_datasets/` is a ready HF datasets cache for the 5 deterministic
+benches; `local/` holds the judge-bench data) — point lm-eval at it and force OFFLINE:
 ```bash
-export HF_HOME=<HF cache, e.g. /data/hcgu/hf_cache> HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
+export HF_DATASETS_CACHE=<paths.benchmarks>/hf_datasets HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
 python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval_eval.py \
   --task <BENCH> --model-path $RUN_ROOT/final_model --model-name ptb_<BENCH> \
   --output-dir $RUN_ROOT/eval/<BENCH>_limit<EVAL_LIMIT> --limit <EVAL_LIMIT>

@@ -72,10 +72,11 @@ class PathConfig:
     conda_sh: str
     train_env: str
     eval_env: str
+    benchmarks: str
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PathConfig":
-        fields = ["fixed_pool", "conda_sh", "train_env", "eval_env"]
+        fields = ["fixed_pool", "conda_sh", "train_env", "eval_env", "benchmarks"]
         _require(data, fields, "paths")
         return cls(**{field: _nonempty_str(data[field], f"paths.{field}") for field in fields})
 
@@ -85,6 +86,7 @@ class PathConfig:
             "conda_sh": self.conda_sh,
             "train_env": self.train_env,
             "eval_env": self.eval_env,
+            "benchmarks": self.benchmarks,
         }
 
     def to_runtime_paths(self) -> dict[str, Any]:

@@ -21,6 +21,7 @@ def test_ptb_run_config_maps_to_auto_config(tmp_path):
                     "conda_sh": "/data/software/miniconda3/etc/profile.d/conda.sh",
                     "train_env": "/data/hcgu/.conda/envs/train",
                     "eval_env": "/data/hcgu/.conda/envs/lm-eval",
+                    "benchmarks": "/data/hcgu/posttrainbench_benchmarks",
                 },
             }
         ),
