@@ -101,21 +101,48 @@ config 只承载事实（路径、唯一 bench、预算、资源）。所有**�
 ## 仓库结构
 
 ```text
-src/dataos/
-  agent/         自主循环 —— loop.py (run_auto) · planner · reviewer · state_tree ·
-                 run_config(JSON 配置边界) · prompts · backend · budget · logging
-  core/          Project → Study → Experiment → Stage / Data·Model·Eval 抽象 + workspace/io
-  runtime/       subagent_executor(逐实验 sub-agent 驱动) · eval_freeze
-  integrations/  llm/(Claude Code 后端) · posttrainbench/(评测协议 + bench 列表)
-configs/
-  runs/          每次运行一个 JSON(面向用户的配置)
-  experiments/   plan 模板
-resources/
-  code/posttrainbench/  PLAYBOOK.md(sub-agent 手册) · lm_eval_bridge/(自包含 lm-eval 评测)
-  data/                 vendored 数据集 + posttrainbench_benchmarks(HF 缓存 + judge 数据)
-docs/            架构说明(部分早于 agent-version 重构)
-scripts/         开发辅助
-tests/           按 agent / core / runtime / integrations 分组
+DataOS/
+├── src/dataos/
+│   ├── cli.py                       # `dataos` 入口：读 run 配置 → run_auto
+│   ├── agent/                       # 自主循环
+│   │   ├── loop.py                  #   run_auto：每轮 = 出plan → 执行 → 复盘 → 生长树
+│   │   ├── state_tree.py            #   实验树（节点、可生长集合、最优节点）
+│   │   ├── run_config.py            #   单 JSON 配置边界（只放事实）
+│   │   ├── planner.py · reviewer.py #   向 main-agent 要 ExperimentPlan / ReviewOut
+│   │   ├── prompts.py               #   main-agent + sub-agent 系统提示词
+│   │   ├── schemas.py               #   ExperimentPlan / ReviewOut（校验过的 JSON）
+│   │   ├── backend.py               #   LLM 后端（Claude Code CLI）
+│   │   └── config.py · budget.py · logging.py
+│   ├── core/                        # Project → Study → Experiment → Stage 数据模型
+│   │   ├── project.py · study.py · experiment.py · stage.py
+│   │   ├── artifact.py              #   Data · Model · Eval 工件
+│   │   ├── workspace.py             #   落盘的运行目录布局
+│   │   ├── catalog.py · loading.py  #   算子目录 + 数据集加载（DataOS-Operator）
+│   │   └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
+│   ├── runtime/
+│   │   ├── subagent_executor.py     #   驱动逐实验的 sub-agent（Claude Code + shell）
+│   │   └── eval_freeze.py           #   每次运行冻结一次评测协议
+│   └── integrations/
+│       ├── llm/                     #   Claude Code 后端 + 结构化输出 helper
+│       └── posttrainbench/adapter.py #  PTB bench 列表 + 各 profile 的采样 limit
+├── configs/
+│   ├── runs/ptb-h100-qwen-gsm8k.json #  面向用户的 run 配置（每次运行一个 JSON）
+│   └── experiments/plan.template.json
+├── resources/
+│   ├── code/posttrainbench/
+│   │   ├── PLAYBOOK.md              #   sub-agent 手册（数据 → 训练 → 评测 → report）
+│   │   └── lm_eval_bridge/          #   自包含的 lm-eval PostTrainBench 评测
+│   │       ├── scripts/run_lmeval_eval.py   #  起服务 + 打分（judge bench = 只生成）
+│   │       ├── scripts/run_lmeval_judge.py  #  登录节点 judge（healthbench / arena）
+│   │       └── dataos/eval_tasks/posttrainbench/  # task.py · utils.py · 7 个 task yaml · templates/
+│   └── data/
+│       ├── posttrainbench_benchmarks/ # hf_datasets/（离线 HF 缓存）+ local/（judge 数据）
+│       └── datasets/                  # 少量 vendored 数据集
+├── docs/                            # 架构说明（部分早于 agent-version 重构）
+├── tests/                           # agent / core / runtime / integrations
+├── scripts/                         # 开发辅助（doctor.py）
+├── pyproject.toml · uv.lock
+└── README.md · README.zh-CN.md · AGENTS.md
 ```
 
 ## 部署(H100)

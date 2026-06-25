@@ -107,21 +107,48 @@ cache (`paths.benchmarks`).
 ## Repository layout
 
 ```text
-src/dataos/
-  agent/         the autonomous loop — loop.py (run_auto) · planner · reviewer · state_tree ·
-                 run_config (the JSON config boundary) · prompts · backend · budget · logging
-  core/          the Project → Study → Experiment → Stage / Data·Model·Eval abstraction + workspace/io
-  runtime/       subagent_executor (per-experiment sub-agent driver) · eval_freeze
-  integrations/  llm/ (Claude Code backend) · posttrainbench/ (eval protocol + bench list)
-configs/
-  runs/          one JSON per run (the user-facing config)
-  experiments/   plan template
-resources/
-  code/posttrainbench/  PLAYBOOK.md (the sub-agent manual) · lm_eval_bridge/ (self-contained lm-eval eval)
-  data/                 vendored datasets + posttrainbench_benchmarks (HF cache + judge data)
-docs/            architecture notes (some predate the agent-version refactor)
-scripts/         dev helpers
-tests/           grouped by agent / core / runtime / integrations
+DataOS/
+├── src/dataos/
+│   ├── cli.py                       # `dataos` entrypoint: load the run config → run_auto
+│   ├── agent/                       # the autonomous loop
+│   │   ├── loop.py                  #   run_auto: each round = plan → execute → review → grow tree
+│   │   ├── state_tree.py            #   the experiment tree (nodes, growable set, best node)
+│   │   ├── run_config.py            #   the single-JSON config boundary (facts only)
+│   │   ├── planner.py · reviewer.py #   ask the main-agent for an ExperimentPlan / ReviewOut
+│   │   ├── prompts.py               #   main-agent + sub-agent system prompts
+│   │   ├── schemas.py               #   ExperimentPlan / ReviewOut (validated JSON)
+│   │   ├── backend.py               #   LLM backend (Claude Code CLI)
+│   │   └── config.py · budget.py · logging.py
+│   ├── core/                        # the Project → Study → Experiment → Stage data model
+│   │   ├── project.py · study.py · experiment.py · stage.py
+│   │   ├── artifact.py              #   Data · Model · Eval artifacts
+│   │   ├── workspace.py             #   on-disk run layout
+│   │   ├── catalog.py · loading.py  #   operator catalog + dataset loading (DataOS-Operator)
+│   │   └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
+│   ├── runtime/
+│   │   ├── subagent_executor.py     #   drives the per-experiment sub-agent (Claude Code + shell)
+│   │   └── eval_freeze.py           #   freeze the eval protocol once per run
+│   └── integrations/
+│       ├── llm/                     #   Claude Code backend + structured-output helper
+│       └── posttrainbench/adapter.py #  PTB bench list + sampled limits per profile
+├── configs/
+│   ├── runs/ptb-h100-qwen-gsm8k.json #  the user-facing run config (one JSON per run)
+│   └── experiments/plan.template.json
+├── resources/
+│   ├── code/posttrainbench/
+│   │   ├── PLAYBOOK.md              #   the sub-agent manual (data → train → eval → report)
+│   │   └── lm_eval_bridge/          #   self-contained lm-eval PostTrainBench eval
+│   │       ├── scripts/run_lmeval_eval.py   #  serve + score (judge benches = generate-only)
+│   │       ├── scripts/run_lmeval_judge.py  #  login-node judge (healthbench / arena)
+│   │       └── dataos/eval_tasks/posttrainbench/  # task.py · utils.py · 7 task yamls · templates/
+│   └── data/
+│       ├── posttrainbench_benchmarks/ # hf_datasets/ (offline HF cache) + local/ (judge data)
+│       └── datasets/                  # small vendored datasets
+├── docs/                            # architecture notes (some predate the agent-version refactor)
+├── tests/                           # agent / core / runtime / integrations
+├── scripts/                         # dev helpers (doctor.py)
+├── pyproject.toml · uv.lock
+└── README.md · README.zh-CN.md · AGENTS.md
 ```
 
 ## Deploy (H100)
