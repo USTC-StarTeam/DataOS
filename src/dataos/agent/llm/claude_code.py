@@ -116,7 +116,20 @@ class ClaudeCodeAgent:
             raise RuntimeError(f"claude_code timed out after {timeout}s") from e
         for m in messages:
             if getattr(m, "is_error", False):
-                raise RuntimeError(f"claude_code error: {getattr(m, 'result', 'unknown')}")
+                detail = str(getattr(m, "result", "unknown"))
+                # max_turns is a benign, RESUMABLE boundary for a free-form executor agent
+                # (``output is None``): the caller drives it in max_turns-sized chunks and
+                # resumes its session until it writes its terminal artifact, so we must return
+                # normally here (carrying session_id) instead of failing the whole experiment.
+                # Structured single-shot calls (planner/reviewer, ``output`` set) genuinely fail
+                # when they run out of turns without a complete answer, so those still raise.
+                hit_max_turns = (
+                    "max_turns" in str(getattr(m, "subtype", "") or "")
+                    or "maximum number of turns" in detail
+                )
+                if output is None and hit_max_turns:
+                    break
+                raise RuntimeError(f"claude_code error: {detail}")
 
         text = _final_text(messages)
         if output is not None:
