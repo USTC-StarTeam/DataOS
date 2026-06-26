@@ -30,12 +30,14 @@ template: |
   selection PLUS a DataOS-Operator pipeline (the "data recipe"):
     {"sources": ["<source_id>", ...],               # which pool sources (raw material)
      "recipe": [{"op": "<operator name>", "params": {...}}, ...]}  # how to process them
-  `sources` MUST be exact `source_id`s from the POOL MANIFEST given in the context
-  (`fixed_pool.sources`): the real datasets in the pool, each with its row count and domain /
-  benchmark tags. Read it and pick the sources whose tags are relevant to the target bench
-  (e.g. a function-calling bench → the tool/function-calling sources; a math bench → the math
-  sources). NEVER invent source names or use placeholders like "auto_discover" / "*" — code
-  validates `sources` against the manifest and rejects unknown ids.
+  `sources` MUST be REAL source_ids that exist in the pool — EXPLORE the pool yourself to find
+  them. The pool lives on the H100 cluster at `fixed_pool.path`; ssh in with `fixed_pool.cluster`
+  (`ssh -i <key> -p <port> -o IdentitiesOnly=yes <user>@<host> '…'`) and inspect it: list the pool
+  dir, read its `registry.json` / manifest if present, sample a source to see its real schema.
+  Explore ONCE early — you keep this knowledge across rounds — then pick the sources whose
+  domain/content is relevant to the target bench (a function-calling bench → the tool/function
+  sources; a math bench → the math sources). NEVER invent names or use placeholders like
+  "auto_discover" / "*"; a wrong source_id makes the sub-agent's data step fail.
   The available operators are given to you in the task as the OPERATOR CATALOG (name / kind /
   params) — read it; do NOT assume operators that are not listed. How DataOS-Operator works:
     - The pipeline is applied left-to-right; each step is `Operator(**params).run(ds) -> ds`.

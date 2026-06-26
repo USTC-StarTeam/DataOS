@@ -58,16 +58,16 @@ has internet; compute nodes may not.
 
 ## 1. Build data — run the operator recipe (the main lever)
 
-The recipe is `{sources:[...], resolved_sources:[{source_id,path,rows},...], recipe:[{op,params},...]}`.
-`resolved_sources` already gives the EXACT on-disk path of each source — load those paths
-directly; never `ls`/scan the pool to find data. Run the recipe through `dataos` on H100 (the
-pool lives there), then bridge to the SFT format. In the configured `train_env`, this repo uses
-a `src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`.
+The recipe is `{sources:[...], recipe:[{op,params},...]}`. `sources` are REAL source_ids the
+main-agent already verified exist in the pool; each lives under the fixed pool (its dir is
+`<fixed_pool>/<source_id>`, `fixed_pool` from RUNTIME CONFIG). Run the recipe through `dataos` on
+H100 (the pool lives there), then bridge to the SFT format. In the configured `train_env`, this
+repo uses a `src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`.
 
-**LOOK BEFORE YOU WRITE.** Inside the Slurm job, FIRST load each `resolved_sources` path and print
-a few real rows + their columns, AND check the installed `dataos_operator` API
-(`dataos.catalog()` + the operator signatures). Only THEN write the bridge + operator pipeline,
-shaped to the schema you actually saw — do NOT write blind and trial-and-error.
+**LOOK BEFORE YOU WRITE.** Inside the Slurm job, FIRST load each source's dir and print a few real
+rows + their columns, AND check the installed `dataos_operator` API (`dataos.catalog()` + the
+operator signatures). Only THEN write the bridge + operator pipeline, shaped to the schema you
+actually saw — do NOT write blind and trial-and-error.
 
 ```python
 # After inspecting the real rows: bridge each source row into the minimal common text schema the

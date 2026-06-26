@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -33,37 +32,6 @@ def _safe_catalog() -> list[dict]:
         return dataos.catalog()
     except Exception:
         return []
-
-
-def _load_pool_sources(cfg: AutoRunConfig) -> list[dict]:
-    """Read the fixed pool's ``registry.json`` once (over ssh) so the main-agent plans against
-    the REAL sources instead of inventing names. Each entry carries ``source_id``, ``rows`` and
-    domain/benchmark tags (to choose data relevant to the bench) plus the on-disk ``path`` (used
-    to resolve sources for the sub-agent; never shown to the planner)."""
-    rc = cfg.runtime_config or {}
-    pool = (rc.get("paths") or {}).get("fixed_pool")
-    cl = rc.get("cluster") or {}
-    if not (pool and cl.get("host")):
-        return []  # no pool/cluster configured (e.g. stub backend) — nothing to load
-    cmd = [
-        "ssh", "-p", str(cl.get("port", 22)),
-        "-i", os.path.expanduser(str(cl.get("key", ""))),
-        "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
-        f"{cl.get('user')}@{cl.get('host')}", f"cat {pool}/registry.json",
-    ]
-    out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if out.returncode != 0:
-        raise RuntimeError(f"could not read {pool}/registry.json over ssh: {out.stderr.strip()}")
-    return [
-        {
-            "source_id": s["source_id"],
-            "rows": s.get("num_rows"),
-            "domain": s.get("domain_tags") or [],
-            "bench": s.get("benchmark_tags") or [],
-            "path": s.get("path"),
-        }
-        for s in json.loads(out.stdout).get("sources", [])
-    ]
 
 
 def _better(a: dict | None, b: dict | None) -> dict | None:
@@ -206,7 +174,6 @@ def _plan_context(
     eval_cfg: dict,
     started: float,
     now: float,
-    pool: list[dict],
 ) -> dict:
     return {
         "setting": {
@@ -233,16 +200,18 @@ def _plan_context(
         },
         "fixed_pool": {
             "path": (cfg.runtime_config.get("paths") or {}).get("fixed_pool"),
-            "sources": [
-                {k: s[k] for k in ("source_id", "rows", "domain", "bench")} for s in pool
-            ],
+            # the pool lives on the H100 cluster — the main-agent ssh's in and explores it itself
+            "cluster": {
+                k: (cfg.runtime_config.get("cluster") or {}).get(k)
+                for k in ("host", "user", "port", "key")
+            },
         },
         "constraints": [
             "Return exactly one ExperimentPlan; no action/stop field.",
             "parent_node_id must be one of tree.growable_node_ids.",
             "Child nodes continue training from the selected parent's output model.",
-            "data.sources must be EXACT source_ids from fixed_pool.sources — never invent names; "
-            "use the domain/bench tags to pick sources relevant to the target bench.",
+            "data.sources must be real source_ids you verified by exploring fixed_pool.path on "
+            "the cluster — never invent names or use placeholders.",
             "Do not set train.model_name_or_path; code injects the parent model path.",
             "One sub-agent owns the full data/train/eval experiment.",
             "Use the frozen sampled eval only; full eval is reserved for a final/manual validation.",
@@ -251,7 +220,7 @@ def _plan_context(
     }
 
 
-def _validate_plan(plan, tree, cfg: AutoRunConfig, pool_ids: set[str]) -> list[str]:
+def _validate_plan(plan, tree, cfg: AutoRunConfig) -> list[str]:
     errors: list[str] = []
     parent = plan.parent_node_id
     if not tree.has_node(parent):
@@ -265,13 +234,6 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, pool_ids: set[str]) -> list[s
     elif name in tree.experiment_names():
         errors.append(f"name {name!r} already exists in the tree")
 
-    unknown = [s for s in ((plan.data or {}).get("sources") or []) if s not in pool_ids]
-    if unknown:
-        errors.append(
-            f"data.sources contains non-pool ids {unknown}; use exact source_ids from "
-            "fixed_pool.sources in the context"
-        )
-
     if "model_name_or_path" in (plan.train or {}):
         errors.append("train.model_name_or_path must be omitted; code injects the parent model")
     if plan.estimated_hours is not None and plan.estimated_hours <= 0:
@@ -279,26 +241,18 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, pool_ids: set[str]) -> list[s
     return errors
 
 
-def _spec_from_node(node: dict, eval_cfg: dict, pool_by_id: dict) -> dict:
+def _spec_from_node(node: dict, eval_cfg: dict) -> dict:
     plan = dict(node.get("plan") or {})
     train = dict(plan.get("train") or {})
-    data = dict(plan.get("data") or {})
     init_model = node.get("init_model_path")
     if init_model:
         train["model_name_or_path"] = init_model
-    resolved = [
-        {"source_id": sid, "path": pool_by_id[sid]["path"], "rows": pool_by_id[sid]["rows"]}
-        for sid in (data.get("sources") or [])
-        if sid in pool_by_id
-    ]
-    if resolved:
-        data["resolved_sources"] = resolved
     return {
         "name": node["experiment_name"],
         "node_id": node["id"],
         "parent_node_id": node.get("parent"),
         "init_model": init_model,
-        "data": data,
+        "data": dict(plan.get("data") or {}),
         "train": train,
         "eval": dict(eval_cfg),
         "hypothesis": plan.get("hypothesis", ""),
@@ -381,9 +335,6 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
 
     eval_cfg = freeze_eval(cfg=cfg)
     catalog = _safe_catalog()
-    pool = _load_pool_sources(cfg)
-    pool_by_id = {s["source_id"]: s for s in pool}
-    log.info("pool manifest: %d sources from the fixed pool", len(pool))
     base_model = cfg.h100_base_model or cfg.base_model_id or "base"
     tree = TreeState.load(proj.project_dir, base_model)
 
@@ -443,7 +394,6 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     eval_cfg=eval_cfg,
                     started=started,
                     now=now,
-                    pool=pool,
                 )
                 log.info("round %d: asking main-agent for plan (attempt %d)", round_idx, attempt)
                 plan, session_id = next_plan(
@@ -459,7 +409,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     phase="plan",
                     round_idx=round_idx,
                 )
-                validation_errors = _validate_plan(plan, tree, cfg, set(pool_by_id))
+                validation_errors = _validate_plan(plan, tree, cfg)
                 if not validation_errors:
                     break
                 log.warning(
@@ -490,7 +440,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                 node.get("estimated_hours"),
             )
 
-        spec = _spec_from_node(node, eval_cfg, pool_by_id)
+        spec = _spec_from_node(node, eval_cfg)
         if not (study.plan and study.plan.get("experiments")):
             study.set_plan(
                 {
