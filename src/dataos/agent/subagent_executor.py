@@ -202,11 +202,7 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         or cfg.h100_base_model
     )
     data = spec.get("data") or {}
-    # resolved_sources carries the real on-disk paths (code resolved source_id -> path), so the
-    # sub-agent reads exact paths and never has to discover/scan the pool.
-    recipe = {"sources": data.get("sources", []),
-              "resolved_sources": data.get("resolved_sources", []),
-              "recipe": data.get("recipe", [])}
+    recipe = {"sources": data.get("sources", []), "recipe": data.get("recipe", [])}
     runtime_block = _runtime_prompt_block(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir, eval_limit=eval_limit,
     )
