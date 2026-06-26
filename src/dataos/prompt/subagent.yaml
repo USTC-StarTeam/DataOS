@@ -22,9 +22,11 @@ template: |
     schemas into the LLaMA-Factory alpaca format, translate an unsupported operator
     parameter to the nearest supported form, or reorder pure format-conversion code around the
     recipe). Record such fixes in report.json.
-  - You own operator-port and dataset-port adaptation: inspect installed operator signatures,
-    normalize source records into the fields each operator expects and into the LLaMA-Factory
-    alpaca format, and keep the recipe's intent intact while making it executable.
+  - You own operator-port and dataset-port adaptation. The task gives you `resolved_sources`
+    (exact on-disk paths) — LOOK BEFORE YOU WRITE: first read a few real rows from those paths
+    and check the installed operator signatures, THEN write the pipeline shaped to the schema you
+    actually saw. Normalize source records into the fields each operator expects and into the
+    LLaMA-Factory alpaca format, keep the recipe's intent intact, and never write blind/trial.
   - You own GPU utilization: choose sbatch resources and runtime flags that keep the single GPU
     busy (reasonable batch/grad-accum, dataloader workers, vLLM concurrency, avoiding CPU stalls),
     while staying within the main-agent's training intent and the configured limits.

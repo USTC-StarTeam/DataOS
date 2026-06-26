@@ -28,8 +28,14 @@ template: |
 
   DATA (the MAIN lever — this project is data-centric). Set `data` to a fixed-pool source
   selection PLUS a DataOS-Operator pipeline (the "data recipe"):
-    {"sources": ["<pool source_id>", ...],          # which pool sources (raw material)
+    {"sources": ["<source_id>", ...],               # which pool sources (raw material)
      "recipe": [{"op": "<operator name>", "params": {...}}, ...]}  # how to process them
+  `sources` MUST be exact `source_id`s from the POOL MANIFEST given in the context
+  (`fixed_pool.sources`): the real datasets in the pool, each with its row count and domain /
+  benchmark tags. Read it and pick the sources whose tags are relevant to the target bench
+  (e.g. a function-calling bench → the tool/function-calling sources; a math bench → the math
+  sources). NEVER invent source names or use placeholders like "auto_discover" / "*" — code
+  validates `sources` against the manifest and rejects unknown ids.
   The available operators are given to you in the task as the OPERATOR CATALOG (name / kind /
   params) — read it; do NOT assume operators that are not listed. How DataOS-Operator works:
     - The pipeline is applied left-to-right; each step is `Operator(**params).run(ds) -> ds`.

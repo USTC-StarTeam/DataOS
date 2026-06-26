@@ -58,15 +58,21 @@ has internet; compute nodes may not.
 
 ## 1. Build data — run the operator recipe (the main lever)
 
-The recipe is `{sources:[...], recipe:[{op,params},...]}`. Run it through `dataos` on H100
-(the pool lives there), then bridge to the SFT format. In the configured `train_env`, this
-repo uses a `src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`:
+The recipe is `{sources:[...], resolved_sources:[{source_id,path,rows},...], recipe:[{op,params},...]}`.
+`resolved_sources` already gives the EXACT on-disk path of each source — load those paths
+directly; never `ls`/scan the pool to find data. Run the recipe through `dataos` on H100 (the
+pool lives there), then bridge to the SFT format. In the configured `train_env`, this repo uses
+a `src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`.
+
+**LOOK BEFORE YOU WRITE.** Inside the Slurm job, FIRST load each `resolved_sources` path and print
+a few real rows + their columns, AND check the installed `dataos_operator` API
+(`dataos.catalog()` + the operator signatures). Only THEN write the bridge + operator pipeline,
+shaped to the schema you actually saw — do NOT write blind and trial-and-error.
 
 ```python
-# Sketch only: inspect the installed dataos/dataos_operator APIs in the Slurm job log and adapt.
-# If fixed-pool sources have incompatible raw schemas, first bridge each row into a minimal
-# common text schema the selected operators need; the FINAL training format is LLaMA-Factory
-# alpaca ({instruction,input,output}) — see step 2. Run the operator pipeline as the APIs allow.
+# After inspecting the real rows: bridge each source row into the minimal common text schema the
+# selected operators need (keep the recipe's intent), run the operator pipeline, then emit the
+# FINAL training format = LLaMA-Factory alpaca ({instruction,input,output}) — see step 2.
 ```
 - Operators come from `dataos_operator`; `dataos.catalog()` lists the 22 (read it). The operator
   pipeline is the EXPERIMENT — it filters / dedups / quality-scores / samples the raw pool rows;
