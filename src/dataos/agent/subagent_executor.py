@@ -30,7 +30,11 @@ log = logging.getLogger(__name__)
 
 _REPO_ROOT = str(Path(__file__).resolve().parents[3])
 _RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"  # legacy fallback; prefer runtime_config
-SUBAGENT_MAX_STEPS = 150  # an executor needs many turns (data → sbatch → poll → eval → report)
+# Let the executor run FREE within its time budget. The real bound is the per-experiment
+# DEADLINE (the timeout on each agent.run); if the sub-agent stops before writing report.json
+# the resume loop continues the SAME session. A high cap means max_turns ~never chops a live
+# experiment into artificial 150-turn pieces (which only added latency + a failure surface).
+SUBAGENT_MAX_STEPS = 100_000
 _EXP_TIMEOUT_SMOKE_S = 2 * 3600.0  # hard per-experiment timeout: 2 h (smoke)
 _EXP_TIMEOUT_FORMAL_S = 10 * 3600.0  # PTB hard cap: 10 h / 1 H100
 _STATE_FILE = "subagent_state.json"
@@ -50,29 +54,10 @@ def _exp_timeout(cfg, deadline: float | None) -> float:
 
 
 def _runtime_config(cfg) -> dict:
-    """Return runtime config with legacy --slurm values folded in for compatibility."""
+    """Return the runtime config (paths / cluster / gateway), defaulting runs_base."""
     runtime = json.loads(json.dumps(getattr(cfg, "runtime_config", {}) or {}))
     paths = runtime.setdefault("paths", {})
-    cluster = runtime.setdefault("cluster", {})
-    legacy = getattr(cfg, "slurm", {}) or {}
-
-    legacy_path_keys = {
-        "agentver": "deploy_root",
-        "deploy_root": "deploy_root",
-        "runs_base": "runs_base",
-        "fixed_pool": "fixed_pool",
-        "conda_sh": "conda_sh",
-        "train_env": "train_env",
-        "eval_env": "eval_env",
-    }
-    for old_key, new_key in legacy_path_keys.items():
-        if old_key in legacy and new_key not in paths:
-            paths[new_key] = legacy[old_key]
-
-    for key in ("user", "host", "port", "key", "partition", "qos", "gres"):
-        if key in legacy and key not in cluster:
-            cluster[key] = legacy[key]
-
+    runtime.setdefault("cluster", {})
     paths.setdefault("runs_base", _RUNS_BASE)
     return runtime
 
@@ -216,8 +201,12 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         or spec.get("init_model")
         or cfg.h100_base_model
     )
-    recipe = {"sources": (spec.get("data") or {}).get("sources", []),
-              "recipe": (spec.get("data") or {}).get("recipe", [])}
+    data = spec.get("data") or {}
+    # resolved_sources carries the real on-disk paths (code resolved source_id -> path), so the
+    # sub-agent reads exact paths and never has to discover/scan the pool.
+    recipe = {"sources": data.get("sources", []),
+              "resolved_sources": data.get("resolved_sources", []),
+              "recipe": data.get("recipe", [])}
     runtime_block = _runtime_prompt_block(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir, eval_limit=eval_limit,
     )
