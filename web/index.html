@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DataOS · experiment tree</title>
+<style>
+  :root{
+    --ink:#0b0d12; --panel:#121620; --panel2:#0e121a; --line:#222a38;
+    --paper:#e9e5da; --muted:#8a93a3; --faint:#5b6678;
+    --teal:#3fe0c5; --teal-dim:#1d6a60; --coral:#ff7a66; --gold:#ffd24a;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Spectral",Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #14202b 0%, transparent 60%),
+      var(--ink);
+    color:var(--paper); font-family:var(--mono); font-size:13px;
+    display:grid; grid-template-rows:auto 1fr; height:100%; overflow:hidden;
+  }
+  /* ---- header ---- */
+  header{
+    display:flex; align-items:baseline; gap:22px; flex-wrap:wrap;
+    padding:14px 22px 12px; border-bottom:1px solid var(--line);
+    background:linear-gradient(#0e121a,#0b0d12);
+  }
+  h1{
+    font-family:var(--serif); font-weight:600; font-size:21px; letter-spacing:.2px;
+    margin:0; color:var(--paper);
+  }
+  h1 .dim{color:var(--faint); font-style:italic; font-size:15px}
+  .runs{display:flex; gap:8px; flex-wrap:wrap; margin-left:auto}
+  .chip{
+    display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;
+    padding:6px 11px; border:1px solid var(--line); border-radius:999px;
+    background:var(--panel); color:var(--muted); transition:.15s;
+  }
+  .chip:hover{border-color:#36465c; color:var(--paper)}
+  .chip.on{border-color:var(--teal); color:var(--paper); box-shadow:0 0 0 1px var(--teal-dim) inset}
+  .chip b{font-family:var(--serif); font-weight:600; letter-spacing:.3px}
+  .chip .sc{color:var(--teal)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+  .dot.live{background:var(--teal); box-shadow:0 0 0 0 var(--teal); animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(63,224,197,.5)}70%{box-shadow:0 0 0 7px rgba(63,224,197,0)}100%{box-shadow:0 0 0 0 rgba(63,224,197,0)}}
+  /* ---- main ---- */
+  main{display:grid; grid-template-columns:1fr 372px; min-height:0}
+  #stage{position:relative; overflow:auto; background:
+    linear-gradient(transparent 23px,#0d1118 24px) 0 0/100% 24px,
+    linear-gradient(90deg,transparent 23px,#0d1118 24px) 0 0/24px 100%;
+  }
+  svg{display:block}
+  .edge{fill:none; stroke:#2a3444; stroke-width:1.4}
+  .edge.path{stroke:var(--gold); stroke-width:2.2; opacity:.9}
+  .node{cursor:pointer}
+  .node circle{stroke:#0b0d12; stroke-width:2; transition:.12s}
+  .node:hover circle, .node.sel circle{stroke:var(--paper)}
+  .node .lab{fill:var(--muted); font-size:10.5px; text-anchor:middle; font-family:var(--mono)}
+  .node .scv{font-size:11px; text-anchor:middle; font-weight:600; fill:#06120f; font-family:var(--mono)}
+  .node.best circle{stroke:var(--gold)}
+  .halo{fill:none; stroke:var(--gold); stroke-width:1.3; opacity:.5}
+  /* ---- detail panel ---- */
+  aside{
+    border-left:1px solid var(--line); background:var(--panel2);
+    padding:18px 20px; overflow:auto; min-height:0;
+  }
+  .ph{color:var(--faint); font-style:italic; font-family:var(--serif); font-size:15px; margin-top:40px; text-align:center}
+  .d-name{font-family:var(--serif); font-size:19px; font-weight:600; margin:0 0 2px; word-break:break-word}
+  .d-sub{color:var(--muted); margin-bottom:14px}
+  .badge{display:inline-block; padding:2px 8px; border-radius:5px; font-size:11px; font-weight:600}
+  .b-ok{background:rgba(63,224,197,.14); color:var(--teal)}
+  .b-fail{background:rgba(255,122,102,.14); color:var(--coral)}
+  .b-run{background:rgba(255,210,74,.14); color:var(--gold)}
+  .score-big{font-size:40px; font-family:var(--serif); font-weight:600; line-height:1; margin:6px 0 2px}
+  .sec{margin-top:18px}
+  .sec h3{font-family:var(--mono); font-size:10.5px; letter-spacing:1.4px; text-transform:uppercase;
+    color:var(--faint); margin:0 0 8px; border-bottom:1px solid var(--line); padding-bottom:5px}
+  .sec p{margin:0; color:#cfd3da; line-height:1.5}
+  .ops{display:flex; flex-direction:column; gap:6px}
+  .op{background:#0c1119; border:1px solid var(--line); border-radius:7px; padding:7px 9px}
+  .op b{color:var(--teal); font-weight:600}
+  .op .pm{color:var(--muted); font-size:11px}
+  .kv{display:grid; grid-template-columns:auto 1fr; gap:3px 12px}
+  .kv .k{color:var(--muted)} .kv .v{color:var(--paper); text-align:right; word-break:break-all}
+  .src{display:inline-block; background:#0c1119; border:1px solid var(--line);
+    border-radius:5px; padding:2px 7px; margin:0 4px 4px 0; color:#cfd3da}
+  footer{grid-column:1/-1}
+  .empty{padding:60px; text-align:center; color:var(--faint); font-family:var(--serif); font-style:italic; font-size:16px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>DataOS <span class="dim">· autonomous experiment tree</span></h1>
+    <div class="runs" id="runs"></div>
+  </header>
+  <main>
+    <div id="stage"><div class="empty" id="empty">select a run</div></div>
+    <aside id="detail"><div class="ph">hover a node — its hypothesis, data recipe and result appear here</div></aside>
+    <footer></footer>
+  </main>
+
+<script>
+const COLW = 96, ROWH = 104, PADX = 60, PADY = 50, R = 19;
+let CURRENT = null, NODES = [], SELID = null, BYID = new Map();
+
+const $ = s => document.querySelector(s);
+const esc = s => (s==null?"":String(s)).replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+// teal scale by score (0..100) -> dim..bright
+function scoreColor(sc){
+  if(sc==null) return "#3a4456";
+  const t = Math.max(0, Math.min(1, sc/100));
+  const lerp=(a,b)=>Math.round(a+(b-a)*t);
+  return `rgb(${lerp(29,90)},${lerp(106,240)},${lerp(96,205)})`;
+}
+
+async function loadRuns(){
+  const runs = await fetch("/api/runs").then(r=>r.json()).catch(()=>[]);
+  const box = $("#runs"); box.innerHTML="";
+  if(!CURRENT && runs.length) CURRENT = runs[0].id;
+  for(const r of runs){
+    const el = document.createElement("div");
+    el.className = "chip" + (r.id===CURRENT ? " on":"");
+    const best = r.best_score==null ? "—" : r.best_score.toFixed(2);
+    el.innerHTML = `<span class="dot ${r.running?"live":""}"></span>`+
+      `<b>${esc(r.bench)}</b><span class="sc">${best}</span>`+
+      `<span style="color:var(--faint)">${r.n_done}✓ ${r.n_failed}✕</span>`;
+    el.onclick = ()=>{ CURRENT=r.id; SELID=null; loadRuns(); loadTree(); };
+    box.appendChild(el);
+  }
+}
+
+// tidy layout: leaves get sequential slots, parents centre over children
+function layout(nodes){
+  BYID = new Map(nodes.map(n=>[n.id,n]));
+  const kids = new Map(); let root=null;
+  for(const n of nodes){
+    if(n.parent==null || !BYID.has(n.parent)){ if(root==null) root=n.id; }
+    else { if(!kids.has(n.parent)) kids.set(n.parent,[]); kids.get(n.parent).push(n.id); }
+  }
+  for(const a of kids.values()) a.sort();
+  const pos=new Map(); let leaf=0;
+  (function dfs(id){
+    const ch=kids.get(id)||[];
+    if(!ch.length){ pos.set(id,{x:leaf++}); return; }
+    ch.forEach(dfs);
+    const xs=ch.map(c=>pos.get(c).x);
+    pos.set(id,{x:(Math.min(...xs)+Math.max(...xs))/2});
+  })(root);
+  for(const n of nodes){ const p=pos.get(n.id); if(p) p.y=n.depth; }
+  return {pos,kids,root};
+}
+
+function ancestors(id){
+  const out=new Set(); let cur=BYID.get(id);
+  while(cur){ out.add(cur.id); cur = cur.parent!=null ? BYID.get(cur.parent):null; }
+  return out;
+}
+
+function render(nodes, meta){
+  NODES = nodes;
+  const stage = $("#stage");
+  if(!nodes.length){ stage.innerHTML = '<div class="empty">no nodes yet — round 0 starting…</div>'; return; }
+  const {pos} = layout(nodes);
+  const maxX = Math.max(...[...pos.values()].map(p=>p.x));
+  const maxY = Math.max(...nodes.map(n=>n.depth));
+  const W = maxX*COLW + PADX*2, H = maxY*ROWH + PADY*2;
+  const X = id => PADX + pos.get(id).x*COLW;
+  const Y = id => PADY + BYID.get(id).depth*ROWH;
+  const bestId = nodes.reduce((b,n)=> (typeof n.score==="number" && (!b||n.score>b.score))?n:b, null)?.id;
+  const hlPath = SELID ? ancestors(SELID) : new Set();
+
+  let edges="", circles="";
+  for(const n of nodes){
+    if(n.parent==null || !BYID.has(n.parent)) continue;
+    const x1=X(n.parent), y1=Y(n.parent), x2=X(n.id), y2=Y(n.id), my=(y1+y2)/2;
+    const on = hlPath.has(n.id) && hlPath.has(n.parent);
+    edges += `<path class="edge${on?" path":""}" d="M${x1},${y1+R} C${x1},${my} ${x2},${my} ${x2},${y2-R}"/>`;
+  }
+  for(const n of nodes){
+    const x=X(n.id), y=Y(n.id);
+    const fail = n.status==="failed";
+    const fill = fail ? "#241015" : scoreColor(typeof n.score==="number"?n.score:null);
+    const cls = "node"+(n.id===bestId?" best":"")+(n.id===SELID?" sel":"");
+    const sc = typeof n.score==="number" ? n.score.toFixed(n.score>=100?0:1)
+              : (fail?"✕":(n.depth===0?"·":"…"));
+    const scFill = fail?"var(--coral)":"#06120f";
+    const halo = n.id===bestId ? `<circle class="halo" r="${R+5}"/>`:"";
+    const name = esc(n.experiment_name||(n.depth===0?"root":n.id));
+    circles += `<g class="${cls}" data-id="${n.id}" transform="translate(${x},${y})">`+
+      halo+
+      `<circle r="${R}" fill="${fail?"#241015":fill}" ${fail?'stroke="var(--coral)"':''}/>`+
+      `<text class="scv" y="4" style="fill:${scFill}">${sc}</text>`+
+      `<text class="lab" y="${R+15}">${name.length>14?name.slice(0,13)+"…":name}</text>`+
+      `</g>`;
+  }
+  stage.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${edges}${circles}</svg>`;
+  for(const g of stage.querySelectorAll(".node")){
+    g.addEventListener("mouseenter", ()=>{ SELID=g.dataset.id; showDetail(BYID.get(SELID)); paintHL(); });
+  }
+  if(SELID && BYID.get(SELID)) showDetail(BYID.get(SELID));
+}
+
+function paintHL(){
+  const hl = SELID?ancestors(SELID):new Set();
+  for(const g of document.querySelectorAll(".node")) g.classList.toggle("sel", g.dataset.id===SELID);
+  // recompute edge highlight cheaply by re-rendering edges class
+  for(const p of document.querySelectorAll(".edge")) {} // edges repainted on next render; keep light
+}
+
+function row(k,v){ return `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`; }
+
+function showDetail(n){
+  if(!n){ return; }
+  const d = $("#detail");
+  const st = n.status==="completed" ? '<span class="badge b-ok">completed</span>'
+           : n.status==="failed" ? '<span class="badge b-fail">failed</span>'
+           : '<span class="badge b-run">'+esc(n.status||"pending")+'</span>';
+  const plan = n.plan||{}; const data = plan.data||{}; const train = plan.train||{};
+  const recipe = Array.isArray(data.recipe)?data.recipe:[];
+  const sources = Array.isArray(data.sources)?data.sources:[];
+  const rev = n.review||{};
+
+  let h = "";
+  h += `<div class="d-name">${esc(n.experiment_name||n.id)}</div>`;
+  h += `<div class="d-sub">${esc(n.id)} · round ${esc(n.round)} · depth ${esc(n.depth)} · parent ${esc(n.parent||"—")}</div>`;
+  h += st;
+  if(typeof n.score==="number") h += `<div class="score-big" style="color:${scoreColor(n.score)}">${n.score.toFixed(2)}</div>`;
+
+  if(n.hypothesis) h += `<div class="sec"><h3>hypothesis</h3><p>${esc(n.hypothesis)}</p></div>`;
+
+  if(sources.length || recipe.length){
+    h += `<div class="sec"><h3>data recipe</h3>`;
+    if(sources.length) h += `<div style="margin-bottom:8px">${sources.map(s=>`<span class="src">${esc(s)}</span>`).join("")}</div>`;
+    h += `<div class="ops">`;
+    for(const op of recipe){
+      const pm = op.params && Object.keys(op.params).length
+        ? `<div class="pm">${esc(JSON.stringify(op.params))}</div>` : "";
+      h += `<div class="op"><b>${esc(op.op||"?")}</b>${pm}</div>`;
+    }
+    h += `</div></div>`;
+  }
+
+  const tkeys = Object.keys(train);
+  if(tkeys.length){
+    h += `<div class="sec"><h3>training</h3><div class="kv">`;
+    for(const k of tkeys) h += row(k, typeof train[k]==="object"?JSON.stringify(train[k]):train[k]);
+    h += `</div></div>`;
+  }
+
+  if(rev.interpretation) h += `<div class="sec"><h3>review</h3><p>${esc(rev.interpretation)}</p></div>`;
+  if(n.model_path) h += `<div class="sec"><h3>model</h3><p style="color:var(--muted);font-size:11px;word-break:break-all">${esc(n.model_path)}</p></div>`;
+
+  d.innerHTML = h;
+}
+
+async function loadTree(){
+  if(!CURRENT) return;
+  const t = await fetch("/api/run?id="+encodeURIComponent(CURRENT)).then(r=>r.json()).catch(()=>null);
+  if(!t || t.error){ $("#stage").innerHTML='<div class="empty">'+(t&&t.error||"unavailable")+'</div>'; return; }
+  render(t.nodes||[], t.meta||{});
+}
+
+async function tick(){ await loadRuns(); await loadTree(); }
+tick();
+setInterval(tick, 4000);
+</script>
+</body>
+</html>
