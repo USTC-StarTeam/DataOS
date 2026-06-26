@@ -64,7 +64,7 @@
   /* ---- detail panel ---- */
   aside{
     border-left:1px solid var(--line); background:var(--panel2);
-    padding:18px 20px; overflow:auto; min-height:0;
+    padding:18px 20px; overflow-y:auto; overflow-x:hidden; min-height:0;
   }
   .ph{color:var(--faint); font-style:italic; font-family:var(--serif); font-size:15px; margin-top:40px; text-align:center}
   .d-name{font-family:var(--serif); font-size:19px; font-weight:600; margin:0 0 2px; word-break:break-word}
@@ -81,7 +81,7 @@
   .ops{display:flex; flex-direction:column; gap:6px}
   .op{background:#0c1119; border:1px solid var(--line); border-radius:7px; padding:7px 9px}
   .op b{color:var(--teal); font-weight:600}
-  .op .pm{color:var(--muted); font-size:11px}
+  .op .pm{color:var(--muted); font-size:11px; white-space:normal; word-break:break-all}
   .kv{display:grid; grid-template-columns:auto 1fr; gap:3px 12px}
   .kv .k{color:var(--muted)} .kv .v{color:var(--paper); text-align:right; word-break:break-all}
   .src{display:inline-block; background:#0c1119; border:1px solid var(--line);
@@ -132,25 +132,32 @@ async function loadRuns(){
   }
 }
 
-// tidy layout: leaves get sequential slots, parents centre over children
-function layout(nodes){
+// tidy layout. The structural placeholder root (parent==null) is dropped so the
+// BASELINE becomes the visible root; remaining nodes are re-depthed from there.
+function layout(allNodes){
+  const phantom = new Set(allNodes.filter(n=>n.parent==null).map(n=>n.id));
+  const nodes = allNodes.filter(n=>!phantom.has(n.id));
   BYID = new Map(nodes.map(n=>[n.id,n]));
-  const kids = new Map(); let root=null;
+  if(!nodes.length) return {nodes, pos:new Map(), maxX:0, maxD:0};
+  const minD = Math.min(...nodes.map(n=>n.depth));
+  const kids = new Map(); const roots=[];
   for(const n of nodes){
-    if(n.parent==null || !BYID.has(n.parent)){ if(root==null) root=n.id; }
+    if(n.parent==null || !BYID.has(n.parent)) roots.push(n.id);
     else { if(!kids.has(n.parent)) kids.set(n.parent,[]); kids.get(n.parent).push(n.id); }
   }
-  for(const a of kids.values()) a.sort();
+  roots.sort(); for(const a of kids.values()) a.sort();
   const pos=new Map(); let leaf=0;
-  (function dfs(id){
+  function place(id){
     const ch=kids.get(id)||[];
     if(!ch.length){ pos.set(id,{x:leaf++}); return; }
-    ch.forEach(dfs);
+    ch.forEach(place);
     const xs=ch.map(c=>pos.get(c).x);
     pos.set(id,{x:(Math.min(...xs)+Math.max(...xs))/2});
-  })(root);
-  for(const n of nodes){ const p=pos.get(n.id); if(p) p.y=n.depth; }
-  return {pos,kids,root};
+  }
+  roots.forEach(place);
+  for(const n of nodes){ pos.get(n.id).d = n.depth - minD; }   // baseline => depth 0
+  const xs=[...pos.values()];
+  return {nodes, pos, maxX:Math.max(...xs.map(p=>p.x)), maxD:Math.max(...xs.map(p=>p.d))};
 }
 
 function ancestors(id){
@@ -159,16 +166,22 @@ function ancestors(id){
   return out;
 }
 
-function render(nodes, meta){
-  NODES = nodes;
+function render(allNodes, meta){
+  NODES = allNodes;
   const stage = $("#stage");
-  if(!nodes.length){ stage.innerHTML = '<div class="empty">no nodes yet — round 0 starting…</div>'; return; }
-  const {pos} = layout(nodes);
-  const maxX = Math.max(...[...pos.values()].map(p=>p.x));
-  const maxY = Math.max(...nodes.map(n=>n.depth));
-  const W = maxX*COLW + PADX*2, H = maxY*ROWH + PADY*2;
-  const X = id => PADX + pos.get(id).x*COLW;
-  const Y = id => PADY + BYID.get(id).depth*ROWH;
+  const {nodes, pos, maxX, maxD} = layout(allNodes);
+  if(!nodes.length){ stage.innerHTML = '<div class="empty">no experiments yet — round 0 starting…</div>'; return; }
+
+  // tree-local coords (origin 0,0), then centre the whole tree in the stage
+  const X = id => pos.get(id).x*COLW;
+  const Y = id => pos.get(id).d*ROWH;
+  const treeW = maxX*COLW, treeH = maxD*ROWH;
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const svgW = Math.max(treeW + PADX*2, sw);
+  const svgH = Math.max(treeH + PADY*2, sh);
+  const ox = (svgW - treeW)/2;                       // centre horizontally
+  const oy = Math.max(PADY, (svgH - treeH)/2);       // centre vertically, pad when scrolling
+
   const bestId = nodes.reduce((b,n)=> (typeof n.score==="number" && (!b||n.score>b.score))?n:b, null)?.id;
   const hlPath = SELID ? ancestors(SELID) : new Set();
 
@@ -185,10 +198,10 @@ function render(nodes, meta){
     const fill = fail ? "#241015" : scoreColor(typeof n.score==="number"?n.score:null);
     const cls = "node"+(n.id===bestId?" best":"")+(n.id===SELID?" sel":"");
     const sc = typeof n.score==="number" ? n.score.toFixed(n.score>=100?0:1)
-              : (fail?"✕":(n.depth===0?"·":"…"));
+              : (fail?"✕":"…");
     const scFill = fail?"var(--coral)":"#06120f";
     const halo = n.id===bestId ? `<circle class="halo" r="${R+5}"/>`:"";
-    const name = esc(n.experiment_name||(n.depth===0?"root":n.id));
+    const name = esc(n.experiment_name||n.id);
     circles += `<g class="${cls}" data-id="${n.id}" transform="translate(${x},${y})">`+
       halo+
       `<circle r="${R}" fill="${fail?"#241015":fill}" ${fail?'stroke="var(--coral)"':''}/>`+
@@ -196,7 +209,8 @@ function render(nodes, meta){
       `<text class="lab" y="${R+15}">${name.length>14?name.slice(0,13)+"…":name}</text>`+
       `</g>`;
   }
-  stage.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${edges}${circles}</svg>`;
+  stage.innerHTML = `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">`+
+    `<g transform="translate(${ox},${oy})">${edges}${circles}</g></svg>`;
   for(const g of stage.querySelectorAll(".node")){
     g.addEventListener("mouseenter", ()=>{ SELID=g.dataset.id; showDetail(BYID.get(SELID)); paintHL(); });
   }
@@ -266,6 +280,7 @@ async function loadTree(){
 async function tick(){ await loadRuns(); await loadTree(); }
 tick();
 setInterval(tick, 4000);
+addEventListener("resize", ()=>{ if(NODES.length) render(NODES, {}); });
 </script>
 </body>
 </html>
