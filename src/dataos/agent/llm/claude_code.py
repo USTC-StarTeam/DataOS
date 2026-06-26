@@ -103,8 +103,16 @@ class ClaudeCodeAgent:
 
         async def _collect() -> list:
             collected: list = []
-            async for message in query(prompt=prompt, options=options):
-                collected.append(message)
+            try:
+                async for message in query(prompt=prompt, options=options):
+                    collected.append(message)
+            except Exception:
+                # On error_max_turns the CLI emits the is_error result (which carries
+                # the session_id) and THEN exits non-zero, so query() raises right after
+                # yielding it. Keep what we collected so the caller can read that result
+                # and resume the session; only propagate if no terminating result arrived.
+                if not any(getattr(m, "is_error", False) for m in collected):
+                    raise
             return collected
 
         async def _collect_with_timeout() -> list:
@@ -116,17 +124,18 @@ class ClaudeCodeAgent:
             raise RuntimeError(f"claude_code timed out after {timeout}s") from e
         for m in messages:
             if getattr(m, "is_error", False):
-                detail = str(getattr(m, "result", "unknown"))
+                errs = getattr(m, "errors", None) or []
+                subtype = str(getattr(m, "subtype", "") or "")
+                detail = str(
+                    getattr(m, "result", None) or "; ".join(map(str, errs)) or subtype or "unknown"
+                )
                 # max_turns is a benign, RESUMABLE boundary for a free-form executor agent
                 # (``output is None``): the caller drives it in max_turns-sized chunks and
                 # resumes its session until it writes its terminal artifact, so we must return
                 # normally here (carrying session_id) instead of failing the whole experiment.
                 # Structured single-shot calls (planner/reviewer, ``output`` set) genuinely fail
                 # when they run out of turns without a complete answer, so those still raise.
-                hit_max_turns = (
-                    "max_turns" in str(getattr(m, "subtype", "") or "")
-                    or "maximum number of turns" in detail
-                )
+                hit_max_turns = "max_turns" in subtype or "maximum number of turns" in detail
                 if output is None and hit_max_turns:
                     break
                 raise RuntimeError(f"claude_code error: {detail}")
