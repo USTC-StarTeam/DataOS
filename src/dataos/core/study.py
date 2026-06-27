@@ -153,7 +153,12 @@ class Study:
             # an invalidated/failed/re-running eval's old numbers are forensics, not scores:
             # letting them rank (while the guards exclude them as not-completed) would crown
             # exactly the least trustworthy row
-            eval_current = ((report.get("stages") or {}).get("eval") or {}).get("status") == "completed"
+            _stages = report.get("stages")
+            if isinstance(_stages, dict):
+                eval_current = (_stages.get("eval") or {}).get("status") == "completed"
+            else:
+                # sub-agent wrote stages as a name-list (old format) — fall back to presence of score
+                eval_current = evaluation.get("score") is not None or evaluation.get("macro_average") is not None
             rows.append(
                 {
                     "name": report.get("name") or report.get("id"),
