@@ -38,7 +38,12 @@ def _system_prompt(role: str, cfg: AutoRunConfig) -> str:
         gpus = int(gres.rsplit(":", 1)[-1])
     except ValueError:
         gpus = 1
-    return _prompt.render("main_agent", budget_hours=budget_hours, gpus=gpus)
+    # the main-agent system prompt = base role + the maintainable strategy playbook
+    return (
+        _prompt.render("main_agent", budget_hours=budget_hours, gpus=gpus)
+        + "\n\n"
+        + _prompt.render("strategy")
+    )
 
 
 class _StubMainAgent:

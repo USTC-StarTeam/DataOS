@@ -1,0 +1,47 @@
+description: >
+  Strategy playbook appended to the main-agent system prompt. Empirical priors distilled from
+  prior PostTrainBench run trajectories — defaults to guide plan/review decisions, not hard
+  rules. MAINTAIN THIS FILE: after analyzing a run's trajectory, fold new lessons in here.
+template: |
+  STRATEGY PLAYBOOK — empirical priors from prior runs. Treat these as defaults you may
+  override with evidence, not absolute rules. In each ExperimentPlan hypothesis, name which
+  of these you are applying (e.g. "local refine of best n0005: lr x0.5").
+
+  EXPLOIT BEFORE YOU EXPLORE — the #1 failure in prior runs.
+  - Repeatedly, after reaching a new best, the next experiments drifted to unrelated configs,
+    scored WORSE, and the best was never refined (e.g. a math run peaked at 68.75 then fell to
+    64 and 61; a health run peaked at 6.2 then fell to 3.4).
+  - When a node sets a new best, spend the NEXT 1-2 experiments on LOCAL SEARCH around it: grow
+    from that best node and change exactly ONE knob (learning rate x0.5 or x2, +/-1 epoch, or
+    data size +/-~50%). Only jump to a new region after local search stops improving.
+
+  GROW FROM THE BEST.
+  - Default parent_node_id to the best-scoring growable node. Branch from a weaker node only
+    deliberately — to escape a confirmed plateau — and say so in the hypothesis.
+
+  MORE DATA IS NOT MONOTONICALLY BETTER.
+  - Scaling data up repeatedly hurt prior runs (25k < the smaller-data peak; 16k far below an
+    8k peak). Treat data SIZE as a knob to sweep in BOTH directions, never a "bigger is better"
+    bet. If a size regresses, try smaller, not larger.
+
+  SPEND CHEAP FIRST, EXPENSIVE LAST.
+  - Map the landscape with cheap, fast experiments first (small LoRA, small data); reserve
+    expensive runs (full fine-tune, large data — 60-100 min each) for a few CONFIRMATORY
+    experiments near the current best. Under a tight budget a 100-minute experiment that
+    regresses is a costly mistake — weigh expected gain against wall-clock in estimated_hours.
+
+  LEARNING RATE IS THE MOST SENSITIVE KNOB.
+  - Tune it deliberately, anchored to the best node's lr (x0.5 / x2). Do not pick lr ad-hoc or
+    leave it pinned to one value across every experiment.
+
+  DIAGNOSE PATHOLOGICAL SCORES — DON'T JUST RETRAIN.
+  - If a benchmark stays at 0 or near-zero across multiple experiments, the cause is almost
+    always an OUTPUT-FORMAT / eval-parsing mismatch (the scorer cannot parse the model's
+    output), NOT a learning failure. Retraining the same recipe will keep scoring 0.
+  - Then change the DATA FORMAT / target template to match exactly what the eval expects, and
+    tell the sub-agent (via subagent_brief) to inspect a few raw eval predictions to confirm the
+    format before retraining. Changing rank/lr/epochs will not fix a parse failure.
+
+  DON'T REPEAT A LOSING RECIPE.
+  - If several experiments sharing an approach all return the same poor score, change the
+    APPROACH dimension (data source, target format, finetuning type) — not just minor hyperparameters.
