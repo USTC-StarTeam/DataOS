@@ -392,7 +392,8 @@ def _eval_protocol_fingerprint(report: dict[str, Any]) -> str | None:
     Model-identity keys are excluded (recursively, so suite entries too) so an eval-only
     baseline fingerprints the same as the trained experiments it anchors; stub
     ``provider_config`` is excluded so smoke sweeps with different fake scores don't alarm."""
-    eval_stage = (report.get("stages") or {}).get("eval") or {}
+    _s = report.get("stages")
+    eval_stage = (_s.get("eval") or {} if isinstance(_s, dict) else {})
     if eval_stage.get("config_drift"):
         # the persisted score came from a config that is no longer the one on record —
         # the protocol is UNKNOWN until the stage re-runs; don't group it with anything
