@@ -35,7 +35,7 @@ DEFAULT_JUDGE = {
     "base_url": "https://api.chatanywhere.tech/v1",
     "model": "qwen3.5-plus",
     "key_file": "/data/hcgu/users/tjh/.chatanywhere_key",
-    "workers": 16,
+    "workers": 32,  # judge doc concurrency; passed to run_lmeval_judge.py --workers
 }
 
 

@@ -25,6 +25,7 @@ import math
 import os
 import sys
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -56,7 +57,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--predictions", required=True, help="predictions.jsonl written by the generation runner")
     parser.add_argument("--output", required=True, help="summary.json to update or create")
     parser.add_argument("--judge-model", default=None, help="overrides POSTTRAINBENCH_JUDGE_MODEL")
-    parser.add_argument("--workers", type=int, default=None, help="healthbench per-rubric judge workers")
+    parser.add_argument(
+        "--workers", type=int, default=None,
+        help="judge document concurrency — predictions scored in parallel (default 32; "
+        "chatanywhere handles ~32-64 concurrent, throughput ~45 calls/min).",
+    )
     return parser.parse_args()
 
 
@@ -65,44 +70,57 @@ def load_predictions(path: Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
-def score_healthbench(task_mod, predictions: list[dict[str, Any]]) -> list[float]:
+def _parallel_doc_scores(predictions, score_one, workers: int) -> list[float]:
+    """Score each prediction independently and CONCURRENTLY (the predictions are the real
+    bottleneck — each is many judge API calls), preserving order; per-doc failures return
+    None and are dropped. score_one(index, pred) -> float | None. The per-doc scoring keeps
+    its criteria serial (we parallelize at the doc level), so total in-flight ≈ workers."""
+    results: list[float | None] = [None] * len(predictions)
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+        futures = {executor.submit(score_one, i, p): i for i, p in enumerate(predictions)}
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
+    return [v for v in results if v is not None]
+
+
+def score_healthbench(task_mod, predictions: list[dict[str, Any]], workers: int) -> list[float]:
     # Reuse pre-main's exact rubric-weighted scoring (PostTrainBenchHealthBench.process_results
-    # -> _health_criterion_met, ThreadPoolExecutor) by feeding each prediction back as the doc.
+    # -> _health_criterion_met) by feeding each prediction back as the doc — scored per-doc in parallel.
     task = task_mod.PostTrainBenchHealthBench.__new__(task_mod.PostTrainBenchHealthBench)
-    scores: list[float] = []
-    for index, pred in enumerate(predictions):
+
+    def score_one(index, pred):
         doc = {
             "prompt": pred["prompt"],
             "rubrics": pred["rubrics"],
             "prompt_id": pred.get("prompt_id", index),
         }
         try:
-            result = task.process_results(doc, [pred.get("answer", "")])
-            value = float(result["healthbench_accuracy"])
+            value = float(task.process_results(doc, [pred.get("answer", "")])["healthbench_accuracy"])
         except Exception as exc:  # per-doc failure: log + skip, do not abort.
             print(
                 f"[judge] healthbench doc {doc['prompt_id']} skipped: {type(exc).__name__}: {exc}",
                 file=sys.stderr,
             )
             traceback.print_exc()
-            continue
+            return None
         if math.isnan(value):
             print(f"[judge] healthbench doc {doc['prompt_id']} skipped: nan score", file=sys.stderr)
-            continue
-        scores.append(value)
-    return scores
+            return None
+        return value
+
+    return _parallel_doc_scores(predictions, score_one, workers)
 
 
-def score_arenahardwriting(task_mod, predictions: list[dict[str, Any]]) -> list[float]:
-    # Reuse pre-main's exact pairwise scoring (two games / baseline_first inversion / mean).
-    # The baseline answers come from disk via the task's own _baseline_answer; download() resolves
-    # _data_dir (<POSTTRAINBENCH_BENCHMARKS_DIR>/local/arena-hard-v2.0, with model_answer/).
+def score_arenahardwriting(task_mod, predictions: list[dict[str, Any]], workers: int) -> list[float]:
+    # Reuse pre-main's exact pairwise scoring (two games / baseline_first inversion / mean),
+    # scored per-doc in parallel. Baseline answers come from disk via the task's _baseline_answer;
+    # download() resolves _data_dir (<POSTTRAINBENCH_BENCHMARKS_DIR>/local/arena-hard-v2.0).
     task = task_mod.PostTrainBenchArenaHardWriting.__new__(task_mod.PostTrainBenchArenaHardWriting)
     task.download()
     strip = task_mod._strip_thinking
     limit = task_mod._limit_repetitions
-    scores: list[float] = []
-    for index, pred in enumerate(predictions):
+
+    def score_one(index, pred):
         doc = {
             "uid": pred.get("uid", index),
             "category": pred["category"],
@@ -122,12 +140,13 @@ def score_arenahardwriting(task_mod, predictions: list[dict[str, Any]]) -> list[
                 file=sys.stderr,
             )
             traceback.print_exc()
-            continue
+            return None
         if math.isnan(value):
             print(f"[judge] arena doc {doc['uid']} skipped: nan score", file=sys.stderr)
-            continue
-        scores.append(value)
-    return scores
+            return None
+        return value
+
+    return _parallel_doc_scores(predictions, score_one, workers)
 
 
 def patch_summary(output: Path, score: float | None, bench: str) -> None:
@@ -148,8 +167,10 @@ def main() -> None:
     args = parse_args()
     if args.judge_model:
         os.environ["POSTTRAINBENCH_JUDGE_MODEL"] = args.judge_model
-    if args.workers is not None:
-        os.environ["POSTTRAINBENCH_HEALTHBENCH_CRITERIA_WORKERS"] = str(args.workers)
+    # We parallelize at the DOC level (the predictions are the real bottleneck), so keep each
+    # doc's per-criterion scoring serial — total in-flight judge calls then ≈ `workers`.
+    workers = args.workers if args.workers is not None else 32
+    os.environ["POSTTRAINBENCH_HEALTHBENCH_CRITERIA_WORKERS"] = "1"
     # Judging must actually call the API here even though generation disabled it.
     os.environ.pop("POSTTRAINBENCH_JUDGE_DISABLED", None)
 
@@ -157,9 +178,9 @@ def main() -> None:
     predictions = load_predictions(Path(args.predictions))
 
     if args.bench == "healthbench":
-        scores = score_healthbench(task_mod, predictions)
+        scores = score_healthbench(task_mod, predictions, workers)
     else:
-        scores = score_arenahardwriting(task_mod, predictions)
+        scores = score_arenahardwriting(task_mod, predictions, workers)
 
     headline = float(np.mean(scores)) if scores else None
     score = headline * 100.0 if headline is not None else None

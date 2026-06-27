@@ -207,11 +207,14 @@ python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval
     OPENAI_BASE_URL=<gateway/judge base_url> POSTTRAINBENCH_JUDGE_MODEL=<judge model> \
     POSTTRAINBENCH_BENCHMARKS_DIR=$AGENTVER/resources/data/posttrainbench_benchmarks; \
     <eval_env>/bin/python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval_judge.py \
-      --bench <BENCH> --predictions <eval_dir>/predictions.jsonl --output <eval_dir>/summary.json'
+      --bench <BENCH> --predictions <eval_dir>/predictions.jsonl --output <eval_dir>/summary.json \
+      --workers <judge workers>'
   ```
   (`POSTTRAINBENCH_BENCHMARKS_DIR` lets the arena judge load its baseline answers from
-  `local/arena-hard-v2.0/model_answer/` — the judge config base_url/model/key_file come from the
-  RUNTIME CONFIG `judge` block.)
+  `local/arena-hard-v2.0/model_answer/` — the judge config `base_url`/`model`/`key_file`/`workers`
+  all come from the RUNTIME CONFIG `judge` block. `--workers` (default 32) is the judge's document
+  concurrency — predictions are scored in parallel; without it the judge runs near-serial and a
+  HealthBench round can take ~45 min instead of ~10.)
   It applies the (pre-main) judge scoring and patches `summary.json` with the final `score`
   (0-100). Put that into report.json.
 
