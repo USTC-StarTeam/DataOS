@@ -18,7 +18,7 @@ run_auto(cfg):
   tree.load()                                     # best-over-project search state
   freeze_eval()                                  # fixed PostTrainBench protocol
   for each round until wall-clock is spent:
-    tree.select_slots()                           # 2 exploit + 1 explore
+    tree: pick one growable parent (bias to best)  # ONE experiment per round
     planner.next_plan()                           # LLM judgment point #1
     study.set_plan()
     subagent_exec.fan_out()                       # sequential exp sub-agents
@@ -28,6 +28,15 @@ run_auto(cfg):
     study.review()
   final_model := best scored node over the tree
 ```
+
+## Live monitor
+
+`run_auto` also hosts a single-port HTTP monitor (`src/dataos/agent/monitor.py` + `web/`,
+default port 8765, config `monitor_port`). One monitor serves every run under the workspace
+(each run writes a heartbeat `live.json`); the page shows a pan/zoom experiment tree, a live
+status strip with a `data → train → eval` sub-stage stepper, and an agent console that streams
+each agent's reasoning + tool calls. The main-agent prompt also carries a maintainable strategy
+playbook (`src/dataos/prompt/strategy.yaml`).
 
 ## Stop policy
 
@@ -76,7 +85,7 @@ Expected shape:
   "workspace": "workspace/ptb-h100-qwen-gsm8k",
   "goal": "Use the fixed PTB data pool to improve the base model within a limited H100 budget.",
   "bench": "gsm8k",
-  "base_model_path": "/data/hcgu/hf_cache/Qwen/Qwen2.5-0.5B-Instruct",
+  "base_model_path": "/data/hcgu/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/<sha>",
   "time_budget_hours": 10,
   "resource": {
     "node": "gpu04",
@@ -86,7 +95,7 @@ Expected shape:
   "paths": {
     "fixed_pool": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full",
     "conda_sh": "/data/software/miniconda3/etc/profile.d/conda.sh",
-    "train_env": "/data/hcgu/.conda/envs/train",
+    "train_env": "/data/hcgu/.conda/envs/Llama",
     "eval_env": "/data/hcgu/.conda/envs/lm-eval"
   }
 }
@@ -124,7 +133,7 @@ currently includes vendored/generated PostTrainBench assets and may report
 pre-existing issues outside the runtime surface:
 
 ```bash
-python -m ruff check dataos.agent tests
+uv run ruff check src tests
 ```
 
 ## Branch: agent-version-ptb

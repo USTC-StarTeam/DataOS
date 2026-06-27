@@ -38,6 +38,10 @@ the wall-clock budget is spent. The best model over the tree is the submission.
   validation, parent-model injection, and persistence; the LLM only proposes plans and reviews.
 - The **H100 cluster** does all GPU work. The sub-agent ships training (Slurm + LLaMA-Factory) and
   evaluation (vLLM + lm-eval) to H100 over SSH; judge benches score on the login node.
+- A **live monitor** (`src/dataos/agent/monitor.py` + `web/`) is embedded by `run_auto` on one port
+  (default `8765`): open `http://localhost:8765` to watch the experiment tree grow, the running
+  node's `data → train → eval` sub-stage, and a live console of both agents' reasoning + tool calls.
+  One monitor serves every run under the workspace.
 - The repo is deployed to H100 as a git checkout (`$AGENTVER`); **deploy = `git pull`**.
 
 ## Prerequisites
@@ -94,6 +98,10 @@ run workspace.
 4. The main-agent reviews the report; code attaches the score, grows the tree, and loops until the
    budget is spent. The best node's model is written to `final_model.json`.
 
+Watch it live at `http://localhost:8765` (set `monitor_port` in the config to change it, or
+`DATAOS_MONITOR_PORT=0` to disable). Run several experiments under one workspace and the single
+monitor shows them all, each marked live or done by its heartbeat.
+
 ## Evaluation
 
 Self-contained **lm-evaluation-harness** PostTrainBench protocol under
@@ -101,7 +109,9 @@ Self-contained **lm-evaluation-harness** PostTrainBench protocol under
 5 deterministic benches (gsm8k, humaneval, bfcl, gpqamain, aime2025) scored in the GPU job, and
 2 judge benches (healthbench, arenahardwriting) generated in the job then scored by an
 OpenAI-compatible judge on the login node. Datasets resolve offline from the repo's vendored
-benchmark cache (`resources/data/posttrainbench_benchmarks`, deployed with the code).
+benchmark cache (`resources/data/posttrainbench_benchmarks`, deployed with the code). Eval requests
+are batched into the vLLM server at `--num-concurrent` (default 32) for throughput — not
+score-affecting.
 
 ## Repository layout
 
@@ -120,9 +130,11 @@ DataOS/
 │   │   ├── llm/                     #   Claude Code driver (claude_code) + structured-output helper
 │   │   ├── posttrainbench.py        #   PTB eval protocol (bench list + sampled limits per profile)
 │   │   ├── schemas.py               #   ExperimentPlan / ReviewOut (validated JSON)
+│   │   ├── monitor.py               #   live HTTP monitor (one port serves every run; heartbeats)
 │   │   └── config.py · budget.py · logging.py
 │   ├── prompt/                      # every prompt as a Jinja2 YAML template (rendered with config facts)
 │   │   ├── main_agent.yaml · subagent.yaml            #   system prompts
+│   │   ├── strategy.yaml                              #   strategy playbook (appended to main_agent)
 │   │   ├── planner_task.yaml · reviewer_task.yaml     #   per-round task messages
 │   │   ├── subagent_task.yaml · subagent_continue.yaml#   per-experiment task / resume
 │   │   └── structured_*.yaml                          #   JSON-output scaffolding
@@ -144,6 +156,7 @@ DataOS/
 │   └── data/
 │       ├── posttrainbench_benchmarks/ # hf_datasets/ (offline HF cache) + local/ (judge data)
 │       └── datasets/                  # small vendored datasets
+├── web/                             # live monitor UI (index.html) + standalone server.py
 ├── docs/                            # architecture notes (some predate the agent-version refactor)
 ├── tests/                           # agent / core
 ├── scripts/                         # dev helpers (doctor.py)

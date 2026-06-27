@@ -36,6 +36,9 @@ main-agent 复盘结果，树从最有潜力的节点继续生长，直到耗尽
   落盘；LLM 只负责出 plan 和复盘。
 - **H100 集群** 做全部 GPU 活。sub-agent 通过 SSH 把训练（Slurm + LLaMA-Factory）和评测
   （vLLM + lm-eval）丢到 H100；judge bench 在登录节点打分。
+- **实时监控**（`src/dataos/agent/monitor.py` + `web/`）由 `run_auto` 内嵌在一个端口上（默认
+  `8765`）：打开 `http://localhost:8765` 就能看实验树生长、运行中节点的 `data → train → eval`
+  子阶段、以及两个 agent 推理 + 工具调用的实时控制台。一个监控服务 workspace 下的所有 run。
 - 仓库以 git checkout 形式部署到 H100（`$AGENTVER`）；**部署 = `git pull`**。
 
 ## 前置条件
@@ -89,6 +92,9 @@ config 只承载事实（路径、唯一 bench、预算、资源）。所有**�
 4. main-agent 复盘 report；代码附上分数、生长树，循环直到预算耗尽。最优节点的模型写入
    `final_model.json`。
 
+在 `http://localhost:8765` 实时观看（config 里设 `monitor_port` 改端口，或 `DATAOS_MONITOR_PORT=0`
+关闭）。在同一个 workspace 下跑多个实验，单个监控会全部展示,各自按心跳标为运行中或已结束。
+
 ## 评测
 
 自包含的 **lm-evaluation-harness** PostTrainBench 协议，位于
@@ -96,6 +102,7 @@ config 只承载事实（路径、唯一 bench、预算、资源）。所有**�
 5 个确定性 bench（gsm8k、humaneval、bfcl、gpqamain、aime2025）在 GPU job 内打分，
 2 个 judge bench（healthbench、arenahardwriting）在 job 内生成、在登录节点用 OpenAI 兼容 judge 打分。
 数据集从 repo 内置的 benchmark 缓存（`resources/data/posttrainbench_benchmarks`，随代码部署）离线解析。
+评测请求按 `--num-concurrent`（默认 32）批量发给 vLLM 服务以提升吞吐 —— 不影响分数。
 
 ## 仓库结构
 
@@ -114,9 +121,11 @@ DataOS/
 │   │   ├── llm/                     #   Claude Code 驱动（claude_code）+ 结构化输出 helper
 │   │   ├── posttrainbench.py        #   PTB 评测协议（bench 列表 + 各 profile 的采样 limit）
 │   │   ├── schemas.py               #   ExperimentPlan / ReviewOut（校验过的 JSON）
+│   │   ├── monitor.py               #   实时 HTTP 监控（一个端口服务所有 run；心跳）
 │   │   └── config.py · budget.py · logging.py
 │   ├── prompt/                      # 所有 prompt 作为 Jinja2 YAML 模板（用 config 事实渲染）
 │   │   ├── main_agent.yaml · subagent.yaml            #   系统提示
+│   │   ├── strategy.yaml                              #   策略 playbook（追加到 main_agent）
 │   │   ├── planner_task.yaml · reviewer_task.yaml     #   每轮任务消息
 │   │   ├── subagent_task.yaml · subagent_continue.yaml#   逐实验任务 / 续跑
 │   │   └── structured_*.yaml                          #   JSON 输出脚手架
@@ -138,6 +147,7 @@ DataOS/
 │   └── data/
 │       ├── posttrainbench_benchmarks/ # hf_datasets/（离线 HF 缓存）+ local/（judge 数据）
 │       └── datasets/                  # 少量 vendored 数据集
+├── web/                             # 实时监控 UI（index.html）+ 独立 server.py
 ├── docs/                            # 架构说明（部分早于 agent-version 重构）
 ├── tests/                           # agent / core
 ├── scripts/                         # 开发辅助（doctor.py）

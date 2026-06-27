@@ -1,5 +1,14 @@
 # lm-eval Native Backend and PostTrainBench Protocol Notes
 
+> ⚠️ **Partly superseded (post-2026-06 agent-version refactor)** — the core rationale below
+> (lm-eval owns model execution via `vllm`/`hf`; DataOS owns and freezes the protocol) still
+> holds, but the **config-API specifics are stale**: the `mode="lm_eval_native"` /
+> `EvalConfig` / DataOSLM "legacy adapter" path is **removed**. Eval is now the self-contained
+> **`resources/code/posttrainbench/lm_eval_bridge`** (run by the sub-agent on an H100 Slurm node
+> via `run_lmeval_eval.py`). Server-backend concurrency is now a uniform default of **32** with a
+> `--num-concurrent` override (was a per-bench 1/2/6); BFCL also extracts bare-JSON tool calls
+> (`_extract_embedded_json`). Current truth: **AGENTS.md / README.md**.
+
 This note records the rationale and operating contract for the DataOS
 evaluation refactor that adds lm-evaluation-harness native execution and the
 first PostTrainBench protocol package.

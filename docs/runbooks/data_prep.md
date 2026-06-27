@@ -1,5 +1,10 @@
 # 数据阶段 —— DataStage(load + 算子 recipe)
 
+> ⚠️ **部分过时(2026-06 agent-version 重构后)** —— `exp.data` 这个 **DataStage / `exp.data.run()`** 的
+> in-process API **已移除**。但下面的**算子 recipe 概念仍然适用**:sub-agent 现在按
+> `resources/code/posttrainbench/PLAYBOOK.md` 用**同样的 `dataos_operator` 算子**(`alpaca_mapper`、
+> `length_filter`、`*_selector` 等)从固定池构建 SFT 数据。把本文当"算子配方参考",忽略 `exp.data.run()` 那层包装。
+
 判断全在这一阶段:用哪些源、什么格式、留多少。`exp.data` 是一个 **DataStage**:它 load 一个源、跑一串
 **确定性算子 recipe**,产出一等的 `Data` artifact(`save_to_disk` 到 `dataset/`,`meta` 记 source / recipe /
 rows / columns,`inputs` 记血缘)。算子来自外部 `dataos_operator` 库——**故意没有 DataOS 处理 API**,塑形

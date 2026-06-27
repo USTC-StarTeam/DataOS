@@ -1,5 +1,12 @@
 # 训练 + 评估 —— 开放-config 执行器
 
+> ⚠️ **过时(2026-06 agent-version 重构后)** —— 本文描述的是**已移除**的 in-process 执行器
+> （`exp.train.run()` / `exp.eval.run()` 这类 Stage 对象、`EvalConfig` 的 `mode`/`provider`/`suite`）。
+> 现在**只有一条执行路径**:主-agent 规划 → 每轮一个 sub-agent 在 H100 上完成
+> `建数据(dataos_operator 算子)→ LLaMA-Factory 训练(Slurm)→ lm_eval_bridge 评估 → 写 report.json`。
+> 训练超参由 sub-agent 写进 LLaMA-Factory YAML;评估固定为 `resources/code/posttrainbench/lm_eval_bridge`。
+> 当前权威:**AGENTS.md / README.md**;sub-agent 手册:`resources/code/posttrainbench/PLAYBOOK.md`。本文仅作历史参考。
+
 你通过 `config` dict 直接喂底层工具的参数,DataOS 基本不挡道。但**两者开放度不同**:
 
 - **train 真透传**:任意 LLaMA-Factory 键原样写进 `train.yaml`,没有白名单(只拒下面那几个保留键)。

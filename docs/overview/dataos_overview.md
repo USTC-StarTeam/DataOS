@@ -88,7 +88,7 @@ operator catalog as fixed runtime/integration stages.
 | `configs/` | Run configs, including `configs/runs/ptb-h100-qwen-gsm8k.json`. |
 | `resources/data/` | HF datasets and benchmark data resources. |
 | `resources/code/` | Benchmark and harness code resources used by runtime/sub-agents. |
-| `scripts/` | Thin command-line helpers such as `scripts/run_one.py` and `scripts/doctor.py`. |
+| `scripts/` | Thin command-line helpers such as `scripts/doctor.py`. (The old `run_one.py` in-process executor was removed in the agent-version refactor — execution is the agentic sub-agent now; see AGENTS.md.) |
 
 ## Eval Scope
 

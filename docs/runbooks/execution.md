@@ -1,5 +1,12 @@
 # 执行 —— 运行模式与并行
 
+> ⚠️ **过时(2026-06 agent-version 重构后)** —— 本文描述的是**已移除**的 in-process 执行器与
+> `scripts/run_one.py`、docker/`--replay` 复现栈。现在**没有"运行模式"可选**:`uv run dataos <config.json>`
+> 启动 `run_auto`,主-agent 每轮规划一个实验,一个 sub-agent 在 H100 上端到端实现它(`data → train → eval → report.json`),
+> 串行(PTB 规则一次一张 H100)。续跑 = 重跑同一 JSON。下方"subagent 自愈并行执行模式"一节的角色划分
+> （主-agent owns 共享态 / sub-agent 只跑一轮实验)思想仍在,但具体 API(run_one.py / docker / suite)已不适用。
+> 当前权威:**AGENTS.md / README.md**,sub-agent 手册:`resources/code/posttrainbench/PLAYBOOK.md`。
+
 串行还是并行,是**你**的事,不归 DataOS。project / study 都是目录,`study.summary()` 读每个实验盘上的
 `report.json`,所以无论你怎么驱动,SDK 都一样。挑合适的模式。
 

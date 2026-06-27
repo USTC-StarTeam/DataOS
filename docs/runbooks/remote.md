@@ -1,5 +1,10 @@
 # 远程执行 —— 本机 Claude Code 驱动远程服务器上的 DataOS
 
+> ⚠️ **部分过时(2026-06 agent-version 重构后)** —— "本机驱动远程 GPU"的总思路仍然成立,但本文里
+> 用 **`scripts/run_one.py`** 跑单实验/并行的具体用例**已移除**。现在 PTB 的远程执行由 `run_auto` 的
+> sub-agent 自己完成(ssh + `sbatch` 到 H100,按 `resources/code/posttrainbench/PLAYBOOK.md`),不再手敲 run_one.py。
+> 当前权威:**AGENTS.md / README.md**。
+
 正式场景:**Claude Code 在用户本机,DataOS 在远程 GPU 服务器。** 本机只有这个 skill + SSH;dataos 包、
 `train` / `eval` extra、数据、GPU 都在服务器上。你(Claude)通过 ssh 在服务器上执行所有 dataos 调用,把
 产物读回本机。

@@ -15,6 +15,11 @@ description: >-
 
 # 跑 DataOS 实验(skill 驱动)
 
+> ⚠️ **过时(2026-06 agent-version 重构后)** —— 本 skill 描述的"你(Claude)在 Python 里
+> `project.study -> set_plan -> experiment(spec) -> data -> train -> eval` 一手驱动"的 in-process 流程**已移除**。
+> 现在跑 PTB 是 `uv run dataos <config.json>`:代码(`run_auto`)拥有循环/树/续跑,主-agent 只每轮返回一个
+> ExperimentPlan/ReviewOut,sub-agent 在 H100 上端到端实现实验。当前权威:**AGENTS.md / README.md**。
+
 DataOS 是一组**确定性执行器** + 三层容器:**`Project`**(一个研究项目 = 一串 study,**resume 的基本单位**)
 ⊃ **`Study`**(同一个 plan 下的一组实验)⊃ **`Experiment`**(单次运行)。**你是 runtime 和 planner。**
 没有内嵌 LLM、没有计划 agent、没有把各阶段串起来的 `run()`、也没有调度器——plan 是你写的,各阶段是你

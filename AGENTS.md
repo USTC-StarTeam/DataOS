@@ -35,24 +35,46 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
 - `src/dataos/agent` — the loop: `loop.py` (`run_auto`), `state_tree`, `planner`, `reviewer`,
   `subagent_executor` (drives the per-experiment sub-agent), `eval_freeze`, `schemas`,
   `run_config` (the single-JSON config boundary), `backend`, `budget`, `config`, `logging`,
-  `llm/` (the Claude Code driver + structured-output helper), and `posttrainbench.py`
-  (the eval protocol: bench list + sampled limits per profile).
+  `llm/` (the Claude Code driver + structured-output helper), `posttrainbench.py`
+  (the eval protocol: bench list + sampled limits per profile), and `monitor.py`
+  (the live HTTP monitor — pure stdlib, embedded by `run_auto`; serves the `web/` UI).
 - `src/dataos/prompt` — EVERY prompt as a Jinja2 YAML template (`<name>.yaml` with a `template:`).
   No prompt text is hardcoded in `.py`; render via `from dataos import prompt; prompt.render(name, **facts)`.
   Run facts (budget, GPUs, the per-experiment context) are passed in as render params.
+  `strategy.yaml` is a maintainable **strategy playbook** appended to the main-agent system
+  prompt (`backend._system_prompt` = `main_agent.yaml` + `strategy.yaml`); update it from each
+  run's trajectory analysis.
+- `web/` — the live monitor's single-page UI (`index.html`) and a standalone CLI wrapper
+  (`server.py`, `python web/server.py` to browse run history). One monitor per workspace serves
+  every run on one port; see "Live monitor" below.
 - `src/dataos/core` — the `Project → Study → Experiment → Stage` / `Data·Model·Eval` abstraction,
   `workspace`, `io`, `ids`, `report`, `provenance`, `catalog`, `loading`. (Kept as the data model;
   the `Stage.run()` train/eval executors were removed — execution is the sub-agent's.)
 - `configs/runs/*.json` — the user-facing run config (one per run).
 - `resources/code/posttrainbench/` — `PLAYBOOK.md` (the sub-agent manual) and
   `lm_eval_bridge/` (the self-contained lm-eval PostTrainBench eval: task package + `run_lmeval_eval.py`
-  + `run_lmeval_judge.py`).
+  + `run_lmeval_judge.py`). `run_lmeval_eval.py` batches eval requests into the vLLM server with a
+  uniform `DEFAULT_NUM_CONCURRENT = 32` (`--num-concurrent` overrides) — not score-affecting, just
+  throughput; the inherited per-bench `1` made bfcl/healthbench eval serial.
 - `resources/data/posttrainbench_benchmarks/` — the eval's benchmark data (slim, ~16M, git-tracked):
   `hf_datasets/` (offline HF cache for the deterministic benches) + `local/` (bfcl + judge jsonl).
   Deployed with the code; the eval reads it via `$AGENTVER/resources/data/posttrainbench_benchmarks`
   (no separate H100 data dir, no `paths.benchmarks` config knob).
 - `docs/` — architecture notes; **several predate the agent-version refactor and are stale**.
 - `tests/` — `pytest`, grouped by agent / core.
+
+## Live monitor
+
+`run_auto` embeds a one-port HTTP monitor (`monitor.py`, default `8765`, config `monitor_port`,
+`DATAOS_MONITOR_PORT` overrides, `0` disables). ONE monitor per workspace serves EVERY run: each
+run writes a heartbeat `workspace/<run_id>/live.json` (every ~20s + on phase change), and the
+monitor classifies a run live/done by heartbeat freshness (killed runs go stale; finished runs
+write `phase:"done"`). The host self-heals — any run re-binds the port if the host dies. The page
+follows the selected run: a pan/zoom experiment tree, a live status strip with a
+`data → train → eval` sub-stage stepper (ssh-probes the running node's H100 `run_root` markers),
+and a bottom agent console streaming each agent's reasoning + tool calls (read from Claude Code's
+JSONL transcripts under `~/.claude/projects`). Cluster ssh creds reach the monitor via
+`monitor.configure(cluster)` and are kept OUT of the served `LiveState` (no secret leak).
 
 ## Local commands
 
@@ -85,9 +107,10 @@ GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
 ## Invariants to respect
 
 - **Config = facts, not strategy.** `configs/runs/*.json` holds paths / the single bench / budget /
-  resources only. Data recipe, training method (LoRA vs full, hyperparameters), tree growth, and
-  eval sampling are the **main-agent's** decisions, persisted in per-round plans. Do not add strategy
-  knobs to the config or CLI.
+  resources / `monitor_port` (host-side infra) only. Data recipe, training method (LoRA vs full,
+  hyperparameters), tree growth, and eval sampling are the **main-agent's** decisions, persisted in
+  per-round plans. Do not add *strategy* knobs to the config or CLI (`monitor_port` is a fact, not
+  strategy — it's fine).
 - **Training = LLaMA-Factory, authored by the sub-agent.** The sub-agent writes the LF YAML/commands
   per the PLAYBOOK; there is no in-repo bespoke trainer.
 - **Eval = the `lm_eval_bridge`** (pre-main lm-eval protocol; baseline-comparable). Do not reintroduce
@@ -98,7 +121,9 @@ GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
   model paths or changes the eval.
 - **Prompts live in `src/dataos/prompt/*.yaml`, never hardcoded in `.py`.** Add/edit a prompt by
   editing its YAML template; pass run-specific facts as `prompt.render()` params (no literals like
-  "10h" / "60000" baked into the text).
+  "10h" / "60000" baked into the text). `strategy.yaml` is appended to the main-agent prompt as
+  empirical *priors* — it guides decisions but the agent still chooses each plan; keep it in YAML
+  and maintain it from trajectory analysis, don't turn it into hard config knobs.
 
 ## Coding style
 
@@ -122,3 +147,5 @@ relevant smoke command when the change affects runtime behavior (e.g. an H100 ev
 - Sub-agent manual: `resources/code/posttrainbench/PLAYBOOK.md`.
 - Eval: `resources/code/posttrainbench/lm_eval_bridge/`.
 - Prompts: `src/dataos/prompt/*.yaml` (loader: `src/dataos/prompt/__init__.py`).
+- Strategy playbook: `src/dataos/prompt/strategy.yaml` (appended by `backend._system_prompt`).
+- Live monitor: `src/dataos/agent/monitor.py` + `web/index.html` (standalone: `web/server.py`).
