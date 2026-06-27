@@ -91,6 +91,7 @@ class AutoRunConfig:
     ptb_profile: str = "formal"  # PostTrainBench limit profile: "formal" | "smoke"
     eval_limit: int | None = None  # sampled eval size per experiment (small, for fast ranking)
     target_bench: str | None = None  # PTB single-bench target (per-(base,bench)); None = 7-suite
+    monitor_port: int = 8765  # live-monitor HTTP port (host-side infra fact; 0 disables)
 
     runtime_config: dict = field(default_factory=dict)  # cluster paths/envs injected into sub-agents
     runtime_config_path: str | None = None  # provenance for runtime_config when loaded from disk

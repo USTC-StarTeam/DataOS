@@ -106,6 +106,7 @@ class PtbRunConfig:
     resource: ResourceConfig
     paths: PathConfig
     eval_samples: int = 64  # sampled eval size per experiment (small — see differences, not full)
+    monitor_port: int = 8765  # live-monitor HTTP port (host-side fact; 0 disables the monitor)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PtbRunConfig":
@@ -132,6 +133,9 @@ class PtbRunConfig:
             eval_samples=_positive_int(data["eval_samples"], "eval_samples")
             if "eval_samples" in data
             else 64,
+            monitor_port=_nonneg_int(data["monitor_port"], "monitor_port")
+            if "monitor_port" in data
+            else 8765,
         )
 
     @classmethod
@@ -205,6 +209,7 @@ class PtbRunConfig:
             target_bench=self.bench,
             ptb_profile="formal",
             eval_limit=self.eval_samples,
+            monitor_port=self.monitor_port,
         )
 
 
@@ -241,6 +246,12 @@ def _nonempty_str(value: Any, field_name: str) -> str:
 def _positive_int(value: Any, field_name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ValueError(f"{field_name} must be a positive integer")
+    return value
+
+
+def _nonneg_int(value: Any, field_name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
     return value
 
 

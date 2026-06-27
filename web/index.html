@@ -19,14 +19,42 @@
       radial-gradient(1200px 600px at 80% -10%, #14202b 0%, transparent 60%),
       var(--ink);
     color:var(--paper); font-family:var(--mono); font-size:13px;
-    display:grid; grid-template-rows:auto 1fr; height:100%; overflow:hidden;
+    display:grid; grid-template-rows:auto auto 1fr auto; height:100%; overflow:hidden;
   }
   /* ---- header ---- */
   header{
+    grid-row:1;
     display:flex; align-items:baseline; gap:22px; flex-wrap:wrap;
     padding:14px 22px 12px; border-bottom:1px solid var(--line);
     background:linear-gradient(#0e121a,#0b0d12);
   }
+  /* ---- live strip (only while a run is executing) ---- */
+  #live{
+    grid-row:2; display:none; position:relative; overflow:hidden; align-items:center; gap:14px;
+    padding:9px 22px; border-bottom:1px solid var(--line); background:var(--panel2);
+  }
+  #live.on{display:flex}
+  /* the burn-down: budget consumed, filling left-to-right in the gold "budget" hue */
+  #live .burn{
+    position:absolute; left:0; top:0; bottom:0; width:0;
+    background:linear-gradient(90deg, rgba(255,210,74,.15), rgba(255,210,74,.04));
+    border-right:1px solid rgba(255,210,74,.55); transition:width .8s ease;
+  }
+  #live .dot{flex:none}
+  #live .verb{position:relative; font-family:var(--serif); font-size:15px; color:var(--paper); white-space:nowrap}
+  #live .obj{position:relative; color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  #live .spacer{flex:1}
+  #live .rd{position:relative; color:var(--faint); letter-spacing:.6px; text-transform:uppercase; font-size:11px}
+  #live .clock{position:relative; color:var(--gold); white-space:nowrap}
+  #live .clock .of{color:var(--faint)}
+  /* sub-stage stepper: data -> train -> eval */
+  #live .stage{position:relative; display:flex; align-items:center; gap:7px}
+  #live .stp{font-size:11px; letter-spacing:.4px; color:var(--faint); display:flex; align-items:center; gap:5px}
+  #live .stp::before{content:"○"; font-size:10px}
+  #live .stp.done{color:var(--muted)} #live .stp.done::before{content:"✓"; color:var(--teal)}
+  #live .stp.act{color:var(--paper)} #live .stp.act::before{content:"●"; color:var(--teal); animation:pulse 1.8s infinite}
+  #live .stp.act.evl::before{color:var(--gold)}
+  #live .sep{color:var(--faint); font-size:10px}
   h1{
     font-family:var(--serif); font-weight:600; font-size:21px; letter-spacing:.2px;
     margin:0; color:var(--paper);
@@ -40,17 +68,25 @@
   }
   .chip:hover{border-color:#36465c; color:var(--paper)}
   .chip.on{border-color:var(--teal); color:var(--paper); box-shadow:0 0 0 1px var(--teal-dim) inset}
+  .chip.done{opacity:.5}
+  .chip.done:hover{opacity:.8}
   .chip b{font-family:var(--serif); font-weight:600; letter-spacing:.3px}
   .chip .sc{color:var(--teal)}
+  .chip .tag{font-size:9.5px; letter-spacing:.6px; text-transform:uppercase; color:var(--faint)}
+  .chip.live .tag{color:var(--teal)}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
   .dot.live{background:var(--teal); box-shadow:0 0 0 0 var(--teal); animation:pulse 1.8s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(63,224,197,.5)}70%{box-shadow:0 0 0 7px rgba(63,224,197,0)}100%{box-shadow:0 0 0 0 rgba(63,224,197,0)}}
   /* ---- main ---- */
-  main{display:grid; grid-template-columns:1fr 372px; min-height:0}
-  #stage{position:relative; overflow:auto; background:
+  main{grid-row:3; display:grid; grid-template-columns:1fr 372px; min-height:0}
+  #stage{position:relative; overflow:hidden; cursor:grab; touch-action:none; background:
     linear-gradient(transparent 23px,#0d1118 24px) 0 0/100% 24px,
     linear-gradient(90deg,transparent 23px,#0d1118 24px) 0 0/24px 100%;
   }
+  #stage.panning{cursor:grabbing}
+  #stage svg{width:100%; height:100%}
+  .hint{position:absolute; right:12px; bottom:10px; z-index:2; color:var(--faint);
+    font-size:10.5px; letter-spacing:.3px; pointer-events:none; user-select:none; opacity:.7}
   svg{display:block}
   .edge{fill:none; stroke:#2a3444; stroke-width:1.4}
   .edge.path{stroke:var(--gold); stroke-width:2.2; opacity:.9}
@@ -88,6 +124,32 @@
     border-radius:5px; padding:2px 7px; margin:0 4px 4px 0; color:#cfd3da}
   footer{grid-column:1/-1}
   .empty{padding:60px; text-align:center; color:var(--faint); font-family:var(--serif); font-style:italic; font-size:16px}
+  /* ---- agent console (bottom drawer) ---- */
+  #console{grid-row:4; display:flex; flex-direction:column; min-height:0;
+    border-top:1px solid var(--line); background:linear-gradient(#0e121a,#0b0d12)}
+  #console .bar{display:flex; align-items:center; gap:16px; padding:7px 22px; cursor:pointer; user-select:none}
+  #console .caret{color:var(--faint); font-size:11px; width:12px; display:inline-block; transition:transform .2s}
+  #console:not(.open) .caret{transform:rotate(-90deg)}
+  #console .title{font-size:10.5px; letter-spacing:1.4px; text-transform:uppercase; color:var(--faint)}
+  #console .tabs{display:flex; gap:6px}
+  #console .ctab{display:flex; align-items:center; gap:7px; padding:3px 11px; border:1px solid var(--line);
+    border-radius:999px; color:var(--muted); font-size:11px}
+  #console .ctab .dot{width:6px;height:6px}
+  #console .ctab.main.on{border-color:var(--teal); color:var(--paper)}
+  #console .ctab.sub.on{border-color:var(--coral); color:var(--paper)}
+  #console .ctab.on .dot.act{background:currentColor; box-shadow:0 0 0 0 currentColor; animation:pulse 1.8s infinite}
+  #console .meta{margin-left:auto; color:var(--faint); font-size:11px}
+  #feed{height:0; overflow-y:auto; overflow-x:hidden; padding:0 22px; transition:height .18s}
+  #console.open #feed{height:34vh; padding:4px 22px 16px}
+  .ev{display:flex; gap:11px; padding:2px 0; line-height:1.46; align-items:baseline}
+  .ev .gut{flex:none; width:12px; text-align:center; color:var(--faint); font-size:12px}
+  .ev .tx{min-width:0; white-space:pre-wrap; word-break:break-word}
+  .ev.think .tx{font-family:var(--serif); font-size:14px; color:#cdd1d9}
+  .ev.tool  .tx{font-family:var(--mono); color:var(--paper)}
+  .ev.tool .tx b{font-weight:600; color:var(--gold)}
+  .ev.result .tx{font-family:var(--mono); color:var(--faint); max-height:3.1em; overflow:hidden}
+  .ev.tool.main .gut{color:var(--teal)}
+  .ev.tool.sub  .gut{color:var(--coral)}
 </style>
 </head>
 <body>
@@ -95,15 +157,68 @@
     <h1>DataOS <span class="dim">· autonomous experiment tree</span></h1>
     <div class="runs" id="runs"></div>
   </header>
+  <div id="live">
+    <div class="burn" id="burn"></div>
+    <span class="dot live"></span>
+    <span class="verb" id="lv-verb"></span>
+    <span class="obj" id="lv-obj"></span>
+    <span class="stage" id="lv-stage"></span>
+    <span class="spacer"></span>
+    <span class="rd" id="lv-round"></span>
+    <span class="clock" id="lv-clock"></span>
+  </div>
   <main>
     <div id="stage"><div class="empty" id="empty">select a run</div></div>
     <aside id="detail"><div class="ph">hover a node — its hypothesis, data recipe and result appear here</div></aside>
     <footer></footer>
   </main>
+  <div id="console" class="open">
+    <div class="bar" id="console-bar">
+      <span class="caret">▾</span><span class="title">agent console</span>
+      <span class="tabs">
+        <span class="ctab main on" data-agent="main"><span class="dot act"></span>main-agent</span>
+        <span class="ctab sub" data-agent="sub"><span class="dot act"></span>sub-agent</span>
+      </span>
+      <span class="meta" id="console-meta"></span>
+    </div>
+    <div id="feed"></div>
+  </div>
 
 <script>
 const COLW = 96, ROWH = 104, PADX = 60, PADY = 50, R = 19;
 let CURRENT = null, NODES = [], SELID = null, BYID = new Map();
+let LIVEST = null, STAGE = null;   // latest /api/live snapshot and /api/stage (sub-stage) info
+// pan/zoom view state for the experiment tree (reset when the run changes)
+const VIEW = {k:1, tx:0, ty:0, run:null};
+function applyView(){
+  const v = document.getElementById("view");
+  if(v) v.setAttribute("transform", `translate(${VIEW.tx},${VIEW.ty}) scale(${VIEW.k})`);
+}
+function initPanZoom(){
+  const stage = document.getElementById("stage");
+  stage.addEventListener("wheel", e=>{
+    e.preventDefault();
+    const rect = stage.getBoundingClientRect();
+    const px = e.clientX-rect.left, py = e.clientY-rect.top;
+    const nk = Math.min(4, Math.max(0.25, VIEW.k * Math.exp(-e.deltaY*0.0015)));
+    const r = nk/VIEW.k;
+    VIEW.tx = px-(px-VIEW.tx)*r; VIEW.ty = py-(py-VIEW.ty)*r; VIEW.k = nk;
+    applyView();
+  }, {passive:false});
+  let drag=false, sx=0, sy=0, btx=0, bty=0;
+  stage.addEventListener("pointerdown", e=>{
+    drag=true; sx=e.clientX; sy=e.clientY; btx=VIEW.tx; bty=VIEW.ty;
+    stage.classList.add("panning"); stage.setPointerCapture(e.pointerId);
+  });
+  stage.addEventListener("pointermove", e=>{
+    if(!drag) return;
+    VIEW.tx = btx+(e.clientX-sx); VIEW.ty = bty+(e.clientY-sy); applyView();
+  });
+  const end = ()=>{ drag=false; stage.classList.remove("panning"); };
+  stage.addEventListener("pointerup", end);
+  stage.addEventListener("pointercancel", end);
+  stage.addEventListener("dblclick", ()=>{ VIEW.k=1; VIEW.tx=0; VIEW.ty=0; applyView(); });
+}
 
 const $ = s => document.querySelector(s);
 const esc = s => (s==null?"":String(s)).replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -119,18 +234,21 @@ function scoreColor(sc){
 async function loadRuns(){
   const runs = await fetch("/api/runs").then(r=>r.json()).catch(()=>[]);
   const box = $("#runs"); box.innerHTML="";
-  if(!CURRENT && runs.length) CURRENT = runs[0].id;
+  if(!CURRENT && runs.length) CURRENT = runs[0].id;   // runs are sorted live-first
   for(const r of runs){
     const el = document.createElement("div");
-    el.className = "chip" + (r.id===CURRENT ? " on":"");
+    el.className = "chip" + (r.id===CURRENT?" on":"") + (r.running?" live":" done");
     const best = r.best_score==null ? "—" : r.best_score.toFixed(2);
+    const tag = r.running ? (PHASE_SHORT[r.phase] || "running") : "done";
     el.innerHTML = `<span class="dot ${r.running?"live":""}"></span>`+
       `<b>${esc(r.bench)}</b><span class="sc">${best}</span>`+
+      `<span class="tag">${esc(tag)}</span>`+
       `<span style="color:var(--faint)">${r.n_done}✓ ${r.n_failed}✕</span>`;
     el.onclick = ()=>{ CURRENT=r.id; SELID=null; loadRuns(); loadTree(); };
     box.appendChild(el);
   }
 }
+const PHASE_SHORT = { planning:"planning", executing:"running", reviewing:"reviewing", done:"done" };
 
 // tidy layout. The structural placeholder root (parent==null) is dropped so the
 // BASELINE becomes the visible root; remaining nodes are re-depthed from there.
@@ -176,11 +294,10 @@ function render(allNodes, meta){
   const X = id => pos.get(id).x*COLW;
   const Y = id => pos.get(id).d*ROWH;
   const treeW = maxX*COLW, treeH = maxD*ROWH;
-  const sw = stage.clientWidth, sh = stage.clientHeight;
-  const svgW = Math.max(treeW + PADX*2, sw);
-  const svgH = Math.max(treeH + PADY*2, sh);
-  const ox = (svgW - treeW)/2;                       // centre horizontally
-  const oy = Math.max(PADY, (svgH - treeH)/2);       // centre vertically, pad when scrolling
+  const W = stage.clientWidth, H = stage.clientHeight;
+  const ox = (W - treeW)/2;                           // centre horizontally in the viewport
+  const oy = Math.max(PADY, (H - treeH)/2);           // centre vertically
+  if(VIEW.run !== CURRENT){ VIEW.run = CURRENT; VIEW.k = 1; VIEW.tx = 0; VIEW.ty = 0; }
 
   const bestId = nodes.reduce((b,n)=> (typeof n.score==="number" && (!b||n.score>b.score))?n:b, null)?.id;
   const hlPath = SELID ? ancestors(SELID) : new Set();
@@ -209,8 +326,10 @@ function render(allNodes, meta){
       `<text class="lab" y="${R+15}">${name.length>14?name.slice(0,13)+"…":name}</text>`+
       `</g>`;
   }
-  stage.innerHTML = `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">`+
-    `<g transform="translate(${ox},${oy})">${edges}${circles}</g></svg>`;
+  stage.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`+
+    `<g id="view"><g transform="translate(${ox},${oy})">${edges}${circles}</g></g></svg>`+
+    `<div class="hint">scroll to zoom · drag to pan · double-click to reset</div>`;
+  applyView();
   for(const g of stage.querySelectorAll(".node")){
     g.addEventListener("mouseenter", ()=>{ SELID=g.dataset.id; showDetail(BYID.get(SELID)); paintHL(); });
   }
@@ -218,10 +337,7 @@ function render(allNodes, meta){
 }
 
 function paintHL(){
-  const hl = SELID?ancestors(SELID):new Set();
   for(const g of document.querySelectorAll(".node")) g.classList.toggle("sel", g.dataset.id===SELID);
-  // recompute edge highlight cheaply by re-rendering edges class
-  for(const p of document.querySelectorAll(".edge")) {} // edges repainted on next render; keep light
 }
 
 function row(k,v){ return `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`; }
@@ -277,7 +393,115 @@ async function loadTree(){
   render(t.nodes||[], t.meta||{});
 }
 
-async function tick(){ await loadRuns(); await loadTree(); }
+// The agent's current activity, named by what it's doing — not the code's phase enum.
+const PHASE_VERB = {
+  planning:  "Planning the next experiment",
+  executing: "Training & evaluating on H100",
+  reviewing: "Reviewing the result",
+};
+
+function fmtLeft(h){
+  if(h==null) return "";
+  const m = Math.max(0, Math.round(h*60));
+  if(m>=60){ return `${Math.floor(m/60)}h ${String(m%60).padStart(2,"0")}m`; }
+  return `${m}m`;
+}
+
+function renderLive(live){
+  const bar = $("#live");
+  // show the strip only for a genuinely live run (fresh heartbeat), not a stale/done one
+  if(!live || !live.live || !live.run_id){ bar.classList.remove("on"); return; }
+  bar.classList.add("on");
+  // during "executing" the verb is owned by renderStage (the sub-stage); setting it
+  // here too would flash the generic verb each poll before /api/stage resolves.
+  if(live.phase!=="executing") $("#lv-verb").textContent = PHASE_VERB[live.phase];
+  $("#lv-obj").textContent  = live.node_name ? "· "+live.node_name : "";
+  $("#lv-round").textContent = "round "+String(live.round ?? 0).padStart(2,"0");
+  const left = fmtLeft(live.remaining_hours), bud = fmtLeft(live.budget_hours);
+  $("#lv-clock").innerHTML = left
+    ? esc(left)+" left"+(bud?` <span class="of">/ ${esc(bud)} budget</span>`:"") : "";
+  // burn-down fills as the wall-clock budget is spent
+  const frac = (live.budget_hours && live.remaining_hours!=null)
+    ? Math.max(0, Math.min(1, 1 - live.remaining_hours/live.budget_hours)) : 0;
+  $("#burn").style.width = (frac*100).toFixed(1)+"%";
+}
+
+// ---- agent console ----
+let CONSOLE_AGENT = "main", CONSOLE_OPEN = true, CONSOLE_PINNED = false, FEED_SIG = "";
+const EV = { text:{cls:"think",gut:"✦"}, tool:{cls:"tool",gut:"$"}, result:{cls:"result",gut:"→"} };
+
+$("#console-bar").addEventListener("click", e=>{
+  const tab = e.target.closest(".ctab");
+  if(tab){ CONSOLE_AGENT = tab.dataset.agent; CONSOLE_PINNED = true; syncTabs(); loadFeed(true); return; }
+  CONSOLE_OPEN = !CONSOLE_OPEN;
+  $("#console").classList.toggle("open", CONSOLE_OPEN);
+  if(CONSOLE_OPEN) loadFeed(true);
+});
+function syncTabs(){
+  for(const t of document.querySelectorAll(".ctab")) t.classList.toggle("on", t.dataset.agent===CONSOLE_AGENT);
+}
+// follow whichever agent is currently working, until the user pins a tab
+function followLive(live){
+  if(CONSOLE_PINNED || !live || !live.phase) return;
+  const want = live.phase==="executing" ? "sub" : "main";
+  if(want!==CONSOLE_AGENT){ CONSOLE_AGENT = want; syncTabs(); }
+}
+async function loadFeed(force){
+  if(!CONSOLE_OPEN || !CURRENT){ return; }
+  const a = CONSOLE_AGENT, feed = $("#feed");
+  const data = await fetch(`/api/activity?agent=${a}&run=${encodeURIComponent(CURRENT)}`).then(r=>r.json()).catch(()=>null);
+  if(!data) return;
+  const sig = a+":"+(data.session||"")+":"+((data.events||[]).length);
+  if(sig===FEED_SIG && !force) return;
+  FEED_SIG = sig;
+  $("#console-meta").textContent = a+(data.session?" · "+data.session.slice(0,8):"");
+  const evs = data.events||[];
+  if(!evs.length){ feed.innerHTML = '<div class="empty" style="padding:24px;font-size:14px">no activity yet — '+esc(a)+'-agent hasn\'t started</div>'; return; }
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
+  feed.innerHTML = evs.map(e=>{
+    const m = EV[e.kind]||EV.text;
+    const tag = (e.kind==="tool" && e.name && e.name!=="Bash") ? `<b>${esc(e.name)}</b> ` : "";
+    return `<div class="ev ${m.cls} ${a}"><span class="gut">${m.gut}</span><span class="tx">${tag}${esc(e.text)}</span></div>`;
+  }).join("");
+  if(force || atBottom) feed.scrollTop = feed.scrollHeight;
+}
+
+// ---- sub-stage progress (data -> train -> eval, for the running node) ----
+const STAGE_ORDER = ["data","train","eval"];
+const STAGE_VERB = { data:"Building the training data", train:"Training on H100", eval:"Evaluating on H100" };
+let LAST_STAGE = null, LAST_STAGE_NODE = null;   // hold the last good stage across transient ssh misses
+function renderStage(s){
+  const stepEl = $("#lv-stage");
+  const executing = LIVEST && LIVEST.phase==="executing";
+  const node = LIVEST ? LIVEST.node_id : null;
+  if(node !== LAST_STAGE_NODE){ LAST_STAGE = null; LAST_STAGE_NODE = node; }   // drop stale on node change
+  if(!executing){ stepEl.innerHTML=""; LAST_STAGE=null; return; }
+  if(s && s.stage) LAST_STAGE = s;          // a good poll → remember it
+  s = LAST_STAGE;                            // a transient probe miss → keep showing the last stage
+  if(!s || !s.stage){ $("#lv-verb").textContent="Working on H100"; stepEl.innerHTML=""; return; }
+  $("#lv-verb").textContent = STAGE_VERB[s.stage] || "Working on H100";   // verb follows the sub-stage
+  const order = s.trains===false ? ["eval"] : STAGE_ORDER;   // eval-only nodes skip data/train
+  const cur = order.indexOf(s.stage);
+  stepEl.innerHTML = order.map((st,i)=>{
+    const cls = i<cur ? "done" : (i===cur ? "act"+(st==="eval"?" evl":"") : "");
+    return `<span class="stp ${cls}">${st}</span>`;
+  }).join('<span class="sep">→</span>');
+}
+async function tick(){
+  await loadRuns();
+  await loadTree();
+  // one monitor serves every run — the live strip / stage / console follow the SELECTED run
+  if(CURRENT){
+    const q = "run="+encodeURIComponent(CURRENT);
+    LIVEST = await fetch("/api/live?"+q).then(r=>r.json()).catch(()=>null);
+    renderLive(LIVEST);
+    followLive(LIVEST);
+    STAGE = await fetch("/api/stage?"+q).then(r=>r.json()).catch(()=>null);
+    renderStage(STAGE);
+  } else { LIVEST=null; STAGE=null; renderLive(null); renderStage(null); }
+  await loadFeed(false);
+}
+initPanZoom();
 tick();
 setInterval(tick, 4000);
 addEventListener("resize", ()=>{ if(NODES.length) render(NODES, {}); });

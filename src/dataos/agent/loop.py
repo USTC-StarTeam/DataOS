@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,69 @@ from .config import AutoRunConfig
 
 _MAIN_SESSION_FILE = "main_agent_session.json"
 _PLAN_RETRIES = 3
+_HEARTBEAT_S = 20  # how often each run rewrites its live.json heartbeat
+
+
+def _monitor_port(cfg) -> int:
+    """Live-monitor port: ``DATAOS_MONITOR_PORT`` overrides the config; ``0`` disables."""
+    raw = os.environ.get("DATAOS_MONITOR_PORT")
+    if raw is not None:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return cfg.monitor_port
+
+
+def _start_monitor(cfg, log) -> None:
+    """Persist this run's heartbeat, and host the shared live monitor when the port is
+    free. ONE monitor serves every run under the workspace (it reads each run's tree.json
+    + live.json), so a single port is enough; if its host dies, another run takes over on
+    the next retry. ``DATAOS_MONITOR_PORT=0`` (or config 0) disables hosting but still
+    writes the heartbeat, so the standalone monitor can show this run."""
+    from dataos.agent import monitor
+
+    monitor.configure((cfg.runtime_config or {}).get("cluster"))
+    workspace = Path(cfg.workspace)
+
+    def heartbeat():
+        while True:
+            time.sleep(_HEARTBEAT_S)
+            monitor.write_live(workspace, cfg.project_id)
+
+    threading.Thread(target=heartbeat, name="dataos-heartbeat", daemon=True).start()
+
+    port = _monitor_port(cfg)
+    if port <= 0:
+        return
+
+    def supervise():
+        while True:
+            try:
+                monitor.serve_in_background(workspace, port=port)
+                log.info("monitor: hosting live view at http://127.0.0.1:%d", port)
+                return  # we hold the port; its daemon server thread serves until exit
+            except OSError:
+                time.sleep(30)  # another run hosts it; retry so we take over if it dies
+
+    threading.Thread(target=supervise, name="dataos-monitor-sup", daemon=True).start()
+
+
+def _publish_live(cfg, *, round_idx: int, phase: str, started: float, now: float, **extra) -> None:
+    """Publish the loop's current phase, and persist it to live.json (best-effort)."""
+    from dataos.agent import monitor
+
+    cap = cfg.budget.max_wall_clock_s
+    monitor.LIVE.publish(
+        run_id=cfg.project_id,
+        bench=cfg.target_bench,
+        round=round_idx,
+        phase=phase,
+        remaining_hours=_remaining_hours(started, cfg, now),
+        budget_hours=(cap / 3600.0) if cap else None,
+        **extra,
+    )
+    monitor.write_live(Path(cfg.workspace), cfg.project_id)
 
 
 def _safe_catalog() -> list[dict]:
@@ -355,11 +419,14 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             best,
         )
 
+    _start_monitor(cfg, log)
+
     while True:
         now = _clock()
         reason = _budget.stop_reason(started_at=started, budget=cfg.budget, now=now)
         if reason:
             log.info("STOP: %s (after %d completed node(s))", reason, round_idx)
+            _publish_live(cfg, round_idx=round_idx, phase="done", started=started, now=now)
             result = _finish(proj, reason, best, round_idx, events, tree)
             log.info("final_model: %s", result.get("final_model"))
             return result
@@ -383,6 +450,10 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                 node.get("status"),
             )
         else:
+            _publish_live(
+                cfg, round_idx=round_idx, phase="planning", started=started, now=now,
+                node_id=None, node_name=None, node_run_root=None,
+            )
             validation_errors: list[str] | None = None
             plan = None
             for attempt in range(1, _PLAN_RETRIES + 1):
@@ -458,6 +529,18 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         log.info("round %d: executing node %s via sub-agent", round_idx, node_id)
         from dataos.agent import subagent_executor
 
+        _publish_live(
+            cfg,
+            round_idx=round_idx,
+            phase="executing",
+            started=started,
+            now=_clock(),
+            node_id=node_id,
+            node_name=node.get("experiment_name"),
+            node_run_root=subagent_executor._run_root(cfg, study_id, spec["name"]),
+            node_trains=bool((node.get("plan") or {}).get("train")),
+        )
+
         deadline = started + cfg.budget.max_wall_clock_s if cfg.budget.max_wall_clock_s else None
         subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)
 
@@ -494,6 +577,16 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             "goal": cfg.goal or cfg.instruct,
         }
         log.info("round %d: asking main-agent for review", round_idx)
+        _publish_live(
+            cfg,
+            round_idx=round_idx,
+            phase="reviewing",
+            started=started,
+            now=_clock(),
+            node_id=node_id,
+            node_name=node.get("experiment_name"),
+            last_score=score,
+        )
         review, session_id = review_result(
             agent=main_agent,
             context=review_context,
