@@ -155,9 +155,14 @@ class Study:
             # exactly the least trustworthy row
             _stages = report.get("stages")
             if isinstance(_stages, dict):
-                eval_current = (_stages.get("eval") or {}).get("status") == "completed"
+                _eval_entry = _stages.get("eval")
+                if isinstance(_eval_entry, dict):
+                    eval_current = _eval_entry.get("status") == "completed"
+                else:
+                    # sub-agent wrote bare string value e.g. "completed"
+                    eval_current = _eval_entry == "completed"
             else:
-                # sub-agent wrote stages as a name-list (old format) — fall back to presence of score
+                # sub-agent wrote stages as a name-list or other non-dict — fall back to score presence
                 eval_current = evaluation.get("score") is not None or evaluation.get("macro_average") is not None
             rows.append(
                 {
@@ -393,7 +398,8 @@ def _eval_protocol_fingerprint(report: dict[str, Any]) -> str | None:
     baseline fingerprints the same as the trained experiments it anchors; stub
     ``provider_config`` is excluded so smoke sweeps with different fake scores don't alarm."""
     _s = report.get("stages")
-    eval_stage = (_s.get("eval") or {} if isinstance(_s, dict) else {})
+    _se = _s.get("eval") if isinstance(_s, dict) else None
+    eval_stage = _se if isinstance(_se, dict) else {}
     if eval_stage.get("config_drift"):
         # the persisted score came from a config that is no longer the one on record —
         # the protocol is UNKNOWN until the stage re-runs; don't group it with anything
