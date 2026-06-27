@@ -128,7 +128,14 @@ def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: 
     scripts = report.setdefault("scripts", {})
     scripts.setdefault("train", "")
     scripts.setdefault("data", "")
-    model = report.setdefault("model", {})
+    # the sub-agent writes report.json freeform; "model" may be a bare path string,
+    # a dict, or missing — normalize to {"path": ...} before stamping.
+    model = report.get("model")
+    if isinstance(model, str):
+        model = {"path": model}
+    elif not isinstance(model, dict):
+        model = {}
+    report["model"] = model
     if not model.get("path"):
         model["path"] = report["artifacts"]["model"]
     return report
