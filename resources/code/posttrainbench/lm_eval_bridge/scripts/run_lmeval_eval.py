@@ -107,6 +107,14 @@ def parse_args() -> argparse.Namespace:
         default=str(TEMPLATES_DIR),
         help="Directory containing the PostTrainBench chat-template jinja files.",
     )
+    parser.add_argument(
+        "--num-concurrent",
+        type=int,
+        default=None,
+        help="Server-backend concurrency (how many eval requests vLLM batches together); "
+        "default 32. Not score-affecting — raise for faster eval, but long-output benches "
+        "(bfcl/healthbench, 16k tokens) are KV-cache bound, so very high values just queue.",
+    )
     return parser.parse_args()
 
 
@@ -178,12 +186,11 @@ def generation_kwargs(task: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def default_num_concurrent(task: str) -> int:
-    if task in {"arenahardwriting", "bfcl", "healthbench", "humaneval"}:
-        return 1
-    if task == "aime2025":
-        return 2
-    return 6
+# Server-backend concurrency: how many eval requests vLLM batches together. Uniform
+# default (the per-bench 1/2/6 inherited from pre-main left bfcl/healthbench serial);
+# override per run with --num-concurrent. Not score-affecting — raising it only changes
+# batching, not generation — so it is safe to tune for speed.
+DEFAULT_NUM_CONCURRENT = 32
 
 
 def default_timeout(task: str) -> int:
@@ -338,13 +345,13 @@ def direct_vllm_model_args(task: str, model_path: str, chat_template: Path) -> d
     }
 
 
-def server_model_args(task: str, model_path: str, port: int) -> dict[str, Any]:
+def server_model_args(task: str, model_path: str, port: int, num_concurrent: int) -> dict[str, Any]:
     return {
         "model": model_path,
         "base_url": f"http://127.0.0.1:{port}/v1/chat/completions",
         "tokenizer_backend": "none",
         "tokenized_requests": False,
-        "num_concurrent": default_num_concurrent(task),
+        "num_concurrent": num_concurrent,
         "max_retries": 3,
         "timeout": default_timeout(task),
         "auth_token": os.environ.get("VLLM_API_KEY", "inspectai"),
@@ -456,7 +463,9 @@ def main() -> None:
                 task, args.model_path, chat_template, args.model_name, output_dir
             )
             model = "dataos-local-tool-chat-completions"
-            model_args = server_model_args(task, args.model_path, port)
+            model_args = server_model_args(
+                task, args.model_path, port, args.num_concurrent or DEFAULT_NUM_CONCURRENT
+            )
 
         raw = simple_evaluate(
             model=model,
