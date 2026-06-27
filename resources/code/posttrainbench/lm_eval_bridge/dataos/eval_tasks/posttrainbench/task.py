@@ -662,6 +662,25 @@ def _load_bfcl_prediction_payload(text: str) -> tuple[dict[str, Any], bool] | No
         for match in re.finditer(r"<tool_calls?>\s*(.*?)\s*</tool_calls?>", text, flags=re.DOTALL)
     )
 
+    # Also try to extract embedded JSON objects from arbitrary text (e.g. when model
+    # omits <tool_call> wrapper but includes bare JSON surrounded by thinking text).
+    def _extract_embedded_json(s: str):
+        start = s.find("{")
+        while start >= 0:
+            depth = 0
+            for i, ch in enumerate(s[start:], start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                if depth == 0:
+                    yield s[start:i+1], True
+                    start = s.find("{", i+1)
+                    break
+            else:
+                break
+    candidates.extend(_extract_embedded_json(text))
+
     for candidate, allow_bare_call in candidates:
         cleaned = re.sub(r"</?tool_calls?>", "", candidate.strip()).strip()
         if not cleaned:
