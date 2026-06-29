@@ -65,29 +65,24 @@ H100 (the pool lives there), then bridge to the SFT format. In the configured `t
 repo uses a `src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`.
 
 **LOOK BEFORE YOU WRITE.** Inside the Slurm job, FIRST load each source's dir and print a few real
-rows + their columns, AND read the installed operators' own docs — for EACH operator the recipe
-uses run `python -c "import dataos_operator as o; print(o.usage('<op_name>'))"` to get its exact
-constructor params, run() contract, and (for online operators) its config example; do not guess
-the API. If the recipe uses any `online`-mode operator, also `print(o.guide())` once for the
-runtime config schema. Only THEN write the bridge + operator pipeline, shaped to the schema you
-actually saw — do NOT write blind and trial-and-error.
+rows + their columns, AND read the operators' own docs — they are the single source of truth for
+the operator API, NOT this PLAYBOOK. Run `python -c "import dataos_operator as o; print(o.guide())"`
+once for the framework how-to (data model, offline vs online use, the online runtime-config
+schema), then `print(o.usage('<op_name>'))` for EACH operator in the recipe to get its exact
+constructor params, run() contract, and config example. Only THEN write the bridge + operator
+pipeline, shaped to the schema you actually saw — do NOT guess the API or write blind.
 
 ```python
 # After inspecting the real rows: bridge each source row into the minimal common text schema the
 # selected operators need (keep the recipe's intent), run the operator pipeline, then emit the
 # FINAL training format = LLaMA-Factory alpaca ({instruction,input,output}) — see step 2.
 ```
-- Operators come from `dataos_operator` (>=0.4.0); `dataos_operator.catalog()` lists them all and
-  `dataos_operator.usage('<op>')` gives one operator's full how-to (read the usage for each op in
-  the recipe). The operator pipeline is the EXPERIMENT — it filters / dedups / quality-scores /
-  samples the raw pool rows; the bridge above is just the mechanical format step LLaMA-Factory
-  needs at the end.
-- ONLINE operators (mode=online: `loss_selector` / `delta_loss_selector` / `less_selector` /
-  `doremi_mixer` / `odm_mixer` / `loss_reweighter`) are NOT part of the offline pipeline — they run
-  DURING SFT. For these, follow `dataos_operator.guide()`: export the bridged data to ShareGPT,
-  write a `dataos_runtime_config.json` (the operators + `update_interval` + `backend`), and run
-  training through the DataOS-LLaMA-Factory integration with `dataos_enable=True` and
-  `dataos_config_path=...`. Do NOT also run them in the offline `.run()` pipeline.
+- The operator pipeline (from `dataos_operator`, >=0.4.0) is the EXPERIMENT — it filters / dedups /
+  quality-scores / samples the raw pool rows; the bridge above is just the mechanical format step
+  LLaMA-Factory needs at the end.
+- ONLINE operators (mode=online, e.g. `loss_selector` / `doremi_mixer` / `loss_reweighter`) run
+  DURING SFT, not in the offline `.run()` pipeline. Follow `guide()`'s online section for the
+  export → `dataos_runtime_config.json` → `dataos_enable` steps; do NOT also run them offline.
 - If an operator rejects a parameter or an API differs from the plan text, make the smallest
   equivalent compatibility fix that preserves the experiment intent, then record it in
   `report.json` under a compatibility note.
@@ -104,8 +99,6 @@ actually saw — do NOT write blind and trial-and-error.
   `gateway.model`, and `gateway.key_file`. Do not read the full pool, run ordinary operators, or
   `save_to_disk` the final training set on the login node. Persist only the scored intermediate
   needed by the compute job, then sbatch the remaining selection / `save_to_disk` / train work.
-  The core data-centric idiom: an evaluator writes a score → a `score_selector` /
-  `ranking_selector` keeps the best rows.
 - `smoke` profile → cap the final dataset to **≤1000 rows** (`random_sample_selector` last).
 - If `dataos_operator` (or an operator's dep) is missing in the env, install it, then continue.
 
