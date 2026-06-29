@@ -14,7 +14,7 @@ dependencies = [
   "datasets>=2.19.0",
   "httpx>=0.28,<0.29",
   "pyarrow>=15.0.0",
-  "dataos-operator @ git+https://github.com/USTC-StarTeam/DataOS-Operator.git@v0.2.0",
+  "dataos-operator @ git+https://github.com/USTC-StarTeam/DataOS-Operator.git@v0.4.0",
   # --- autonomous layer (dataos.agent) ---
   "dataos-agent[claude] @ git+https://github.com/USTC-StarTeam/DataOS-Agent.git",
   "pydantic>=2.6",

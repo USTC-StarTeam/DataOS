@@ -65,8 +65,11 @@ H100 (the pool lives there), then bridge to the SFT format. In the configured `t
 repo uses a `src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`.
 
 **LOOK BEFORE YOU WRITE.** Inside the Slurm job, FIRST load each source's dir and print a few real
-rows + their columns, AND check the installed `dataos_operator` API (`dataos.catalog()` + the
-operator signatures). Only THEN write the bridge + operator pipeline, shaped to the schema you
+rows + their columns, AND read the installed operators' own docs — for EACH operator the recipe
+uses run `python -c "import dataos_operator as o; print(o.usage('<op_name>'))"` to get its exact
+constructor params, run() contract, and (for online operators) its config example; do not guess
+the API. If the recipe uses any `online`-mode operator, also `print(o.guide())` once for the
+runtime config schema. Only THEN write the bridge + operator pipeline, shaped to the schema you
 actually saw — do NOT write blind and trial-and-error.
 
 ```python
@@ -74,9 +77,17 @@ actually saw — do NOT write blind and trial-and-error.
 # selected operators need (keep the recipe's intent), run the operator pipeline, then emit the
 # FINAL training format = LLaMA-Factory alpaca ({instruction,input,output}) — see step 2.
 ```
-- Operators come from `dataos_operator`; `dataos.catalog()` lists the 22 (read it). The operator
-  pipeline is the EXPERIMENT — it filters / dedups / quality-scores / samples the raw pool rows;
-  the bridge above is just the mechanical format step LLaMA-Factory needs at the end.
+- Operators come from `dataos_operator` (>=0.4.0); `dataos_operator.catalog()` lists them all and
+  `dataos_operator.usage('<op>')` gives one operator's full how-to (read the usage for each op in
+  the recipe). The operator pipeline is the EXPERIMENT — it filters / dedups / quality-scores /
+  samples the raw pool rows; the bridge above is just the mechanical format step LLaMA-Factory
+  needs at the end.
+- ONLINE operators (mode=online: `loss_selector` / `delta_loss_selector` / `less_selector` /
+  `doremi_mixer` / `odm_mixer` / `loss_reweighter`) are NOT part of the offline pipeline — they run
+  DURING SFT. For these, follow `dataos_operator.guide()`: export the bridged data to ShareGPT,
+  write a `dataos_runtime_config.json` (the operators + `update_interval` + `backend`), and run
+  training through the DataOS-LLaMA-Factory integration with `dataos_enable=True` and
+  `dataos_config_path=...`. Do NOT also run them in the offline `.run()` pipeline.
 - If an operator rejects a parameter or an API differs from the plan text, make the smallest
   equivalent compatibility fix that preserves the experiment intent, then record it in
   `report.json` under a compatibility note.

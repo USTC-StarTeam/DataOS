@@ -14,16 +14,17 @@ from dataos.agent.llm.structured import run_structured_dialog
 from .schemas import ExperimentPlan
 
 
-def _summarize_catalog(catalog: list[dict] | None, limit: int = 40) -> list[dict]:
+def _summarize_catalog(catalog: list[dict] | None, limit: int = 60) -> list[dict]:
     out = []
     for op in (catalog or [])[:limit]:
-        out.append(
-            {
-                "name": op.get("name"),
-                "kind": op.get("kind"),
-                "params": [p.get("name") for p in (op.get("params") or [])],
-            }
-        )
+        row = {
+            "name": op.get("name"),
+            "kind": op.get("kind"),
+            "mode": op.get("mode"),  # offline (data-prep) | online (training-time policy)
+            "effect": op.get("effect"),  # one-line summary of what the operator does
+            "params": [p.get("name") for p in (op.get("params") or [])],
+        }
+        out.append({k: v for k, v in row.items() if v is not None})
     return out
 
 

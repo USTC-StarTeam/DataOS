@@ -38,17 +38,44 @@ def catalog() -> list[dict[str, Any]]:
     from dataos_operator.core import list_operator_specs
     from dataos_operator.core.contracts import DEFAULT_FIELD_KEYS
 
+    enrichment = _operator_doc_index()
     descriptors: list[dict[str, Any]] = []
     for spec in list_operator_specs():
-        descriptors.append(_describe_spec(spec, DEFAULT_FIELD_KEYS))
+        descriptors.append(_describe_spec(spec, DEFAULT_FIELD_KEYS, enrichment))
     return descriptors
 
 
-def _describe_spec(spec: Any, default_field_keys: dict[str, str]) -> dict[str, Any]:
+def _operator_doc_index() -> dict[str, dict[str, Any]]:
+    """Map operator name -> {mode, effect} via ``dataos_operator.operator_docs`` (>=0.4.0).
+
+    Older ``dataos_operator`` releases lack the introspected docs; we degrade to an
+    empty map so ``mode``/``effect`` are simply omitted rather than failing.
+    """
+    try:
+        from dataos_operator import operator_docs
+    except ImportError:
+        return {}
+    try:
+        return {
+            entry["name"]: {"mode": entry.get("mode"), "effect": entry.get("summary")}
+            for entry in operator_docs()
+        }
+    except Exception:  # pragma: no cover - defensive: never let discovery break planning
+        return {}
+
+
+def _describe_spec(
+    spec: Any,
+    default_field_keys: dict[str, str],
+    enrichment: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     params, accepts_kwargs = _resolve_params(spec.operator_class, default_field_keys)
+    extra = enrichment.get(spec.name, {})
     return {
         "name": spec.name,
         "kind": spec.kind,
+        "mode": extra.get("mode"),
+        "effect": extra.get("effect"),
         "description": spec.description,
         "operator_class": spec.operator_class,
         "params": params,
