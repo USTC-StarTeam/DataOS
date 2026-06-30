@@ -105,7 +105,7 @@ class PtbRunConfig:
     time_budget_hours: float
     resource: ResourceConfig
     paths: PathConfig
-    eval_samples: int = 64  # sampled eval size per experiment (small — see differences, not full)
+    eval_samples: int = -1  # eval size per experiment; -1 = FULL benchmark (all samples)
     monitor_port: int = 8765  # live-monitor HTTP port (host-side fact; 0 disables the monitor)
 
     @classmethod
@@ -130,9 +130,9 @@ class PtbRunConfig:
             time_budget_hours=_positive_float(data["time_budget_hours"], "time_budget_hours"),
             resource=ResourceConfig.from_dict(_object(data["resource"], "resource")),
             paths=PathConfig.from_dict(_object(data["paths"], "paths")),
-            eval_samples=_positive_int(data["eval_samples"], "eval_samples")
+            eval_samples=_eval_samples(data["eval_samples"], "eval_samples")
             if "eval_samples" in data
-            else 64,
+            else -1,
             monitor_port=_nonneg_int(data["monitor_port"], "monitor_port")
             if "monitor_port" in data
             else 8765,
@@ -246,6 +246,13 @@ def _nonempty_str(value: Any, field_name: str) -> str:
 def _positive_int(value: Any, field_name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ValueError(f"{field_name} must be a positive integer")
+    return value
+
+
+def _eval_samples(value: Any, field_name: str) -> int:
+    """eval size per experiment: a positive int (subset) or -1 (full benchmark)."""
+    if not isinstance(value, int) or isinstance(value, bool) or (value <= 0 and value != -1):
+        raise ValueError(f"{field_name} must be a positive integer or -1 (full benchmark)")
     return value
 
 

@@ -5,7 +5,7 @@
   "bench": "bfcl",
   "base_model_path": "/data/hcgu/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
   "time_budget_hours": 10,
-  "eval_samples": 64,
+  "eval_samples": -1,
   "resource": {
     "node": "gpu04",
     "gpus": 1,

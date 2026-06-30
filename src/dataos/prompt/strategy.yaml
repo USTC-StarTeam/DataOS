@@ -45,14 +45,18 @@ template: |
     DURING SFT from the training signal. Reach for these once a static recipe + hyperparameters
     have plateaued — they are a NEW exploration axis, not just another knob.
 
-  ANALYZE BEFORE YOU CONFIRM — THE 64-SAMPLE EVAL IS NOISY.
-  - Sampled eval has a real confidence band: binary benches ~±12pp, LLM-judge benches ~±5pp.
-    Prior runs were misled by it (a function-calling best of 3/64 was within noise of 0; a
-    health recipe scored 8.8 then 3.8 on the SAME config, different seed).
-  - Do NOT crown a new best or abandon a sound approach on a SINGLE eval. Treat differences
-    inside the noise band as TIES. For a promising high-variance result, confirm it with a
-    second seed before you build on it. In the hypothesis, state explicitly WHY you believe a
-    result is signal rather than noise.
+  EVAL IS FULL — TRUST EXACT SCORES, AND CHANGE EXACTLY ONE KNOB.
+  - Eval now runs the FULL benchmark (every sample), not a 64-sample subset. For deterministic
+    benches (gsm8k, bfcl, humaneval, gpqa, aime) the score is EXACT — even a small real difference
+    is signal, so trust it. LLM-judge benches (healthbench, arena_hard_writing) still carry some
+    judge-model variance (much less than before); for a surprising judge result, re-run the eval
+    once to confirm before building on it.
+  - Change EXACTLY ONE knob per experiment (data size OR lr OR finetune type OR cutoff_len OR
+    source — not several at once). A prior best jumped 59 -> 70 while size, seed AND cutoff_len all
+    changed together, so NO ONE could tell what actually moved it (likely the cutoff_len 1024->1536
+    un-truncating long CoT, not the data size). One knob at a time is how you learn the cause.
+  - Watch cutoff_len for long-CoT data (math/code): too short silently truncates solutions into
+    corrupted targets. If long-output data underperforms, raise cutoff_len before blaming the data.
 
   LEARNING RATE IS THE MOST SENSITIVE KNOB.
   - Tune it deliberately, anchored to the best node's lr (x0.5 / x2). Do not pick lr ad-hoc or

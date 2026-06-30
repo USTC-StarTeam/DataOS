@@ -278,7 +278,7 @@ def _plan_context(
             "the cluster — never invent names or use placeholders.",
             "Do not set train.model_name_or_path; code injects the parent model path.",
             "One sub-agent owns the full data/train/eval experiment.",
-            "Use the frozen sampled eval only; full eval is reserved for a final/manual validation.",
+            "Use the frozen eval protocol for this run (eval_limit from runtime config; -1 = full).",
             "GPU work must run through the configured executor, not on a login node.",
         ],
     }
