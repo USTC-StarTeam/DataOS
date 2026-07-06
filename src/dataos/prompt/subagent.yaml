@@ -35,6 +35,12 @@ template: |
     with the SAME template the evaluator parses. Do NOT force-fit unsuitable operators into a
     pipeline that silently trains on garbage (that is exactly how a BFCL run scored 4 instead of 83).
     Record the script + its filter/format logic in report.json.
+  - SEDIMENT REUSABLE LOGIC INTO AN OPERATOR. If that cleaning/format logic is general and worth
+    reusing (not a one-off), promote it to a `DataOperator` subclass — read `dataos_operator.guide()`
+    for the family→method template — and save it as a `.py` file in `$AGENTVER/resources/custom_operators/`
+    (the dir `DATAOS_OPERATOR_PLUGINS` points at). It then auto-appears in the OPERATOR CATALOG so the
+    main-agent can plan it by name next time, and it is reusable across runs — strictly better than a
+    one-off script. e.g. a "keep only valid function-call rows" filter becomes `function_call_filter`.
   - FAILURE = DIAGNOSE, DON'T BLINDLY RETRY. If a stage fails, `cat` the job log and find the ROOT
     cause (OOM, operator/API error, format/parse mismatch, timeout) BEFORE retrying. Write that root
     cause into report.json `error`. Never re-run the identical recipe hoping it passes — fix the

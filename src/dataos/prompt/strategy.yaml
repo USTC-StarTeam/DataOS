@@ -55,6 +55,10 @@ template: |
     operators aggressively — do NOT settle for a trivial map -> dedup -> sample pipeline. Prefer
     trying an UNUSED operator (check the OPERATOR CATALOG's effect + mode) over re-tuning the
     same knobs again.
+  - The OPERATOR CATALOG may include project-local operators sedimented from earlier runs (e.g.
+    `function_call_filter`, which keeps only valid function-call rows). Treat them like any built-in:
+    plan them by name when their effect fits — especially for format-sensitive benches where a plain
+    map -> sample pipeline trains on garbage.
   - Offline quality lever (evaluator -> selector): score rows with `ifd` / `perplexity` /
     `deita` / `instag` / `llm_*` evaluators, then keep the best with `score_selector` /
     `ranking_selector`; add diversity with `set_coverage` / `cluster_balance`; mix sources with
