@@ -250,11 +250,11 @@ async function loadRuns(){
 }
 const PHASE_SHORT = { planning:"planning", executing:"running", reviewing:"reviewing", done:"done" };
 
-// tidy layout. The structural placeholder root (parent==null) is dropped so the
-// BASELINE becomes the visible root; remaining nodes are re-depthed from there.
+// tidy layout. The structural placeholder root (parent==null) is KEPT visible as the
+// base-model node (shown at score 0), so every pivot branch connects to one shared root
+// instead of appearing as several disconnected trees.
 function layout(allNodes){
-  const phantom = new Set(allNodes.filter(n=>n.parent==null).map(n=>n.id));
-  const nodes = allNodes.filter(n=>!phantom.has(n.id));
+  const nodes = allNodes;
   BYID = new Map(nodes.map(n=>[n.id,n]));
   if(!nodes.length) return {nodes, pos:new Map(), maxX:0, maxD:0};
   const minD = Math.min(...nodes.map(n=>n.depth));
@@ -311,14 +311,16 @@ function render(allNodes, meta){
   }
   for(const n of nodes){
     const x=X(n.id), y=Y(n.id);
+    const isRoot = n.parent==null;
     const fail = n.status==="failed";
-    const fill = fail ? "#241015" : scoreColor(typeof n.score==="number"?n.score:null);
+    const scoreVal = isRoot ? 0 : (typeof n.score==="number"?n.score:null);
+    const fill = fail ? "#241015" : scoreColor(scoreVal);
     const cls = "node"+(n.id===bestId?" best":"")+(n.id===SELID?" sel":"");
-    const sc = typeof n.score==="number" ? n.score.toFixed(n.score>=100?0:1)
-              : (fail?"✕":"…");
+    const sc = isRoot ? "0" : (typeof n.score==="number" ? n.score.toFixed(n.score>=100?0:1)
+              : (fail?"✕":"…"));
     const scFill = fail?"var(--coral)":"#06120f";
     const halo = n.id===bestId ? `<circle class="halo" r="${R+5}"/>`:"";
-    const name = esc(n.experiment_name||n.id);
+    const name = isRoot ? "base model" : esc(n.experiment_name||n.id);
     circles += `<g class="${cls}" data-id="${n.id}" transform="translate(${x},${y})">`+
       halo+
       `<circle r="${R}" fill="${fail?"#241015":fill}" ${fail?'stroke="var(--coral)"':''}/>`+

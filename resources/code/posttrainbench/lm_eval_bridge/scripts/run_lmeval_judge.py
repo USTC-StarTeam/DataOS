@@ -169,7 +169,9 @@ def main() -> None:
         os.environ["POSTTRAINBENCH_JUDGE_MODEL"] = args.judge_model
     # We parallelize at the DOC level (the predictions are the real bottleneck), so keep each
     # doc's per-criterion scoring serial — total in-flight judge calls then ≈ `workers`.
-    workers = args.workers if args.workers is not None else 32
+    # Floor judge concurrency at 16: a sub-agent once passed --workers 1, making a
+    # HealthBench round take ~3h instead of ~10min. Default 32 when unset.
+    workers = max(16, args.workers) if args.workers is not None else 32
     os.environ["POSTTRAINBENCH_HEALTHBENCH_CRITERIA_WORKERS"] = "1"
     # Judging must actually call the API here even though generation disabled it.
     os.environ.pop("POSTTRAINBENCH_JUDGE_DISABLED", None)
