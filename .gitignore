@@ -217,3 +217,8 @@ workspace/
 *.env
 workspace_*/
 run-dataos/harnesses/posttrainbench/_ptb_*
+
+# macOS AppleDouble + sub-agent scratch
+._*
+resources/code/posttrainbench/sbatch_*.sh
+configs/runs/ptb-smoke-*.json
