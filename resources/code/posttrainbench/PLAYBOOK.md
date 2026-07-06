@@ -106,8 +106,9 @@ main-agent already verified exist in the pool; each lives under the fixed pool (
 `<fixed_pool>/<source_id>`, `fixed_pool` from RUNTIME CONFIG). Run the recipe through `dataos` on
 H100 (the pool lives there), then bridge to the SFT format. In the configured `train_env`, this
 repo uses a `src` layout, so set `PYTHONPATH=$AGENTVER/src:$AGENTVER`. Also
-`export DATAOS_OPERATOR_PLUGINS=$AGENTVER/resources/custom_operators` before running the recipe, so
-any project-local custom operators (sedimented from earlier runs) are discoverable and usable by name.
+`export DATAOS_OPERATOR_PLUGINS=$AGENTVER/resources/custom_operators:$RUN_ROOT/custom_operators` before
+running the recipe, so BOTH shared operators (sedimented from earlier runs) and this run's own
+run-local operators are discoverable and usable by name.
 
 **LOOK BEFORE YOU WRITE.** Inside the Slurm job, FIRST load each source's dir and print a few real
 rows + their columns, AND read the operators' own docs — they are the single source of truth for
@@ -157,14 +158,15 @@ pipeline, shaped to the schema you actually saw — do NOT guess the API or writ
   JSON-schema, and rendered with the evaluator's own qwen3 template + `<tool_call>` tag. The run
   that instead random-sampled the dirty glaive source through plain operators scored **4**. Record
   the script + its filter/format logic in report.json.
-- **Sediment reusable logic into a custom operator (better than a one-off script).** If the
-  cleaning/format logic is general, promote it to a `DataOperator` subclass (see
-  `python -c "import dataos_operator as o; print(o.guide())"` for the family→method template) and
-  save it as a `.py` in `$AGENTVER/resources/custom_operators/`. With
-  `DATAOS_OPERATOR_PLUGINS=$AGENTVER/resources/custom_operators` set, it auto-joins the OPERATOR
-  CATALOG (usable by name in future recipes) and is reusable across runs. `function_call_filter` is
-  already provided there as the first example — reuse it for tool-calling benches instead of
-  re-writing a filter.
+- **Sediment reusable logic into a custom operator — two tiers, so parallel runs never collide.**
+  Write the cleaning/format logic as a `DataOperator` subclass (see
+  `python -c "import dataos_operator as o; print(o.guide())"` for the family→method template). Save
+  it FIRST to the run-local dir `$RUN_ROOT/custom_operators/` (`mkdir -p` it): isolated to THIS run,
+  usable by name at once, zero collision with concurrent runs. ONLY if it proves general across
+  benches, promote it to the shared `$AGENTVER/resources/custom_operators/` (that dir must be
+  committed to persist). Both dirs are on `DATAOS_OPERATOR_PLUGINS`, so either auto-joins the
+  OPERATOR CATALOG. `function_call_filter` is already in the shared dir as the first example — reuse
+  it for tool-calling benches instead of re-writing a filter.
 
 ## 2. Train — SFT from the parent model on H100 GPU (Slurm), with LLaMA-Factory
 
