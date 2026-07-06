@@ -29,6 +29,30 @@ The H100 login node is SHARED and fragile (no GPU). Abusing it stalls it for eve
   Read only the specific files you need — their exact paths are in the RUNTIME CONFIG block
   injected by the main-agent.
 
+## ⚠️ Output isolation — keep the shared HOME (~) clean
+
+EVERYTHING you create on H100 MUST live under `$RUN_ROOT`, never in the shared login-node HOME (`~`). Stray files in `~` (`slurm-*.out`, `torchinductor_*`, framework IPC sockets) break the cluster owner's housekeeping — treat a clean HOME as a hard requirement.
+
+1. **First thing after ssh to the login node**, before any sbatch/python:
+   ```bash
+   mkdir -p $RUN_ROOT/logs $RUN_ROOT/tmp $RUN_ROOT/.cache && cd $RUN_ROOT
+   ```
+2. **Every `sbatch` script MUST pin its cwd + logs** (else `slurm-%j.out` lands in `~`):
+   ```bash
+   #SBATCH --chdir=<RUN_ROOT>
+   #SBATCH --output=<RUN_ROOT>/logs/slurm-%j.out
+   #SBATCH --error=<RUN_ROOT>/logs/slurm-%j.err
+   ```
+3. **Inside every GPU job, redirect framework caches / temp / sockets** into `$RUN_ROOT`:
+   ```bash
+   export TMPDIR=$RUN_ROOT/tmp
+   export TORCHINDUCTOR_CACHE_DIR=$RUN_ROOT/.cache/inductor
+   export TRITON_CACHE_DIR=$RUN_ROOT/.cache/triton
+   export TORCH_HOME=$RUN_ROOT/.cache/torch
+   ```
+
+`slurm-*.out`, `torchinductor_*`, and framework IPC sockets all follow the process CWD / default cache dirs — pin them or they litter `~`.
+
 ## Runtime config
 
 The main-agent injects a `RUNTIME CONFIG` JSON block into your task prompt. It is derived
@@ -55,6 +79,25 @@ FIXED_POOL=<paths.fixed_pool>
 
 GPU work goes through Slurm with the configured `partition` / `qos` / `gres`. The login node
 has internet; compute nodes may not.
+
+## 0. RECON mode (only when your task is the RECON prompt, not a training experiment)
+
+If your task prompt is the RECON prompt (gather intel → write `recon.json`), you do NOT train.
+Produce the three parts and write the file:
+1. **eval_format_contract** — read the {BENCH} task + scorer under
+   `$AGENTVER/resources/code/posttrainbench/lm_eval_bridge/`; record how it parses model output and
+   the EXACT `expected_target_shape` a training answer must take (incl. any template/tag).
+2. **baseline_diagnosis** — decide if the base model's low score is a FORMAT miss vs a CAPABILITY
+   gap (read a few base generations if present, or reason from base + contract). Don't run a full
+   GPU eval just for this — set cause "unknown" if you can't tell cheaply.
+3. **source_profiles** — run the deterministic profiler over the WHOLE pool (cheap, ~minutes):
+   ```bash
+   ssh <login> '<eval_env>/bin/python \
+     $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/profile_source.py \
+     --pool-root <fixed_pool> --all-sources --target <function-calling|math|general>'
+   ```
+   It prints a JSON array of per-source `{n, domain, output_format, target_fit, quality, usage_hint}`.
+   Put it in verbatim as `source_profiles` — do not hand-edit its verdicts.
 
 ## 1. Build data — run the operator recipe (the main lever)
 
@@ -101,6 +144,17 @@ pipeline, shaped to the schema you actually saw — do NOT guess the API or writ
   needed by the compute job, then sbatch the remaining selection / `save_to_disk` / train work.
 - `smoke` profile → cap the final dataset to **≤1000 rows** (`random_sample_selector` last).
 - If `dataos_operator` (or an operator's dep) is missing in the env, install it, then continue.
+- **WHEN THE OPERATORS CAN'T DO IT, HAND-WRITE A SCRIPT — don't force-fit.** The 22 operators have
+  NO "keep only valid target-format rows" filter and no "normalize output to the eval's exact shape"
+  step. If the recipe/brief needs cleaning or format-alignment they can't express, write a small
+  standalone Python prep script (run it in the Slurm job) that: keeps only rows whose output parses
+  as the eval's target shape, drops negatives (e.g. "no access to functions" rows), and renders the
+  target with the SAME template the evaluator parses. This is how a BFCL run reached **83** — a
+  hand-written `prepare_bfcl_sft.py` read the clean `xlam_function_calling_60k` source, triple-
+  filtered (tools-parseable ∧ calls-parseable ∧ call-name∈tools), converted params to the BFCL
+  JSON-schema, and rendered with the evaluator's own qwen3 template + `<tool_call>` tag. The run
+  that instead random-sampled the dirty glaive source through plain operators scored **4**. Record
+  the script + its filter/format logic in report.json.
 
 ## 2. Train — SFT from the parent model on H100 GPU (Slurm), with LLaMA-Factory
 
@@ -212,7 +266,7 @@ python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval
     POSTTRAINBENCH_BENCHMARKS_DIR=$AGENTVER/resources/data/posttrainbench_benchmarks; \
     <eval_env>/bin/python $AGENTVER/resources/code/posttrainbench/lm_eval_bridge/scripts/run_lmeval_judge.py \
       --bench <BENCH> --predictions <eval_dir>/predictions.jsonl --output <eval_dir>/summary.json \
-      --workers <judge workers>'
+      --workers 32'
   ```
   (`POSTTRAINBENCH_BENCHMARKS_DIR` lets the arena judge load its baseline answers from
   `local/arena-hard-v2.0/model_answer/` — the judge config `base_url`/`model`/`key_file`/`workers`

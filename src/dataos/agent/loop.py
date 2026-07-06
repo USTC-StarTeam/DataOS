@@ -229,6 +229,37 @@ def _effective_eval_limit(cfg: AutoRunConfig) -> int:
     return 20 if cfg.ptb_profile == "smoke" else 200
 
 
+_RECON_FILE = "recon.json"
+
+
+def _load_recon(project_dir: Path) -> dict | None:
+    """Read the run's recon.json (eval contract + baseline diagnosis + source profiles)."""
+    try:
+        data = json.loads((project_dir / _RECON_FILE).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _recon_digest(recon: dict | None) -> dict | None:
+    """A compact recon view for later rounds — keeps the source-quality table + eval contract
+    (the parts the planner must keep obeying) but drops verbose per-source samples to save tokens.
+    The HARD guard is _validate_plan (code), so the digest is only a reminder, not the enforcement."""
+    if not recon:
+        return recon
+    profiles = [
+        {k: p.get(k) for k in ("source", "domain", "quality")
+         if k in p} | {"target_ratio": (p.get("target_fit") or {}).get("target_ratio")}
+        for p in (recon.get("source_profiles") or [])
+    ]
+    return {
+        "eval_format_contract": recon.get("eval_format_contract"),
+        "baseline_diagnosis": recon.get("baseline_diagnosis"),
+        "source_profiles": profiles,
+        "note": "digest — full profiles were shown in round 0; obey source quality + eval contract",
+    }
+
+
 def _plan_context(
     *,
     cfg: AutoRunConfig,
@@ -238,6 +269,7 @@ def _plan_context(
     eval_cfg: dict,
     started: float,
     now: float,
+    recon: dict | None = None,
 ) -> dict:
     return {
         "setting": {
@@ -253,6 +285,10 @@ def _plan_context(
             "remaining_hours": _remaining_hours(started, cfg, now),
         },
         "round_idx": round_idx,
+        # RECON intel (gathered once before training): eval format contract + baseline failure
+        # cause + per-source quality profiles. Full in round 0-1, digested after. data.sources
+        # MUST be picked from source_profiles (prefer HIGH, avoid DIRTY) — enforced in _validate_plan.
+        "recon": recon if round_idx <= 1 else _recon_digest(recon),
         "tree": tree.to_context(),
         "best": _global_best(proj),
         "recent_reviews": _recent_reviews(proj),
@@ -284,7 +320,7 @@ def _plan_context(
     }
 
 
-def _validate_plan(plan, tree, cfg: AutoRunConfig) -> list[str]:
+def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) -> list[str]:
     errors: list[str] = []
     parent = plan.parent_node_id
     if not tree.has_node(parent):
@@ -302,6 +338,32 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig) -> list[str]:
         errors.append("train.model_name_or_path must be omitted; code injects the parent model")
     if plan.estimated_hours is not None and plan.estimated_hours <= 0:
         errors.append("estimated_hours must be positive when provided")
+
+    # Gate ②: every planned source must be one RECON profiled, and not flagged DIRTY. This is a
+    # pure table lookup (no side effects) — it makes "grab the dirty glaive source" impossible.
+    # Skipped when the recon has no profiles (e.g. recon was incomplete) so the run isn't bricked.
+    profiles = {p.get("source"): p for p in (recon or {}).get("source_profiles", [])
+                if isinstance(p, dict) and p.get("source")}
+    if profiles:
+        for src in (getattr(plan, "data", None) or {}).get("sources", []) or []:
+            prof = profiles.get(src)
+            if prof is None:
+                errors.append(
+                    f"source {src!r} is not in recon.source_profiles — only use profiled pool "
+                    f"sources; pick from the recon source-quality table"
+                )
+            elif str(prof.get("quality", "")).startswith("DIRTY"):
+                errors.append(
+                    f"source {src!r} is {prof.get('quality')} in recon "
+                    f"(target_ratio={(prof.get('target_fit') or {}).get('target_ratio')}) — "
+                    f"pick a HIGH-quality source, or the plan must hand-write a validity/format "
+                    f"filter to clean it (see subagent_brief)"
+                )
+            elif prof.get("quality") == "IRRELEVANT":
+                errors.append(
+                    f"source {src!r} is IRRELEVANT to {cfg.target_bench} in recon "
+                    f"(domain={prof.get('domain')}) — pick a source whose domain matches the target"
+                )
     return errors
 
 
@@ -421,6 +483,26 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
 
     _start_monitor(cfg, log)
 
+    # RECON gate ①: before ANY training, force a one-shot reconnaissance so the main-agent plans
+    # with facts (eval format contract, base failure cause, per-source quality) instead of guessing.
+    # Resume-safe: a valid recon.json on disk skips it. Skipped for the stub backend (no cluster).
+    recon = _load_recon(Path(proj.project_dir))
+    if recon is None and cfg.backend != "stub":
+        log.info("RECON: mandatory reconnaissance before any experiment")
+        _publish_live(cfg, round_idx=-1, phase="recon", started=started, now=_clock())
+        from dataos.agent import subagent_executor
+
+        recon_deadline = (
+            started + cfg.budget.max_wall_clock_s if cfg.budget.max_wall_clock_s else None
+        )
+        try:
+            recon = subagent_executor.run_recon_subagent(
+                cfg=cfg, proj=proj, catalog=catalog, deadline=recon_deadline
+            )
+        except Exception as e:  # noqa: BLE001 — recon failure must not brick the run
+            log.error("RECON failed (%s); proceeding without source gating", e)
+            recon = None
+
     while True:
         now = _clock()
         reason = _budget.stop_reason(started_at=started, budget=cfg.budget, now=now)
@@ -465,6 +547,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     eval_cfg=eval_cfg,
                     started=started,
                     now=now,
+                    recon=recon,
                 )
                 log.info("round %d: asking main-agent for plan (attempt %d)", round_idx, attempt)
                 plan, session_id = next_plan(
@@ -480,7 +563,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     phase="plan",
                     round_idx=round_idx,
                 )
-                validation_errors = _validate_plan(plan, tree, cfg)
+                validation_errors = _validate_plan(plan, tree, cfg, recon)
                 if not validation_errors:
                     break
                 log.warning(

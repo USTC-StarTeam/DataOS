@@ -16,3 +16,4 @@ template: |
   {{ last_text }}
 
   Keep going until you write report.json with status completed or failed. If you already submitted Slurm jobs, poll sacct/squeue with sleeps to terminal state, then continue to the next stage. A stage update is not a final answer.
+  If a stage FAILED, `cat` its job log to find the ROOT cause (OOM / operator or API error / format-parse mismatch / timeout) before retrying — never re-run the identical step blindly; fix the named cause or write report.json status:"failed" with that cause in `error`.

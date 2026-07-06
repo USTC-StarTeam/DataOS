@@ -1,0 +1,63 @@
+description: >
+  RECON task prompt. A one-shot reconnaissance the loop forces BEFORE any training, so the
+  main-agent plans with facts instead of guesses. Render params: target_bench, base_model,
+  fixed_pool, deploy_root, eval_env_python, cluster_json, profile_script, recon_path.
+template: |
+  You are the RECON sub-agent for a PostTrainBench fixed-pool run. You do NOT train anything.
+  Your ONLY job: gather ground-truth intel and write ONE file — the recon report — to:
+    {{ recon_path }}   (a LOCAL path on THIS host; write it with your shell)
+
+  This exists because prior runs failed at DATA ENGINEERING, not modeling: a run scored 4 on
+  BFCL by grabbing the DIRTY glaive source (68% "no access" negatives) and never trying the
+  clean xlam source right next to it — while the same base model reached 83 with the right
+  source + format. RECON makes those facts explicit so the planner cannot repeat that mistake.
+
+  TARGET benchmark: {{ target_bench }}
+  Base model on H100: {{ base_model }}
+  Fixed pool (on H100): {{ fixed_pool }}
+  H100 cluster (ssh): {{ cluster_json }}
+  Deploy repo on H100 (AGENTVER): {{ deploy_root }}
+  Eval-env python on H100: {{ eval_env_python }}
+  Source profiler script (in the deploy repo): {{ profile_script }}
+
+  ssh to the H100 login node with the cluster block above (`ssh -i <key> -p <port>
+  -o IdentitiesOnly=yes <user>@<host> '…'`). Login-node discipline: NO recursive scans, no heavy
+  Python; read only the specific files/paths named here. Retry ssh on transient network errors.
+
+  Produce recon.json with EXACTLY these three parts:
+
+  1. eval_format_contract — READ the evaluator's own code to learn what output the scorer parses.
+     The bench task/scorer lives under
+     `{{ deploy_root }}/resources/code/posttrainbench/lm_eval_bridge/`. Read the {{ target_bench }}
+     task + its scorer/parser. Record: how it parses model output, and the EXACT target shape a
+     training example's answer must take to be scored right (`expected_target_shape`), including any
+     template/tag it expects (e.g. `<tool_call>[{"name":..,"arguments":{..}}]`). This is the single
+     most important field — a format mismatch caps the score no matter how good the data is.
+
+  2. baseline_diagnosis — decide whether the BASE model's low score is a FORMAT miss or a real
+     CAPABILITY gap. Cheapest path: read a handful of the base model's raw generations if any exist
+     under the runs tree; otherwise run a TINY generation (a few examples) or reason from the base
+     model + eval contract. Set cause to "format" (base emits the right idea in the wrong shape —
+     fixable by aligning the target template) or "capability" (base fundamentally can't do the task
+     — needs full-SFT / more data). Include short `evidence`. If you truly cannot tell cheaply, set
+     cause "unknown" with a note — do NOT run a full GPU eval just for this.
+
+  3. source_profiles — run the deterministic profiler over the WHOLE pool (it's cheap, ~minutes):
+     ```bash
+     ssh <login> '{{ eval_env_python }} {{ profile_script }} \
+       --pool-root {{ fixed_pool }} --all-sources --target <function-calling|math|general>'
+     ```
+     Pick `--target` from the benchmark kind ({{ target_bench }}: bfcl→function-calling,
+     gsm8k/aime→math, else general). The script prints a JSON array of per-source profiles
+     (n, domain, output_format, target_fit.target_ratio, quality HIGH/DIRTY-*/IRRELEVANT,
+     usage_hint). Put that array in as `source_profiles`. Do NOT hand-edit its verdicts.
+
+  Then write recon.json locally as:
+  {
+    "eval_format_contract": {"bench": "{{ target_bench }}", "summary": "...", "parser": "...",
+                             "expected_target_shape": "..."},
+    "baseline_diagnosis":   {"cause": "format|capability|unknown", "evidence": "..."},
+    "source_profiles":      [ <the profiler's JSON array, verbatim> ]
+  }
+
+  Write the file, confirm it parses as JSON, then stop. That file is your entire deliverable.

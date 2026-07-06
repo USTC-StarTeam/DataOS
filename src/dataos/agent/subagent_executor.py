@@ -355,6 +355,81 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
     return name, report
 
 
+_RECON_FILE = "recon.json"
+_RECON_TIMEOUT_S = 45 * 60.0  # recon is cheap intel-gathering, not training — cap it tight
+
+
+def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None) -> dict:
+    """RECON stage — a one-shot sub-agent that gathers ground-truth intel BEFORE any training and
+    writes ``recon.json`` (eval_format_contract + baseline_diagnosis + source_profiles). It does NOT
+    train; it ssh's to H100, reads the eval scorer, and runs the deterministic source profiler over
+    the whole pool. Returns the parsed recon dict (also written to ``proj.project_dir/recon.json``).
+    Resume-safe: if a valid recon.json already exists on disk, the loop skips calling this."""
+    del catalog  # recon needs the pool + eval code, not the operator catalog
+    recon_path = Path(proj.project_dir) / _RECON_FILE
+    runtime = _runtime_config(cfg)
+    paths = runtime.get("paths", {})
+    cluster = runtime.get("cluster", {})
+    deploy_root = paths.get("deploy_root", "")
+    eval_env = paths.get("eval_env", "")
+    prompt = _prompt.render(
+        "subagent_recon",
+        target_bench=cfg.target_bench,
+        base_model=cfg.h100_base_model,
+        fixed_pool=paths.get("fixed_pool", ""),
+        deploy_root=deploy_root,
+        eval_env_python=f"{eval_env}/bin/python" if eval_env else "python",
+        cluster_json=json.dumps(
+            {k: cluster.get(k) for k in ("host", "user", "port", "key")}, ensure_ascii=False
+        ),
+        profile_script=(
+            f"{deploy_root}/resources/code/posttrainbench/lm_eval_bridge/scripts/profile_source.py"
+        ),
+        recon_path=str(recon_path),
+    )
+    agent = ClaudeCodeAgent(
+        instructions=_prompt.render("subagent"),
+        workspace=_REPO_ROOT,
+        model=cfg.claude_code_model,
+        max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
+    )
+    cap = _RECON_TIMEOUT_S
+    if deadline is not None:
+        cap = max(60.0, min(cap, deadline - time.monotonic()))
+    log.info("recon: starting reconnaissance (bench=%s, cap=%ss)", cfg.target_bench, int(cap))
+    started = time.monotonic()
+    session_id = None
+    last_text = ""
+    while time.monotonic() - started < cap:
+        remaining = cap - (time.monotonic() - started)
+        try:
+            res = agent.run(prompt, resume=session_id, timeout=remaining)
+        except Exception as e:  # noqa: BLE001 — recon must not crash the run; fall back to minimal
+            log.error("recon: agent error: %s", e)
+            break
+        session_id = getattr(res, "session_id", None) or session_id
+        last_text = (getattr(res, "text", "") or "").strip()
+        recon = _read_json(recon_path)
+        if isinstance(recon, dict) and recon.get("source_profiles"):
+            log.info("recon: done — %d source profiles, base_cause=%s",
+                     len(recon.get("source_profiles") or []),
+                     (recon.get("baseline_diagnosis") or {}).get("cause"))
+            return recon
+        prompt = (
+            "recon.json is not yet complete at %s. Finish gathering the three parts "
+            "(eval_format_contract, baseline_diagnosis, source_profiles) and write the file."
+            % recon_path
+        )
+    # fallback: don't block the run — write a minimal recon so the loop can proceed (loosely).
+    log.warning("recon: incomplete (%s); writing minimal recon so the run can proceed", last_text[:200])
+    recon = _read_json(recon_path) if isinstance(_read_json(recon_path), dict) else {}
+    recon.setdefault("eval_format_contract", {"bench": cfg.target_bench, "summary": "recon incomplete"})
+    recon.setdefault("baseline_diagnosis", {"cause": "unknown", "evidence": "recon incomplete"})
+    recon.setdefault("source_profiles", [])
+    atomic_write_json(recon_path, recon)
+    return recon
+
+
 def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -> dict[str, dict]:
     """Run each spec as an agentic sub-agent. PTB allows only ONE H100 for the whole run, so
     experiments execute SEQUENTIALLY (never in parallel), sharing the single-GPU / 10h budget.

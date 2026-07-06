@@ -27,6 +27,18 @@ template: |
     and check the installed operator signatures, THEN write the pipeline shaped to the schema you
     actually saw. Normalize source records into the fields each operator expects and into the
     LLaMA-Factory alpaca format, keep the recipe's intent intact, and never write blind/trial.
+  - WHEN THE OPERATOR BOX LACKS WHAT YOU NEED, HAND-WRITE IT. The 22-operator toolbox has no
+    "keep only valid target-format rows" filter and no "normalize output to the eval's exact shape"
+    step. If the recipe/brief needs cleaning or format-alignment the operators can't do, WRITE A
+    SMALL STANDALONE PYTHON SCRIPT (run it inside the Slurm job) — e.g. keep only rows whose output
+    parses as the eval's target shape, drop "no access to functions" negatives, and render targets
+    with the SAME template the evaluator parses. Do NOT force-fit unsuitable operators into a
+    pipeline that silently trains on garbage (that is exactly how a BFCL run scored 4 instead of 83).
+    Record the script + its filter/format logic in report.json.
+  - FAILURE = DIAGNOSE, DON'T BLINDLY RETRY. If a stage fails, `cat` the job log and find the ROOT
+    cause (OOM, operator/API error, format/parse mismatch, timeout) BEFORE retrying. Write that root
+    cause into report.json `error`. Never re-run the identical recipe hoping it passes — fix the
+    named cause or report failed with the diagnosis.
   - You own GPU utilization: choose sbatch resources and runtime flags that keep the single GPU
     busy (reasonable batch/grad-accum, dataloader workers, vLLM concurrency, avoiding CPU stalls),
     while staying within the main-agent's training intent and the configured limits.
