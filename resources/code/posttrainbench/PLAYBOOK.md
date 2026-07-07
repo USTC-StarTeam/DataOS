@@ -45,7 +45,7 @@ EVERYTHING you create on H100 MUST live under `$RUN_ROOT`, never in the shared l
    ```
 3. **Inside every GPU job, redirect framework caches / temp / sockets** into `$RUN_ROOT`:
    ```bash
-   export TMPDIR=$RUN_ROOT/tmp
+   export TMPDIR=/tmp/dataos_${SLURM_JOB_ID:-$$} && mkdir -p "$TMPDIR"   # short path: $RUN_ROOT/tmp overran AF_UNIX's 108-char socket limit (dataloader/multiprocessing)
    export TORCHINDUCTOR_CACHE_DIR=$RUN_ROOT/.cache/inductor
    export TRITON_CACHE_DIR=$RUN_ROOT/.cache/triton
    export TORCH_HOME=$RUN_ROOT/.cache/torch

@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="summary.json to update or create")
     parser.add_argument("--judge-model", default=None, help="overrides POSTTRAINBENCH_JUDGE_MODEL")
     parser.add_argument(
-        "--workers", type=int, default=None,
+        "--workers", type=int, default=None,  # DEPRECATED/IGNORED: concurrency is fixed at 32
         help="judge document concurrency — predictions scored in parallel (default 32; "
         "chatanywhere handles ~32-64 concurrent, throughput ~45 calls/min).",
     )
@@ -171,7 +171,11 @@ def main() -> None:
     # doc's per-criterion scoring serial — total in-flight judge calls then ≈ `workers`.
     # Floor judge concurrency at 16: a sub-agent once passed --workers 1, making a
     # HealthBench round take ~3h instead of ~10min. Default 32 when unset.
-    workers = max(16, args.workers) if args.workers is not None else 32
+    # FIXED doc concurrency — NOT agent-controllable. A sub-agent once forced it to 1
+    # (or hand-rolled its own concurrency=1 judge), making a HealthBench round take ~3h.
+    # --workers is now accepted but IGNORED so an agent can never lower judge throughput.
+    workers = 32
+    del args  # args.workers deliberately ignored
     os.environ["POSTTRAINBENCH_HEALTHBENCH_CRITERIA_WORKERS"] = "1"
     # Judging must actually call the API here even though generation disabled it.
     os.environ.pop("POSTTRAINBENCH_JUDGE_DISABLED", None)
