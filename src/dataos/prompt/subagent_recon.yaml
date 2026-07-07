@@ -29,10 +29,18 @@ template: |
   1. eval_format_contract — READ the evaluator's own code to learn what output the scorer parses.
      The bench task/scorer lives under
      `{{ deploy_root }}/resources/code/posttrainbench/lm_eval_bridge/`. Read the {{ target_bench }}
-     task + its scorer/parser. Record: how it parses model output, and the EXACT target shape a
-     training example's answer must take to be scored right (`expected_target_shape`), including any
-     template/tag it expects (e.g. `<tool_call>[{"name":..,"arguments":{..}}]`). This is the single
-     most important field — a format mismatch caps the score no matter how good the data is.
+     task + its scorer/parser. Record:
+       - `parser`: how it parses model output (the function + file:line and the extraction steps);
+       - `format_sensitive` (bool): true if the scorer extracts a STRUCTURED answer by PARSING the
+         output (tool call, code block, JSON, MCQ letter, regex) — a wrong shape then scores 0 even
+         when the content is right; false if it is free text graded loosely by an LLM judge;
+       - `expected_target_shape`: the EXACT shape a training example's answer must take, including
+         any template/tag it expects (e.g. `<tool_call>[{"name":..,"arguments":{..}}]`);
+       - `target_example`: ONE concrete filled-in instance — a real input mapped to the exact target
+         string the scorer would accept — so the executor has a literal target to render toward, not
+         just a description.
+     This is the single most important part — a format mismatch caps the score no matter how good
+     the data is.
 
   2. baseline_diagnosis — decide whether the BASE model's low score is a FORMAT miss or a real
      CAPABILITY gap. Cheapest path: read a handful of the base model's raw generations if any exist
@@ -55,7 +63,8 @@ template: |
   Then write recon.json locally as:
   {
     "eval_format_contract": {"bench": "{{ target_bench }}", "summary": "...", "parser": "...",
-                             "expected_target_shape": "..."},
+                             "format_sensitive": true, "expected_target_shape": "...",
+                             "target_example": "..."},
     "baseline_diagnosis":   {"cause": "format|capability|unknown", "evidence": "..."},
     "source_profiles":      [ <the profiler's JSON array, verbatim> ]
   }
