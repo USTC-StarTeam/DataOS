@@ -18,8 +18,12 @@ template: |
     `subagent_brief`, telling the sub-agent to keep only valid rows and normalize to the eval shape.
   - `recon.eval_format_contract.expected_target_shape` is the EXACT output shape the scorer parses.
     Your training target format MUST match it. A format mismatch caps the score regardless of data.
-  - If `recon.baseline_diagnosis.cause == "format"`, fixing the target template/format is priority
-    #1 — do it before scaling data or tuning hyperparameters.
+  - If `recon.baseline_diagnosis.cause == "format"`, fixing the target FORMAT is priority #1 — do
+    it BEFORE scaling data, switching to full-SFT, or tuning hyperparameters. "Fixing the format"
+    means reshaping the training target so its structure is exactly what the scorer parses: the
+    right fields, the wrapper tags / delimiters the eval looks for, and the same serialization — so
+    the evaluator can actually read the model's answer. A wrong template caps the score no matter
+    how much data or how many epochs you add.
 
   READ THE FAILURE BEFORE YOU RE-PLAN.
   - When a report comes back `status:"failed"`, read its `error` root cause FIRST. Do NOT re-open
@@ -34,10 +38,6 @@ template: |
     from that best node and change exactly ONE knob (learning rate x0.5 or x2, +/-1 epoch, or
     data size +/-~50%). Only jump to a new region after local search stops improving.
 
-  GROW FROM THE BEST.
-  - Default parent_node_id to the best-scoring growable node. Branch from a weaker node only
-    deliberately — to escape a confirmed plateau — and say so in the hypothesis.
-
   SMALL TO CONFIRM, THEN SCALE WITHOUT HESITATION — and try full-SFT.
   - Use cheap small experiments (small LoRA, small data) to FIND a direction that works. But the
     moment a small-data recipe confirms a real gain, SCALE IT UP promptly — go to large data
@@ -49,24 +49,6 @@ template: |
   - Data size still cuts both ways: if scaling UP clearly regresses (and it is not just eval
     noise), step back and try the other direction once — but default to scaling a confirmed-good
     small recipe up, not endlessly sweeping at small scale.
-
-  DATA IS THE MAIN LEVER — USE THE OPERATOR TOOLBOX, NOT JUST HYPERPARAMETERS.
-  - This is a data-centric project: the operator recipe moves the score more than lr/epochs. Try
-    operators aggressively — do NOT settle for a trivial map -> dedup -> sample pipeline. Prefer
-    trying an UNUSED operator (check the OPERATOR CATALOG's effect + mode) over re-tuning the
-    same knobs again.
-  - The OPERATOR CATALOG may include project-local operators sedimented from earlier runs (e.g.
-    `function_call_filter`, which keeps only valid function-call rows). Treat them like any built-in:
-    plan them by name when their effect fits — especially for format-sensitive benches where a plain
-    map -> sample pipeline trains on garbage.
-  - Offline quality lever (evaluator -> selector): score rows with `ifd` / `perplexity` /
-    `deita` / `instag` / `llm_*` evaluators, then keep the best with `score_selector` /
-    `ranking_selector`; add diversity with `set_coverage` / `cluster_balance`; mix sources with
-    `concat` / `domain2vec`.
-  - Online data-policy lever (mode=online): `loss_selector` / `delta_loss_selector` /
-    `less_selector` / `doremi_mixer` / `odm_mixer` / `loss_reweighter` select or reweight data
-    DURING SFT from the training signal. Reach for these once a static recipe + hyperparameters
-    have plateaued — they are a NEW exploration axis, not just another knob.
 
   EVAL IS FULL — TRUST EXACT SCORES, AND CHANGE EXACTLY ONE KNOB.
   - Eval now runs the FULL benchmark (every sample), not a 64-sample subset. For deterministic
@@ -86,11 +68,12 @@ template: |
     leave it pinned to one value across every experiment.
 
   DIAGNOSE PATHOLOGICAL SCORES — DON'T JUST RETRAIN.
-  - If a benchmark stays at 0 or near-zero across multiple experiments, the cause is almost
-    always an OUTPUT-FORMAT / eval-parsing mismatch (the scorer cannot parse the model's
-    output), NOT a learning failure. Retraining the same recipe will keep scoring 0. It can also
-    mean a capability the base model lacks entirely — which needs full-SFT / higher rank /
-    format-aligned data, not a hyperparameter nudge.
+  - If a benchmark stays FAR BELOW a reasonable baseline for that bench across multiple experiments
+    — not only at a literal 0, but any score stuck well under what a clean source and a correct
+    output format should yield — the cause is often an OUTPUT-FORMAT / eval-parsing mismatch (the
+    scorer cannot parse the model's output), NOT a learning failure. Retraining the same recipe will
+    keep scoring the same. It can also mean a capability the base model lacks entirely — which needs
+    full-SFT / higher rank / format-aligned data, not a hyperparameter nudge.
   - Then change the DATA FORMAT / target template to match exactly what the eval expects, and
     tell the sub-agent (via subagent_brief) to inspect a few raw eval predictions to confirm the
     format before retraining. Changing rank/lr/epochs will not fix a parse failure.
