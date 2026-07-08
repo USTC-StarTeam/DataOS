@@ -302,7 +302,9 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
             break
         try:
             res = agent.run(prompt, resume=state.get("session_id"), timeout=remaining)
-        except Exception as e:  # noqa: BLE001 — record the blocker; PTB time/user stop ends it
+        except Exception as e:  # noqa: BLE001 — transient transport drops are already retried
+            # (reconnect+resume) inside ClaudeCodeAgent.run; reaching here means a genuine
+            # blocker or the wall-clock/PTB budget is spent, so record it and stop.
             state["status"] = "blocked"
             state["last_error"] = str(e)
             _write_state(state_path, state)
