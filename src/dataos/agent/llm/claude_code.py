@@ -3,9 +3,9 @@
 When the autonomous loop runs locally (mac) and the main-agent brain is Claude Code's
 own subscription login (NOT an API key, NOT a third-party endpoint), this drives the local
 ``claude`` CLI via claude-agent-sdk's ``query()`` with NO ``ANTHROPIC_API_KEY`` injected, so
-the SDK uses the CLI's stored login. Structured output reuses ``dataos_agent._output.parse_output``,
-so it presents the same ``.run(task, output=Model) -> result.output`` contract the rest of
-the runtime uses — no change to the (compiled) dataos-agent package.
+the SDK uses the CLI's stored login. Structured output uses
+:func:`dataos.agent.llm._output.parse_output`, so it presents the same
+``.run(task, output=Model) -> result.output`` contract the rest of the runtime uses.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from dataos import prompt as _prompt
 def _final_text(messages: list) -> str:
     """Reduce a claude-agent-sdk message stream to the final assistant text.
 
-    Mirrors dataos_agent's claude provider: the ResultMessage has ``.result`` and no
-    ``.content``; fall back to concatenated assistant text blocks."""
+    The final ResultMessage has ``.result`` and no ``.content``; fall back to
+    concatenated assistant text blocks when no such result is present."""
     final = ""
     for m in messages:
         result = getattr(m, "result", None)
@@ -58,7 +58,7 @@ def _session_id(messages: list) -> str | None:
 
 
 class ClaudeCodeAgent:
-    """Same ``.run(task, *, output=...)`` contract as ``dataos_agent.Agent``, backed by the
+    """The runtime's ``.run(task, *, output=...)`` agent contract, backed by the
     local claude CLI's Claude-account (subscription) login — no API key."""
 
     supports_dialog = True
@@ -80,7 +80,8 @@ class ClaudeCodeAgent:
     def run(self, task: str, *, output: Any = None, resume: Any = None,
             timeout: float | None = None) -> SimpleNamespace:
         from claude_agent_sdk import ClaudeAgentOptions, query
-        from dataos_agent._output import parse_output
+
+        from dataos.agent.llm._output import parse_output
 
         prompt = task
         if output is not None:

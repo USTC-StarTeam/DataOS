@@ -24,7 +24,7 @@ from dataos.core.io import atomic_write_json
 from dataos.core.study import _slug
 
 from dataos import prompt as _prompt
-from dataos.agent.llm.claude_code import ClaudeCodeAgent
+from dataos.agent.llm.config import build_agent
 
 log = logging.getLogger(__name__)
 
@@ -273,10 +273,10 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
                  name, report.get("status"), report.get("score"))
         return name, report
 
-    agent = ClaudeCodeAgent(
+    agent = build_agent(
+        cfg,
         instructions=_prompt.render("subagent"),
         workspace=_REPO_ROOT,  # cwd at repo root so it can read the playbook + run .venv/ssh
-        model=cfg.claude_code_model,
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
     )
     log.info("subagent[%s]: starting (bench=%s base=%s timeout=%ss)",
@@ -387,10 +387,10 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         ),
         recon_path=str(recon_path),
     )
-    agent = ClaudeCodeAgent(
+    agent = build_agent(
+        cfg,
         instructions=_prompt.render("subagent"),
         workspace=_REPO_ROOT,
-        model=cfg.claude_code_model,
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
     )
     cap = _RECON_TIMEOUT_S

@@ -16,8 +16,7 @@ import json
 import time
 from typing import Any
 
-from dataos_agent._output import parse_output
-from dataos_agent.errors import OutputParseError
+from dataos.agent.llm._output import OutputParseError, parse_output
 
 from dataos import prompt as _prompt
 
