@@ -65,12 +65,22 @@ class ClaudeCodeError(RuntimeError):
     sees the error instead of an endless reconnect loop."""
 
 
+def is_recoverable_text(text: str) -> bool:
+    """True if a raw error/detail STRING looks like a transient transport fault.
+
+    Used for the ``is_error`` result path: a mid-response drop sometimes comes back not as
+    a raised exception but as an ``is_error`` RESULT whose text is e.g. "Connection closed
+    mid-response". That text must be classified the same as a raised transport fault so it
+    reconnects+resumes instead of surfacing as a fatal :class:`ClaudeCodeError`."""
+    hay = str(text).lower()
+    return any(marker in hay for marker in _NET_ERR_MARKERS)
+
+
 def is_recoverable(exc: BaseException) -> bool:
     """True only for recognised transient transport faults (whitelist)."""
     if isinstance(exc, ClaudeCodeError):
         return False
-    hay = f"{type(exc).__name__}\n{exc}".lower()
-    return any(marker in hay for marker in _NET_ERR_MARKERS)
+    return is_recoverable_text(f"{type(exc).__name__}\n{exc}")
 
 
 def backoff_seconds(attempt: int) -> float:

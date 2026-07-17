@@ -80,7 +80,7 @@ class AutoRunConfig:
     backend: str = "claude_code"  # "claude_code" | "claude" | "openai" | "stub"
     model: str = "mimo-v2.5-pro"  # model id for the claude/openai backends
     base_url: str = "https://token-plan-cn.xiaomimimo.com/anthropic"  # for claude/openai backends
-    claude_code_model: str | None = "claude-sonnet-4-6"  # main-agent and sub-agents
+    claude_code_model: str | None = "claude-opus-4-8"  # main-agent and sub-agents
     max_steps: int = 12
     # stub backend only: "plan"/"review" (or legacy role names) -> fixed JSON reply string(s)
     stub_replies: dict[str, Any] = field(default_factory=dict)

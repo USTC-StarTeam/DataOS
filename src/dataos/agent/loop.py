@@ -339,9 +339,11 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
     if plan.estimated_hours is not None and plan.estimated_hours <= 0:
         errors.append("estimated_hours must be positive when provided")
 
-    # Gate ②: every planned source must be one RECON profiled, and not flagged DIRTY. This is a
-    # pure table lookup (no side effects) — it makes "grab the dirty glaive source" impossible.
-    # Skipped when the recon has no profiles (e.g. recon was incomplete) so the run isn't bricked.
+    # Gate ②: every planned source must be one RECON profiled, and domain-relevant. The
+    # DIRTY-format rejection was removed (2026-07-14, per user): off-format data may still teach
+    # the model useful signal, and blocking it hard-crashed runs when the pool had no HIGH source.
+    # RECON still profiles sources (incl. target_ratio) as INFO for the main-agent — it just no
+    # longer forbids a low-target_ratio source. Skipped when recon has no profiles.
     profiles = {p.get("source"): p for p in (recon or {}).get("source_profiles", [])
                 if isinstance(p, dict) and p.get("source")}
     if profiles:
@@ -351,13 +353,6 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
                 errors.append(
                     f"source {src!r} is not in recon.source_profiles — only use profiled pool "
                     f"sources; pick from the recon source-quality table"
-                )
-            elif str(prof.get("quality", "")).startswith("DIRTY"):
-                errors.append(
-                    f"source {src!r} is {prof.get('quality')} in recon "
-                    f"(target_ratio={(prof.get('target_fit') or {}).get('target_ratio')}) — "
-                    f"pick a HIGH-quality source, or the plan must hand-write a validity/format "
-                    f"filter to clean it (see subagent_brief)"
                 )
             elif prof.get("quality") == "IRRELEVANT":
                 errors.append(

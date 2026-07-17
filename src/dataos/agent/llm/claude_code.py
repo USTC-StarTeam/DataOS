@@ -24,6 +24,7 @@ from dataos.agent.llm.net_retry import (
     ClaudeCodeError,
     backoff_seconds,
     is_recoverable,
+    is_recoverable_text,
 )
 
 
@@ -61,6 +62,30 @@ def _session_id(messages: list) -> str | None:
             sid = data.get("session_id") or data.get("sessionId")
             if isinstance(sid, str) and sid:
                 return sid
+    return None
+
+
+def _is_error_detail(m: object) -> str:
+    """Best-effort detail string for an ``is_error`` result message."""
+    errs = getattr(m, "errors", None) or []
+    subtype = str(getattr(m, "subtype", "") or "")
+    return str(getattr(m, "result", None) or "; ".join(map(str, errs)) or subtype or "unknown")
+
+
+def _transient_is_error_detail(messages: list) -> str | None:
+    """If the stream ended on an ``is_error`` RESULT that looks like a transient transport
+    drop (e.g. "Connection closed mid-response"), return its detail so the caller can
+    reconnect+resume. Returns ``None`` for a benign ``max_turns`` boundary or a genuine
+    (non-transport) error — those keep flowing to the normal is_error handling."""
+    for m in messages:
+        if not getattr(m, "is_error", False):
+            continue
+        subtype = str(getattr(m, "subtype", "") or "")
+        detail = _is_error_detail(m)
+        if "max_turns" in subtype or "maximum number of turns" in detail:
+            continue
+        if is_recoverable_text(detail):
+            return detail
     return None
 
 
@@ -106,6 +131,26 @@ class ClaudeCodeAgent:
         collected: list = []
         attempt = 0
 
+        def _retry_after_transport(reason: str) -> None:
+            """Back off and prepare to RESUME after a recognised transient transport fault —
+            whether ``query()`` raised it (path A) or the CLI returned it as an ``is_error``
+            result (path B). Raises once the retry budget is exhausted."""
+            nonlocal attempt, resume_sid
+            attempt += 1
+            # resume the session learned before the drop (falls back to the caller's).
+            resume_sid = _session_id(collected) or resume_sid
+            if deadline is None and attempt > MAX_NET_RETRIES:
+                raise RuntimeError(
+                    f"claude_code: transport fault persisted after {MAX_NET_RETRIES} "
+                    f"reconnects: {reason}"
+                )
+            wait = backoff_seconds(attempt)
+            if deadline is not None:
+                wait = min(wait, max(0.0, deadline - time.monotonic()))
+            log.warning("claude_code: transport fault (%s); reconnect #%d (resume=%s) in %.0fs",
+                        reason, attempt, resume_sid, wait)
+            time.sleep(wait)
+
         while True:
             remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
             if remaining is not None and remaining <= 0:
@@ -144,38 +189,32 @@ class ClaudeCodeAgent:
                     asyncio.run(asyncio.wait_for(_collect(), remaining))
                 else:
                     asyncio.run(_collect())
-                break  # stream finished (or ended on a preserved is_error result)
             except (asyncio.TimeoutError, TimeoutError) as e:
                 # the wall-clock budget is spent — not a transport fault; don't retry.
                 raise RuntimeError(f"claude_code timed out after {timeout}s") from e
-            except Exception as e:  # noqa: BLE001 — classified by is_recoverable (whitelist)
+            except Exception as e:  # noqa: BLE001 — path A: query() raised the drop
                 if not is_recoverable(e):
                     raise
-                attempt += 1
-                # resume the session learned before the drop (falls back to the caller's).
-                resume_sid = _session_id(collected) or resume_sid
-                if deadline is None and attempt > MAX_NET_RETRIES:
-                    raise RuntimeError(
-                        f"claude_code: transport error persisted after {MAX_NET_RETRIES} "
-                        f"reconnects: {type(e).__name__}: {e}"
-                    ) from e
-                wait = backoff_seconds(attempt)
-                if deadline is not None:
-                    wait = min(wait, max(0.0, deadline - time.monotonic()))
-                log.warning(
-                    "claude_code: transport error %s: %s; reconnect #%d (resume=%s) in %.0fs",
-                    type(e).__name__, e, attempt, resume_sid, wait,
-                )
-                time.sleep(wait)
+                _retry_after_transport(f"{type(e).__name__}: {e}")
+                continue
+
+            # query() returned normally. Path B: a mid-response drop can arrive as an
+            # ``is_error`` RESULT (the CLI catches it and yields it instead of raising) —
+            # reconnect+resume on a recognised transient one here, so it does NOT fall
+            # through to the is_error scan below and surface as a fatal ClaudeCodeError.
+            transient = _transient_is_error_detail(collected)
+            if transient is not None:
+                _retry_after_transport(transient)
+                continue
+            break  # genuine completion (or benign max_turns / real error → scanned below)
 
         messages = collected
         for m in messages:
             if getattr(m, "is_error", False):
-                errs = getattr(m, "errors", None) or []
                 subtype = str(getattr(m, "subtype", "") or "")
-                detail = str(
-                    getattr(m, "result", None) or "; ".join(map(str, errs)) or subtype or "unknown"
-                )
+                detail = _is_error_detail(m)
+                # Transient transport is_errors were already reconnected+resumed in the loop
+                # above, so anything reaching here is either max_turns or a genuine error.
                 # max_turns is a benign, RESUMABLE boundary for a free-form executor agent
                 # (``output is None``): the caller drives it in max_turns-sized chunks and
                 # resumes its session until it writes its terminal artifact, so we must return

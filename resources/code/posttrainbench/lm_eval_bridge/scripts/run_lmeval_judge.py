@@ -175,7 +175,7 @@ def main() -> None:
     # (or hand-rolled its own concurrency=1 judge), making a HealthBench round take ~3h.
     # --workers is now accepted but IGNORED so an agent can never lower judge throughput.
     workers = 32
-    del args  # args.workers deliberately ignored
+    del args.workers  # workers is deliberately ignored and hardcoded
     os.environ["POSTTRAINBENCH_HEALTHBENCH_CRITERIA_WORKERS"] = "1"
     # Judging must actually call the API here even though generation disabled it.
     os.environ.pop("POSTTRAINBENCH_JUDGE_DISABLED", None)
