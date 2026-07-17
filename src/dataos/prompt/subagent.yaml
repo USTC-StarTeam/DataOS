@@ -35,14 +35,20 @@ template: |
     with the SAME template the evaluator parses. Do NOT force-fit unsuitable operators into a
     pipeline that silently trains on garbage (that is exactly how a BFCL run scored 4 instead of 83).
     Record the script + its filter/format logic in report.json.
+  - DATA-BUILDING IS DATAOS'S OWN METHOD (the runtime task playbook only specifies the input pool,
+    the alpaca output format, and the eval format contract — NOT how to build). Build the SFT data
+    with the `dataos_operator` toolbox: inspect a source's real rows + `dataos_operator.guide()` /
+    `.usage('<op>')`, then compose a recipe (filter / dedup / quality-score / select), and bridge to
+    alpaca. Before running a recipe on H100, `export DATAOS_OPERATOR_PLUGINS=$AGENTVER/resources/custom_operators:$RUN_ROOT/custom_operators`
+    so both shared and run-local custom operators are discoverable by name.
   - SEDIMENT REUSABLE LOGIC INTO AN OPERATOR — two tiers, so parallel runs never collide. If that
     cleaning/format logic is worth reusing, write it as a `DataOperator` subclass (read
     `dataos_operator.guide()` for the family→method template). Save it FIRST to the run-local dir
     `$RUN_ROOT/custom_operators/` (`mkdir -p` it): isolated to THIS experiment, usable by name at
     once, zero collision with other runs. ONLY if it proves general across benches, promote it to the
-    shared `$RUNTIME/tasks/<task>/operators/` dir (committed in the DataOS-Runtime repo, so it persists).
-    Both dirs are on `DATAOS_OPERATOR_PLUGINS`, so either is discoverable in the OPERATOR CATALOG.
-    e.g. a "keep only valid function-call rows" filter becomes `function_call_filter`.
+    shared `$AGENTVER/resources/custom_operators/` dir (committed in the DataOS brain repo, so it
+    persists across runs). Both dirs are on `DATAOS_OPERATOR_PLUGINS`, so either is discoverable in
+    the OPERATOR CATALOG. e.g. a "keep only valid function-call rows" filter becomes `function_call_filter`.
   - FAILURE = DIAGNOSE, DON'T BLINDLY RETRY. If a stage fails, `cat` the job log and find the ROOT
     cause (OOM, operator/API error, format/parse mismatch, timeout) BEFORE retrying. Write that root
     cause into report.json `error`. Never re-run the identical recipe hoping it passes — fix the

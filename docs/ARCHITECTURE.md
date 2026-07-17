@@ -52,14 +52,14 @@ DataOS 刻意把"决策"和"算力"分开:
 |---|---|
 | 环境/任务**无关**的自主循环:agent · loop · planner · reviewer · llm 后端 · **数据契约 schema** | **与 agent 无关**的基准执行底座:`environments/`(在哪跑)+ `tasks/`(跑什么 + 怎么打分) |
 | 私有编排:`report.json` 契约 · RECON/recon.json · 实验树 · RUNTIME CONFIG 注入 | 每个 env:`env.yaml`(host/paths/conda/gateway 事实)+ `playbook.md`(集群操作命令模板) |
-| 大脑读一份本地 runtime checkout 的 `env.yaml` 取集群事实 | 每个 task:`playbook.md`(build→train→eval 跑法)+ `lm_eval_bridge/`(冻结评测器)+ `operators/` |
+| 大脑读一份本地 runtime checkout 的 `env.yaml` 取集群事实;**造数据的方法(算子)是大脑私有**(`resources/custom_operators/`) | 每个 task:`playbook.md`(输入/输出规范 + 评测格式契约)+ `lm_eval_bridge/`(冻结评测器)——**不含造数据方法** |
 
 - **runtime 是 agent-中立的**:DataOS 只是众多可在此底座上作业的 agent 之一,别的对比 baseline agent 也基于**同一份** environments + tasks + 冻结评测跑,拿到可比分数。runtime **不依赖、不 import 任何 agent**。
 - **两条契约 = 唯一边界**:
   - **操作契约**(runtime 暴露):playbook + env.yaml —— 命令模板 + 配置,不是 Python API。
   - **原生评分契约**(runtime 暴露):冻结评测产出 `<eval_dir>/summary.json` 的 `score`(0–100)—— 任何 agent 被打分、互比的唯一基准。
   - **数据契约**(留大脑):`report.json`/`recon.json`/run-config 的 JSON 形状。大脑的 sub-agent 提示词**包裹** runtime playbook——读它拿到跑法 + 原生分数,再把分数组装成 `report.json` 收进实验树。
-- **执行面双 checkout**:`deploy_root`(DataOS checkout)提供 `dataos` src(算子 recipe 要 import)+ benchmark 数据;`runtime_root`(DataOS-Runtime checkout,SSH clone,H100 上 HTTPS 被墙 SSH 通)提供 playbooks + eval bridge + operators。run-config 的 `runtime_ref` pin runtime 库版本。
+- **执行面双 checkout**:`deploy_root`(DataOS checkout)提供 `dataos` src(算子 recipe 要 import)+ **custom_operators**(大脑私有造数据方法)+ benchmark 数据;`runtime_root`(DataOS-Runtime checkout,SSH clone,H100 上 HTTPS 被墙 SSH 通)提供 playbooks + eval bridge。run-config 的 `runtime_ref` pin runtime 库版本。
 
 ---
 
@@ -114,7 +114,7 @@ round N 循环 (直到 wall-clock 预算耗尽):
 ## 5. 数据与算子
 
 - **固定数据池 (fixed pool)**:PostTrainBench 预置的多来源原始数据,在 H100 本地。
-- **`dataos_operator` (v0.5.0)**:数据算子工具箱(独立 pip 包)——offline(map/dedup/质量评分 evaluator/选择 selector/多样性/混合)+ online(训练期 loss/doremi 等 reweight/select)。sub-agent 把它们**按名字组成一条 recipe** 造 SFT 数据。沉淀的自定义算子放 `DataOS-Runtime/tasks/<task>/operators/`(`DATAOS_OPERATOR_PLUGINS` 指过去)。
+- **`dataos_operator` (v0.5.0)**:数据算子工具箱(独立 pip 包)——offline(map/dedup/质量评分 evaluator/选择 selector/多样性/混合)+ online(训练期 loss/doremi 等 reweight/select)。sub-agent 把它们**按名字组成一条 recipe** 造 SFT 数据。**算子是 DataOS 造数据的私有方法,不在 agent-中立的 runtime 里**;沉淀的自定义算子放大脑库 `resources/custom_operators/`(`DATAOS_OPERATOR_PLUGINS` 指过去)。runtime 的任务 playbook 只规定输出 alpaca + 对齐评测格式,不规定用什么方法造。
 - **格式对齐**是关键一环:把训练目标渲染成**评测器能解析的精确形状**(如 BFCL 的 `<tool_call>` + qwen3 模板)。算子箱没有的清洗/对齐逻辑,sub-agent 手写小脚本补(可沉淀为 run-local 或共享算子)。
 - 最终统一 bridge 成 **LLaMA-Factory alpaca 格式**喂训练。
 
