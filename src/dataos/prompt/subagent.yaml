@@ -49,6 +49,18 @@ template: |
     shared `$AGENTVER/resources/custom_operators/` dir (committed in the DataOS brain repo, so it
     persists across runs). Both dirs are on `DATAOS_OPERATOR_PLUGINS`, so either is discoverable in
     the OPERATOR CATALOG. e.g. a "keep only valid function-call rows" filter becomes `function_call_filter`.
+  - TRAINING IS ALSO OUR METHOD (the task playbook defines only the goal + how it is scored, not how
+    to train). SFT the parent model with LLaMA-Factory (`llamafactory-cli`, in `train_env`): write the
+    kept rows as alpaca (`{instruction,input,output}`) + a `dataset_info.json` into `$RUN_ROOT/data/sft`;
+    write `$RUN_ROOT/train.yaml` mapping the plan's `train` dict onto LF keys (finetuning_type /
+    learning_rate / num_train_epochs / per_device_train_batch_size / gradient_accumulation_steps /
+    lora_rank / lora_alpha / cutoff_len / template …); run `llamafactory-cli train`, then for LoRA
+    `llamafactory-cli export --model_name_or_path <PARENT> --adapter_name_or_path $RUN_ROOT/adapter
+    --finetuning_type lora --export_dir $RUN_ROOT/final_model` so `$RUN_ROOT/final_model` is a COMPLETE
+    HF model (the eval loads it plain, no adapter; for `full` finetuning set output_dir directly to
+    final_model). Pick a `template` consistent with how the eval prompts (e.g. `qwen3`, or
+    `qwen3_nothink` for direct-answer benches) and keep it stable across a tree branch. Deterministic
+    artifact layout: `$RUN_ROOT/{data/sft, adapter, final_model, eval/<bench>_limit<N>, logs}`.
   - FAILURE = DIAGNOSE, DON'T BLINDLY RETRY. If a stage fails, `cat` the job log and find the ROOT
     cause (OOM, operator/API error, format/parse mismatch, timeout) BEFORE retrying. Write that root
     cause into report.json `error`. Never re-run the identical recipe hoping it passes — fix the
@@ -56,13 +68,14 @@ template: |
   - You own GPU utilization: choose sbatch resources and runtime flags that keep the single GPU
     busy (reasonable batch/grad-accum, dataloader workers, vLLM concurrency, avoiding CPU stalls),
     while staying within the main-agent's training intent and the configured limits.
-  - Read the TWO playbooks named in your task prompt from the DataOS-Runtime checkout (an
-    agent-agnostic benchmark substrate): the ENVIRONMENT playbook (cluster ops — ssh, sbatch,
-    sacct, output isolation, gateway) and the TASK playbook (this task's build→train→eval flow +
-    the native result contract: the frozen eval's summary.json `score`). Follow them. report.json
-    is OURS, not the runtime's — assemble it from the native score per the REPORT CONTRACT in your
-    task prompt. The RUNTIME CONFIG block in the task prompt is authoritative for host, paths,
-    envs, Slurm, cache, and gateway settings.
+  - Read the TWO playbooks named in your task prompt from the DataOS-Runtime checkout: the
+    ENVIRONMENT playbook (how to operate the cluster — ssh, sbatch, sacct, output isolation, conda,
+    fetch) and the TASK playbook (what the task IS: the goal, the fixed-pool input, and HOW IT IS
+    SCORED — the frozen evaluator + its summary.json `score`). The task playbook defines the problem
+    and the scorer, NOT how to solve it — the build-data and training method above is ours. report.json
+    is also ours — assemble it from the native score per the REPORT CONTRACT in your task prompt. The
+    RUNTIME CONFIG block in the task prompt is authoritative for host, paths, envs, Slurm, cache, and
+    gateway settings.
   - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
     submit sbatch, poll sacct/squeue (sleep ≥30s), and run BOUNDED internet steps (the judge;
     `llm_*` scoring on a SMALL sample). ALL data processing / training / eval-generation runs
