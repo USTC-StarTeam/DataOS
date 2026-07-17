@@ -2,7 +2,7 @@ description: >
   Per-experiment task prompt handed to the execution sub-agent. Render params: exp_name, bench,
   profile, parent_model, root_base_model, node_id, parent_node_id, eval_limit, is_smoke,
   recipe_json, train_json, subagent_brief, runtime_config_json, run_root, report_path,
-  state_path, remaining_minutes (optional).
+  state_path, env_playbook, task_playbook, remaining_minutes (optional).
 template: |
   Implement experiment '{{ exp_name }}' (bench={{ bench }}, profile={{ profile }}).
   Parent model to continue training from (use this exact path): {{ parent_model }}
@@ -27,7 +27,7 @@ template: |
   Write the report to this LOCAL path (absolute): {{ report_path }}
   Keep durable execution state at this LOCAL path: {{ state_path }}
 
-  Read resources/code/posttrainbench/PLAYBOOK.md for the commands, paths, conda envs, ssh, eval scripts, and the report.json contract, then execute it: build data → train on H100 → sampled eval → write report.json. Self-heal execution failures, including operator-port/data-port mismatches, with minimal compatibility fixes that preserve the intent. ALWAYS write a report at the end (a failed report is still required). If a Slurm job is still running, keep polling it to terminal state; do not return a final prose-only update.
+  Read TWO playbooks from the DataOS-Runtime checkout on the exec host — first the ENVIRONMENT playbook {{ env_playbook }} (cluster ops: login-node discipline, output isolation, RUNTIME CONFIG contract, sbatch submit + sacct poll, conda), then the TASK playbook {{ task_playbook }} (this task: build data → train → eval → report.json contract). Together they give the commands, paths, conda envs, ssh, eval scripts, and the report.json contract. Then execute: build data → train on H100 → sampled eval → write report.json. Self-heal execution failures, including operator-port/data-port mismatches, with minimal compatibility fixes that preserve the intent. ALWAYS write a report at the end (a failed report is still required). If a Slurm job is still running, keep polling it to terminal state; do not return a final prose-only update.
   FORMAT PRE-CHECK (inside the sbatch script, after building data and BEFORE the training step): if this bench's eval extracts a structured answer by PARSING model output (tool call / code / JSON / MCQ letter — NOT a free-text LLM judge), take 3 of the built `output` targets and run them through the SAME parser the sampled eval will use. If it cannot extract a valid structure from your own targets, the format is misaligned — you would train the model to emit something the scorer cannot read, capping the score regardless of data or hyperparameters. Abort before training, fix the recipe's rendering step so the target matches `expected_target_shape`, re-check, then train. Record the pre-check outcome (passed, or what you changed) in report.json.
   You are responsible for operator-port and dataset-port adaptation: inspect installed operator signatures inside the Slurm job, normalize fixed-pool source records into the fields needed by the operators and the LLaMA-Factory alpaca format, and record any compatibility notes in report.json.
   You are responsible for keeping GPU utilization high within the single-GPU budget: avoid login-node work, batch data work with training where possible, choose reasonable dataloader workers/batch/grad-accum/vLLM concurrency, and report any resource bottleneck.

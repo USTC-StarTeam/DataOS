@@ -17,26 +17,75 @@ from dataos.core.io import atomic_write_json
 
 from .config import AutoRunConfig, Budget, Criterion
 
+# ── Environment archive (DataOS-Runtime) ──────────────────────────────────────
+# Cluster / path / gateway facts now live in the runtime repo's
+# environments/<env>/env.yaml, NOT here. The brain reads a LOCAL checkout of
+# DataOS-Runtime (DATAOS_RUNTIME_DIR, or a sibling ../DataOS-Runtime) at plan time.
+# The hardcoded values below are a FALLBACK for when no checkout / env.yaml is present.
+DEFAULT_ENVIRONMENT = os.environ.get("DATAOS_ENVIRONMENT", "h100_slurm")
+DEFAULT_TASK = os.environ.get("DATAOS_TASK", "posttrainbench")
+DEFAULT_RUNTIME_REF = os.environ.get("DATAOS_RUNTIME_REF", "main")
+
+
+def runtime_dir() -> Path | None:
+    """Local checkout of DataOS-Runtime the brain reads env.yaml from, or None."""
+    candidates: list[Path] = []
+    raw = os.environ.get("DATAOS_RUNTIME_DIR")
+    if raw:
+        candidates.append(Path(raw).expanduser())
+    # sibling of the brain repo: <brain_repo>/../DataOS-Runtime
+    candidates.append(Path(__file__).resolve().parents[3].parent / "DataOS-Runtime")
+    for cand in candidates:
+        if cand and (cand / "environments").is_dir():
+            return cand
+    return None
+
+
+def _load_env_yaml(environment: str = DEFAULT_ENVIRONMENT) -> dict[str, Any]:
+    root = runtime_dir()
+    if root is None:
+        return {}
+    path = root / "environments" / environment / "env.yaml"
+    if not path.is_file():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+_ENV = _load_env_yaml()
+_ENV_ACCESS = _ENV.get("access", {})
+_ENV_SLURM = _ENV.get("slurm", {})
+_ENV_PATHS = _ENV.get("paths", {})
+_ENV_GW = _ENV.get("gateway", {})
+
 DEFAULT_CLUSTER = {
-    "host": "114.214.215.159",
-    "user": "hcgu",
-    "port": 22,
-    "key": "~/.ssh/ghc_miyao",
-    "partition": "gpu",
-    "qos": "gpu_priv",
+    "host": _ENV_ACCESS.get("host", "114.214.215.159"),
+    "user": _ENV_ACCESS.get("user", "hcgu"),
+    "port": _ENV_ACCESS.get("port", 22),
+    "key": _ENV_ACCESS.get("key_ref", "~/.ssh/ghc_miyao"),
+    "partition": _ENV_SLURM.get("partition", "gpu"),
+    "qos": _ENV_SLURM.get("qos", "gpu_priv"),
 }
-DEFAULT_DEPLOY_ROOT = "/data/hcgu/users/tjh/dataos_agentver"
-DEFAULT_RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"
+DEFAULT_DEPLOY_ROOT = _ENV_PATHS.get("deploy_root", "/data/hcgu/users/tjh/dataos_agentver")
+DEFAULT_RUNTIME_ROOT = _ENV_PATHS.get("runtime_root", DEFAULT_DEPLOY_ROOT)
+DEFAULT_RUNS_BASE = _ENV_PATHS.get("runs_base", "/data/hcgu/users/tjh/dataos_agentver_runs")
+DEFAULT_BENCHMARKS = _ENV_PATHS.get(
+    "benchmarks", f"{DEFAULT_DEPLOY_ROOT}/resources/data/posttrainbench_benchmarks"
+)
 DEFAULT_GATEWAY = {
-    "base_url": "https://api.chatanywhere.tech/v1",
-    "model": "qwen3.5-plus",
-    "key_file": "/data/hcgu/users/tjh/.chatanywhere_key",
+    "base_url": _ENV_GW.get("base_url", "https://api.chatanywhere.tech/v1"),
+    "model": _ENV_GW.get("model", "qwen3.5-plus"),
+    "key_file": _ENV_GW.get("key_file", "/data/hcgu/users/tjh/.chatanywhere_key"),
 }
 DEFAULT_JUDGE = {
-    "base_url": "https://api.chatanywhere.tech/v1",
-    "model": "qwen3.5-plus",
-    "key_file": "/data/hcgu/users/tjh/.chatanywhere_key",
-    "workers": 32,  # judge doc concurrency; passed to run_lmeval_judge.py --workers
+    **DEFAULT_GATEWAY,
+    # judge doc concurrency; passed to run_lmeval_judge.py --workers
+    "workers": _ENV_GW.get("judge_workers", 32),
 }
 
 
@@ -91,7 +140,9 @@ class PathConfig:
     def to_runtime_paths(self) -> dict[str, Any]:
         return {
             "deploy_root": DEFAULT_DEPLOY_ROOT,
+            "runtime_root": DEFAULT_RUNTIME_ROOT,
             "runs_base": DEFAULT_RUNS_BASE,
+            "benchmarks": DEFAULT_BENCHMARKS,
             **self.to_record(),
         }
 
@@ -108,6 +159,9 @@ class PtbRunConfig:
     paths: PathConfig
     eval_samples: int = -1  # eval size per experiment; -1 = FULL benchmark (all samples)
     monitor_port: int = 8765  # live-monitor HTTP port (host-side fact; 0 disables the monitor)
+    environment: str = DEFAULT_ENVIRONMENT  # which DataOS-Runtime environment (env.yaml + playbook)
+    task: str = DEFAULT_TASK  # which DataOS-Runtime task (playbook + eval bridge)
+    runtime_ref: str = DEFAULT_RUNTIME_REF  # DataOS-Runtime tag/commit the exec host checks out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PtbRunConfig":
@@ -137,6 +191,13 @@ class PtbRunConfig:
             monitor_port=_nonneg_int(data["monitor_port"], "monitor_port")
             if "monitor_port" in data
             else 8765,
+            environment=_nonempty_str(data["environment"], "environment")
+            if "environment" in data
+            else DEFAULT_ENVIRONMENT,
+            task=_nonempty_str(data["task"], "task") if "task" in data else DEFAULT_TASK,
+            runtime_ref=_nonempty_str(data["runtime_ref"], "runtime_ref")
+            if "runtime_ref" in data
+            else DEFAULT_RUNTIME_REF,
         )
 
     @classmethod
@@ -171,6 +232,9 @@ class PtbRunConfig:
 
     def runtime_config(self) -> dict[str, Any]:
         return {
+            "environment": self.environment,
+            "task": self.task,
+            "runtime_ref": self.runtime_ref,
             "cluster": self.resource.to_cluster(),
             "paths": self.paths.to_runtime_paths(),
             "gateway": dict(DEFAULT_GATEWAY),

@@ -59,7 +59,23 @@ def _runtime_config(cfg) -> dict:
     paths = runtime.setdefault("paths", {})
     runtime.setdefault("cluster", {})
     paths.setdefault("runs_base", _RUNS_BASE)
+    # DataOS-Runtime split: default the new keys so pre-split runtime_configs still work.
+    runtime.setdefault("environment", "h100_slurm")
+    runtime.setdefault("task", "posttrainbench")
+    paths.setdefault("runtime_root", paths.get("deploy_root", ""))
     return runtime
+
+
+def _playbooks(runtime: dict) -> dict:
+    """Derive the env + task playbook paths on the exec host from the runtime config."""
+    root = runtime.get("paths", {}).get("runtime_root", "")
+    env = runtime.get("environment", "h100_slurm")
+    task = runtime.get("task", "posttrainbench")
+    return {
+        "env_playbook": f"{root}/environments/{env}/playbook.md",
+        "task_playbook": f"{root}/tasks/{task}/playbook.md",
+        "task_dir": f"{root}/tasks/{task}",
+    }
 
 
 def _missing_runtime_config_keys(cfg) -> list[str]:
@@ -213,9 +229,12 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
     runtime_block = _runtime_prompt_block(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir, eval_limit=eval_limit,
     )
+    books = _playbooks(runtime_block)
     return _prompt.render(
         "subagent_task",
         exp_name=spec["name"],
+        env_playbook=books["env_playbook"],
+        task_playbook=books["task_playbook"],
         bench=bench,
         profile=cfg.ptb_profile,
         parent_model=parent_model,
@@ -374,6 +393,7 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
     cluster = runtime.get("cluster", {})
     deploy_root = paths.get("deploy_root", "")
     eval_env = paths.get("eval_env", "")
+    books = _playbooks(runtime)
     prompt = _prompt.render(
         "subagent_recon",
         target_bench=cfg.target_bench,
@@ -384,9 +404,8 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         cluster_json=json.dumps(
             {k: cluster.get(k) for k in ("host", "user", "port", "key")}, ensure_ascii=False
         ),
-        profile_script=(
-            f"{deploy_root}/resources/code/posttrainbench/lm_eval_bridge/scripts/profile_source.py"
-        ),
+        profile_script=f"{books['task_dir']}/lm_eval_bridge/scripts/profile_source.py",
+        lm_bridge=f"{books['task_dir']}/lm_eval_bridge",
         recon_path=str(recon_path),
     )
     agent = build_agent(

@@ -40,7 +40,7 @@ template: |
     `dataos_operator.guide()` for the family→method template). Save it FIRST to the run-local dir
     `$RUN_ROOT/custom_operators/` (`mkdir -p` it): isolated to THIS experiment, usable by name at
     once, zero collision with other runs. ONLY if it proves general across benches, promote it to the
-    shared `$AGENTVER/resources/custom_operators/` (that dir must be committed to persist across runs).
+    shared `$RUNTIME/tasks/<task>/operators/` dir (committed in the DataOS-Runtime repo, so it persists).
     Both dirs are on `DATAOS_OPERATOR_PLUGINS`, so either is discoverable in the OPERATOR CATALOG.
     e.g. a "keep only valid function-call rows" filter becomes `function_call_filter`.
   - FAILURE = DIAGNOSE, DON'T BLINDLY RETRY. If a stage fails, `cat` the job log and find the ROOT
@@ -50,8 +50,9 @@ template: |
   - You own GPU utilization: choose sbatch resources and runtime flags that keep the single GPU
     busy (reasonable batch/grad-accum, dataloader workers, vLLM concurrency, avoiding CPU stalls),
     while staying within the main-agent's training intent and the configured limits.
-  - Read resources/code/posttrainbench/PLAYBOOK.md for the exact commands, paths, conda
-    envs, H100 ssh, the gateway for LLM-scoring operators, and the report.json contract. Follow it.
+  - Read the TWO playbooks named in your task prompt from the DataOS-Runtime checkout: the
+    ENVIRONMENT playbook (cluster ops — ssh, sbatch, sacct, output isolation, gateway) and the
+    TASK playbook (this task's build→train→eval flow + the report.json contract). Follow them.
     The RUNTIME CONFIG block in the task prompt is authoritative for host, paths, envs, Slurm,
     cache, and gateway settings.
   - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
