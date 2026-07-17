@@ -1,6 +1,9 @@
 # DataOS 拆分执行计划 (Brain / Runtime)
 
-状态:**决策已锁定,进入执行**。把执行侧(多环境 × 多任务)从 `DataOS` 拆到 `DataOS-Runtime`。
+状态:**P1–P6 全部完成(2026-07-17)**。把执行侧(多环境 × 多任务)从 `DataOS` 拆到 `DataOS-Runtime`。
+额外收尾:按用户指示把 runtime 做成 **agent-中立**(别的 baseline agent 也能用同一底座)——report.json/RECON/
+sub-agent 框架抽回大脑,runtime 只暴露操作契约 + 原生评分契约。gsm8k 端到端验证在新结构上出分
+(baseline 41.0 ≈ 已知 40.6)。
 
 ---
 
@@ -66,12 +69,12 @@ DataOS-Runtime (执行库) ── 可插拔、对大脑 schema 零依赖
 
 ## 4. 执行阶段(逐步、每步可验证、可回滚到 `v0.3.0-opus-baseline`)
 
-- [ ] **P1 — 搭骨架**:clone `DataOS-Runtime`,建 `environments/h100_slurm/` + `tasks/posttrainbench/` 目录 + README + 空 env.yaml/playbook.md 占位。提交。
-- [ ] **P2 — 平移任务代码**:把 `lm_eval_bridge/` + `custom_operators/` 原样迁进 `tasks/posttrainbench/`(不改逻辑)。提交。
-- [ ] **P3 — 拆 PLAYBOOK**:把现有 `PLAYBOOK.md` 逐段归类,拆成 `environments/h100_slurm/playbook.md`(集群操作)+ `tasks/posttrainbench/playbook.md`(任务流程 + report 组装)。写 `env.yaml`(从 DEFAULT_CLUSTER/run-config 抽)。提交。
-- [ ] **P4 — 大脑接线**:sub-agent 提示词改为"读 `{runtime}/environments/{env}/playbook.md` + `{runtime}/tasks/{task}/playbook.md`";run_config 增加 `environment`/`task`/`runtime_ref` 字段,`DEFAULT_CLUSTER` 改为从 env.yaml 读。控制面 checkout runtime 库的机制。import 冒烟。
-- [ ] **P5 — 单 bench 端到端验证**:选 gsm8k,用新结构起一次 run,对拍旧结果(能到 baseline/相近分即算通)。
-- [ ] **P6 — 去旧耦合**:删 `DataOS/resources/code/...` 与 `custom_operators`;H100 部署改为 checkout runtime 库(+ operator/task wheel 手搬流程固化);更新 `docs/ARCHITECTURE.md`。两库各自 commit。
+- [x] **P1 — 搭骨架**:clone `DataOS-Runtime`,建 `environments/h100_slurm/` + `tasks/posttrainbench/` 目录 + README + 空 env.yaml/playbook.md 占位。提交。
+- [x] **P2 — 平移任务代码**:把 `lm_eval_bridge/` + `custom_operators/` 原样迁进 `tasks/posttrainbench/`(不改逻辑)。提交。
+- [x] **P3 — 拆 PLAYBOOK**:把现有 `PLAYBOOK.md` 逐段归类,拆成 `environments/h100_slurm/playbook.md`(集群操作)+ `tasks/posttrainbench/playbook.md`(任务流程 + report 组装)。写 `env.yaml`(从 DEFAULT_CLUSTER/run-config 抽)。提交。
+- [x] **P4 — 大脑接线**:sub-agent 提示词改为"读 `{runtime}/environments/{env}/playbook.md` + `{runtime}/tasks/{task}/playbook.md`";run_config 增加 `environment`/`task`/`runtime_ref` 字段,`DEFAULT_CLUSTER` 改为从 env.yaml 读。控制面 checkout runtime 库的机制。import 冒烟。
+- [x] **P5 — 单 bench 端到端验证**:选 gsm8k,用新结构起一次 run,对拍旧结果(能到 baseline/相近分即算通)。
+- [x] **P6 — 去旧耦合**:删 `DataOS/resources/code/...` 与 `custom_operators`;H100 部署改为 checkout runtime 库(+ operator/task wheel 手搬流程固化);更新 `docs/ARCHITECTURE.md`。两库各自 commit。
 
 **每个 P 结束都 commit,不一次性大改;有问题随时 `git reset --hard v0.3.0-opus-baseline`。**
 
