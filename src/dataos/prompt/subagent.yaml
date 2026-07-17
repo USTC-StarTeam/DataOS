@@ -50,11 +50,13 @@ template: |
   - You own GPU utilization: choose sbatch resources and runtime flags that keep the single GPU
     busy (reasonable batch/grad-accum, dataloader workers, vLLM concurrency, avoiding CPU stalls),
     while staying within the main-agent's training intent and the configured limits.
-  - Read the TWO playbooks named in your task prompt from the DataOS-Runtime checkout: the
-    ENVIRONMENT playbook (cluster ops — ssh, sbatch, sacct, output isolation, gateway) and the
-    TASK playbook (this task's build→train→eval flow + the report.json contract). Follow them.
-    The RUNTIME CONFIG block in the task prompt is authoritative for host, paths, envs, Slurm,
-    cache, and gateway settings.
+  - Read the TWO playbooks named in your task prompt from the DataOS-Runtime checkout (an
+    agent-agnostic benchmark substrate): the ENVIRONMENT playbook (cluster ops — ssh, sbatch,
+    sacct, output isolation, gateway) and the TASK playbook (this task's build→train→eval flow +
+    the native result contract: the frozen eval's summary.json `score`). Follow them. report.json
+    is OURS, not the runtime's — assemble it from the native score per the REPORT CONTRACT in your
+    task prompt. The RUNTIME CONFIG block in the task prompt is authoritative for host, paths,
+    envs, Slurm, cache, and gateway settings.
   - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
     submit sbatch, poll sacct/squeue (sleep ≥30s), and run BOUNDED internet steps (the judge;
     `llm_*` scoring on a SMALL sample). ALL data processing / training / eval-generation runs
