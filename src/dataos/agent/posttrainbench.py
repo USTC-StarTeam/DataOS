@@ -11,7 +11,7 @@ agent-agnostic runtime repo (``DataOS-Runtime/tasks/posttrainbench/lm_eval_bridg
 ``runtime_root`` on the exec host) — 5 deterministic benches scored in-job, 2 judge benches
 (healthbench, arenahardwriting) generated in-job then judged on the login node. This module only
 *fixes the protocol* (which benches, the sampled limit per profile); the sub-agent runs the
-bridge per the runtime task playbook.
+bridge per the runtime task contract (``task.yaml`` scoring, rendered into its prompt).
 """
 
 from __future__ import annotations

@@ -18,10 +18,14 @@ from dataos.core.io import atomic_write_json
 from .config import AutoRunConfig, Budget, Criterion
 
 # ── Environment archive (DataOS-Runtime) ──────────────────────────────────────
-# Cluster / path / gateway facts now live in the runtime repo's
-# environments/<env>/env.yaml, NOT here. The brain reads a LOCAL checkout of
-# DataOS-Runtime (DATAOS_RUNTIME_DIR, or a sibling ../DataOS-Runtime) at plan time.
-# The hardcoded values below are a FALLBACK for when no checkout / env.yaml is present.
+# MACHINE facts (access / slurm partition+qos / runs_base / runtime_root / gateway
+# base_url+key_file) live in the runtime repo's environments/<env>/env.yaml; the brain
+# reads a LOCAL checkout (DATAOS_RUNTIME_DIR, or a sibling ../DataOS-Runtime).
+# NOT in env.yaml (by contract, see DataOS-Runtime/CONTRACT.md): task-data paths
+# (fixed_pool from the run JSON, benchmarks defaulted below), deploy_root (DataOS's own
+# code root on the exec host — a brain-side fact), and the judge model/workers (a task
+# choice — task.yaml scoring.judge; the DEFAULT_JUDGE below only feeds the legacy
+# RUNTIME CONFIG block). Hardcoded values are FALLBACKS when no checkout is present.
 DEFAULT_ENVIRONMENT = os.environ.get("DATAOS_ENVIRONMENT", "h100_slurm")
 DEFAULT_TASK = os.environ.get("DATAOS_TASK", "posttrainbench")
 DEFAULT_RUNTIME_REF = os.environ.get("DATAOS_RUNTIME_REF", "main")
@@ -71,7 +75,7 @@ DEFAULT_CLUSTER = {
     "partition": _ENV_SLURM.get("partition", "gpu"),
     "qos": _ENV_SLURM.get("qos", "gpu_priv"),
 }
-DEFAULT_DEPLOY_ROOT = _ENV_PATHS.get("deploy_root", "/data/hcgu/users/tjh/dataos_agentver")
+DEFAULT_DEPLOY_ROOT = "/data/hcgu/users/tjh/dataos_agentver"  # brain-side fact (DataOS code root on exec host); no longer in env.yaml
 DEFAULT_RUNTIME_ROOT = _ENV_PATHS.get("runtime_root", DEFAULT_DEPLOY_ROOT)
 DEFAULT_RUNS_BASE = _ENV_PATHS.get("runs_base", "/data/hcgu/users/tjh/dataos_agentver_runs")
 DEFAULT_BENCHMARKS = _ENV_PATHS.get(
@@ -79,13 +83,13 @@ DEFAULT_BENCHMARKS = _ENV_PATHS.get(
 )
 DEFAULT_GATEWAY = {
     "base_url": _ENV_GW.get("base_url", "https://api.chatanywhere.tech/v1"),
-    "model": _ENV_GW.get("model", "qwen3.5-plus"),
+    "model": "qwen3.5-plus",  # judge/llm-op model: a task choice now (task.yaml scoring.judge); kept for the legacy RUNTIME CONFIG block
     "key_file": _ENV_GW.get("key_file", "/data/hcgu/users/tjh/.chatanywhere_key"),
 }
 DEFAULT_JUDGE = {
     **DEFAULT_GATEWAY,
     # judge doc concurrency; passed to run_lmeval_judge.py --workers
-    "workers": _ENV_GW.get("judge_workers", 32),
+    "workers": 32,  # judge doc concurrency; task.yaml scoring.judge.workers is authoritative for the composed scoring command
 }
 
 
@@ -159,8 +163,8 @@ class PtbRunConfig:
     paths: PathConfig
     eval_samples: int = -1  # eval size per experiment; -1 = FULL benchmark (all samples)
     monitor_port: int = 8765  # live-monitor HTTP port (host-side fact; 0 disables the monitor)
-    environment: str = DEFAULT_ENVIRONMENT  # which DataOS-Runtime environment (env.yaml + playbook)
-    task: str = DEFAULT_TASK  # which DataOS-Runtime task (playbook + eval bridge)
+    environment: str = DEFAULT_ENVIRONMENT  # which DataOS-Runtime environment (env.yaml contract)
+    task: str = DEFAULT_TASK  # which DataOS-Runtime task (task.yaml contract + eval bridge)
     runtime_ref: str = DEFAULT_RUNTIME_REF  # DataOS-Runtime tag/commit the exec host checks out
 
     @classmethod

@@ -66,16 +66,12 @@ def _runtime_config(cfg) -> dict:
     return runtime
 
 
-def _playbooks(runtime: dict) -> dict:
-    """Derive the env + task playbook paths on the exec host from the runtime config."""
+def _task_assets_dir(runtime: dict) -> str:
+    """The runtime task dir on the exec host (eval bridge & co). Prompt sections come from
+    the runtime composer (runtime_compose) — no playbook files are read anymore."""
     root = runtime.get("paths", {}).get("runtime_root", "")
-    env = runtime.get("environment", "h100_slurm")
     task = runtime.get("task", "posttrainbench")
-    return {
-        "env_playbook": f"{root}/environments/{env}/playbook.md",
-        "task_playbook": f"{root}/tasks/{task}/playbook.md",
-        "task_dir": f"{root}/tasks/{task}",
-    }
+    return f"{root}/tasks/{task}"
 
 
 def _missing_runtime_config_keys(cfg) -> list[str]:
@@ -298,7 +294,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
     agent = build_agent(
         cfg,
         instructions=_prompt.render("subagent"),
-        workspace=_REPO_ROOT,  # cwd at repo root so it can read the playbook + run .venv/ssh
+        workspace=_REPO_ROOT,  # cwd at repo root so it can run .venv/ssh tooling
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
     )
     log.info("subagent[%s]: starting (bench=%s base=%s timeout=%ss)",
@@ -396,7 +392,7 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
     cluster = runtime.get("cluster", {})
     deploy_root = paths.get("deploy_root", "")
     eval_env = paths.get("eval_env", "")
-    books = _playbooks(runtime)
+    task_dir = _task_assets_dir(runtime)
     prompt = _prompt.render(
         "subagent_recon",
         target_bench=cfg.target_bench,
@@ -407,8 +403,8 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         cluster_json=json.dumps(
             {k: cluster.get(k) for k in ("host", "user", "port", "key")}, ensure_ascii=False
         ),
-        profile_script=f"{books['task_dir']}/lm_eval_bridge/scripts/profile_source.py",
-        lm_bridge=f"{books['task_dir']}/lm_eval_bridge",
+        profile_script=f"{task_dir}/lm_eval_bridge/scripts/profile_source.py",
+        lm_bridge=f"{task_dir}/lm_eval_bridge",
         recon_path=str(recon_path),
     )
     agent = build_agent(

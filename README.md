@@ -92,9 +92,11 @@ run workspace.
 2. Each round, code sends the main-agent the tree, recent reviews, and the operator catalog; it
    returns one `ExperimentPlan` (parent node + data recipe + train config). Code validates it, adds
    a child node, and injects the parent's model path (children continue from the parent model).
-3. The sub-agent executes the plan on H100 following
-   [`resources/code/posttrainbench/PLAYBOOK.md`](resources/code/posttrainbench/PLAYBOOK.md) and writes
-   `report.json`.
+3. The sub-agent executes the plan on H100. Its prompt carries two sections rendered from the
+   DataOS-Runtime typed contract (`env.yaml` + `task.yaml`, via the runtime's `compose`):
+   ENVIRONMENT OPS (filled submit/poll/fetch/activate commands + cluster discipline) and TASK
+   (goal + frozen-eval scoring). The data-building/training METHOD and the report.json shape
+   stay in the brain's own prompts. It writes `report.json`.
 4. The main-agent reviews the report; code attaches the score, grows the tree, and loops until the
    budget is spent. The best node's model is written to `final_model.json`.
 
@@ -104,8 +106,9 @@ monitor shows them all, each marked live or done by its heartbeat.
 
 ## Evaluation
 
-Self-contained **lm-evaluation-harness** PostTrainBench protocol under
-[`resources/code/posttrainbench/lm_eval_bridge`](resources/code/posttrainbench/lm_eval_bridge):
+Self-contained **lm-evaluation-harness** PostTrainBench protocol, now living in the
+agent-agnostic runtime repo (`DataOS-Runtime/tasks/posttrainbench/lm_eval_bridge`, read from
+`runtime_root` on the exec host):
 5 deterministic benches (gsm8k, humaneval, bfcl, gpqamain, aime2025) scored in the GPU job, and
 2 judge benches (healthbench, arenahardwriting) generated in the job then scored by an
 OpenAI-compatible judge on the login node. Datasets resolve offline from the repo's vendored
@@ -147,15 +150,11 @@ DataOS/
 ├── configs/
 │   └── runs/ptb-h100-qwen-gsm8k.json #  the user-facing run config (one JSON per run)
 ├── resources/
-│   ├── code/posttrainbench/
-│   │   ├── PLAYBOOK.md              #   the sub-agent manual (data → train → eval → report)
-│   │   └── lm_eval_bridge/          #   self-contained lm-eval PostTrainBench eval
-│   │       ├── scripts/run_lmeval_eval.py   #  serve + score (judge benches = generate-only)
-│   │       ├── scripts/run_lmeval_judge.py  #  login-node judge (healthbench / arena)
-│   │       └── dataos/eval_tasks/posttrainbench/  # task.py · utils.py · 7 task yamls · templates/
+│   ├── custom_operators/            #   DataOS-private sedimented operators (DATAOS_OPERATOR_PLUGINS)
 │   └── data/
 │       ├── posttrainbench_benchmarks/ # hf_datasets/ (offline HF cache) + local/ (judge data)
 │       └── datasets/                  # small vendored datasets
+│   # eval bridge + env/task contracts moved to the DataOS-Runtime repo (tasks/…/lm_eval_bridge)
 ├── web/                             # live monitor UI (index.html) + standalone server.py
 ├── docs/                            # architecture notes (some predate the agent-version refactor)
 ├── tests/                           # agent / core

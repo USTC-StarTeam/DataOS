@@ -51,15 +51,15 @@ DataOS 刻意把"决策"和"算力"分开:
 | `DataOS`(大脑,本库) | `DataOS-Runtime`(执行底座,独立库) |
 |---|---|
 | 环境/任务**无关**的自主循环:agent · loop · planner · reviewer · llm 后端 · **数据契约 schema** | **与 agent 无关**的基准执行底座:`environments/`(在哪跑)+ `tasks/`(跑什么 + 怎么打分) |
-| 私有编排:`report.json` 契约 · RECON/recon.json · 实验树 · RUNTIME CONFIG 注入 | 每个 env:`env.yaml`(host/paths/conda/gateway 事实)+ `playbook.md`(集群操作命令模板) |
-| 大脑读一份本地 runtime checkout 的 `env.yaml` 取集群事实;**造数据的方法(算子)是大脑私有**(`resources/custom_operators/`) | 每个 task:`playbook.md`(输入/输出规范 + 评测格式契约)+ `lm_eval_bridge/`(冻结评测器)——**不含造数据方法** |
+| 私有编排:`report.json` 契约 · RECON/recon.json · 实验树 · RUNTIME CONFIG 注入 | 每个 env:`env.yaml` **类型化环境契约**(access/slurm/tools/paths + `operations` 五动词命令模板 + `discipline` 硬约束) |
+| 大脑调 runtime 的 `compose.resolve()/render()` 拿两段渲染好的提示词(环境操作 + 任务);**造数据的方法(算子)是大脑私有**(`resources/custom_operators/`) | 每个 task:`task.yaml` **类型化任务契约**(inputs/objective/constraints/produce/scoring)+ `lm_eval_bridge/`(冻结评测器);`compose/` 通用组合器 + `CONTRACT.md` 字段规范——**不含解法** |
 
 - **runtime 是 agent-中立的**:DataOS 只是众多可在此底座上作业的 agent 之一,别的对比 baseline agent 也基于**同一份** environments + tasks + 冻结评测跑,拿到可比分数。runtime **不依赖、不 import 任何 agent**。
 - **两条契约 = 唯一边界**:
-  - **操作契约**(runtime 暴露):playbook + env.yaml —— 命令模板 + 配置,不是 Python API。
-  - **原生评分契约**(runtime 暴露):冻结评测产出 `<eval_dir>/summary.json` 的 `score`(0–100)—— 任何 agent 被打分、互比的唯一基准。
-  - **数据契约**(留大脑):`report.json`/`recon.json`/run-config 的 JSON 形状。大脑的 sub-agent 提示词**包裹** runtime playbook——读它拿到跑法 + 原生分数,再把分数组装成 `report.json` 收进实验树。
-- **执行面双 checkout**:`deploy_root`(DataOS checkout)提供 `dataos` src(算子 recipe 要 import)+ **custom_operators**(大脑私有造数据方法)+ benchmark 数据;`runtime_root`(DataOS-Runtime checkout,SSH clone,H100 上 HTTPS 被墙 SSH 通)提供 playbooks + eval bridge。run-config 的 `runtime_ref` pin runtime 库版本。
+  - **操作契约**(runtime 暴露):`env.yaml` 的 `operations`(submit/poll/fetch/cancel/activate 命令模板,jinja2)+ `discipline` —— 声明式,不是 Python API;runtime 自带通用组合器 `compose/`(resolve 填 `{{env.*}}{{run.*}}`、保留 `{ctx.*}`;render 出两段提示词),任何 agent 复用。设计见 `docs/runtime-contract.md`,字段规范见 runtime 的 `CONTRACT.md`。
+  - **原生评分契约**(runtime 暴露):`task.yaml.scoring` —— 冻结评测产出 `<eval_dir>/summary.json` 的 `score`(0–100),任何 agent 被打分、互比的唯一基准。
+  - **数据契约**(留大脑):`report.json`/`recon.json`/run-config 的 JSON 形状。sub-agent 提示词 = 大脑 METHOD/REPORT 段 + compose 渲染的两段;拿到原生分数后按大脑契约组装 `report.json` 收进实验树。
+- **执行面双 checkout**:`deploy_root`(DataOS checkout)提供 `dataos` src(算子 recipe 要 import)+ **custom_operators**(大脑私有造数据方法)+ benchmark 数据;`runtime_root`(DataOS-Runtime checkout,SSH clone,H100 上 HTTPS 被墙 SSH 通)提供契约 + eval bridge。run-config 的 `runtime_ref` pin runtime 库版本。
 
 ---
 
@@ -74,7 +74,7 @@ DataOS 刻意把"决策"和"算力"分开:
 - 负责在**实验树**上做搜索决策(从哪个节点长、改哪个旋钮)。
 
 ### 3.2 sub-agent(执行体:把计划落地)
-- 拿到一个 plan,**端到端**在 H100 上实现它:先读 `runtime_root` 上的**两份 playbook**(环境 playbook = 集群操作,任务 playbook = build→train→eval 跑法 + 原生评分契约)→ 读真实数据行 → 用算子(+ 必要时手写脚本)造 SFT 数据 → sbatch 训练 → 采样评测拿原生分 → 把分数组装成 `report.json`(形状由大脑提示词给,不在 runtime 里)。
+- 拿到一个 plan,**端到端**在 H100 上实现它:提示词里已带 compose 渲染的两段(**环境操作** = 填好的 submit/poll/fetch/activate 命令 + 纪律;**任务** = 目标/输入/评分命令,`{ctx.*}` 由它执行时填)→ 读真实数据行 → 用算子(+ 必要时手写脚本)造 SFT 数据 → sbatch 训练 → 采样评测拿原生分 → 把分数组装成 `report.json`(形状由大脑提示词给,不在 runtime 里)。
 - 有 shell、能 ssh/sbatch、能自愈(操作端口不匹配、格式不对等做最小兼容修复)。
 - 提示词硬约束(`prompt/subagent_task.yaml`):算子箱缺什么就**手写**;失败要**诊断根因**再重试而非盲试;守 login-node 纪律;保持 GPU 利用率;无论如何都要写 report.json。
 
