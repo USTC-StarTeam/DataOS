@@ -63,9 +63,9 @@ env_ops, task_def = render(resolved)            # 两段可直接放进提示词
 | `name` `kind` | 是 | 标识 + 类型(`slurm`/`k8s`/`local`) |
 | `access` | 是 | 怎么到达:`host/user/port/key_ref`(私钥路径,秘钥本身不入库) |
 | `tools` | 是 | 有哪些可用运行时(声明,不强制用):每项 `{path, provides:[...]}` |
-| `paths` | 是 | 文件系统事实:`runs_base` 等 |
+| `paths` | 是 | **只放机器文件系统事实**:`runs_base`(必填)、`runtime_root`;任务数据(fixed_pool/benchmarks)走 run-config |
 | `resources` | 否 | 供大脑规划参考:`gpu_type` 等 |
-| `gateway` | 否 | 可达的 LLM 网关:`base_url/model/key_file` |
+| `gateway` | 否 | 从这台机可达的 LLM 端点(仅连接):`base_url/key_file`;model/并发在 task.scoring.judge |
 | `operations` | 是 | **★ 操作契约**:生命周期动词 → 参数化命令模板(见 §4) |
 | `discipline` | 是 | **★ 硬约束**:字符串列表(login 纪律、输出隔离…) |
 
@@ -80,12 +80,12 @@ tools:
   train_env: {path: /data/hcgu/.conda/envs/Llama-op020, provides: [llamafactory]}
   eval_env:  {path: /data/hcgu/.conda/envs/lm-eval,    provides: [lm-eval, vllm]}
   conda_sh:  /data/software/miniconda3/etc/profile.d/conda.sh
-paths:    {runs_base: /data/hcgu/users/tjh/dataos_agentver_runs, deploy_root: ..., benchmarks: ...}
-gateway:  {base_url: https://api.chatanywhere.tech/v1, model: qwen3.5-plus, key_file: ...}
+paths:    {runs_base: /data/hcgu/users/tjh/dataos_agentver_runs, runtime_root: /data/hcgu/users/tjh/dataos_runtime}  # 只放机器文件系统事实
+gateway:  {base_url: https://api.chatanywhere.tech/v1, key_file: ...}   # 仅连接事实;model/并发在 task.scoring.judge
 operations:
   activate: "source {env.tools.conda_sh} && conda activate {ctx.env_path}"
   submit:   "ssh -i {env.access.key_ref} -p {env.access.port} {env.access.user}@{env.access.host}
-             'sbatch --partition={run.slurm.partition} --qos={run.slurm.qos} --gres=gpu:{run.resource.gpus}
+             'sbatch --partition={env.slurm.partition} --qos={env.slurm.qos} --gres=gpu:{run.resource.gpus}
               --nodelist={run.resource.node} --cpus-per-task={run.resource.cpus}
               --chdir={ctx.run_root} --output={ctx.run_root}/logs/slurm-%j.out {ctx.script}'"
   poll:     "ssh ... {env.access.user}@{env.access.host}
@@ -120,7 +120,7 @@ discipline:
 name: posttrainbench
 inputs:
   base_model:   {from: run.base_model, kind: hf_model}
-  data_pool:    {from: run.paths.fixed_pool, kind: fixed-pool}
+  data_pool:    {from: run.fixed_pool, kind: fixed-pool}   # 路径由 run-config 给,不绑死某台机
   target_bench: {from: run.bench, one_of: [gsm8k, aime2025, humaneval, bfcl, gpqamain, healthbench, arenahardwriting]}
 objective: "只用 data_pool 里的数据,把 base_model 在 target_bench 上的分数做高"
 constraints:
@@ -132,7 +132,8 @@ scoring:
   command: "python {task.assets_root}/lm_eval_bridge/scripts/run_lmeval_eval.py
             --task {run.bench} --model-path {ctx.model_path} --model-name {ctx.label}
             --output-dir {ctx.eval_dir} --limit {run.eval_limit}"
-  judge_command: "..."           # judge 类 bench 的补分命令(healthbench/arenahardwriting)
+  judge: {model: qwen3.5-plus, workers: 32}   # 本任务的 judge 选择(端点用 env.gateway)
+  judge_command: "... {{ env.gateway.base_url }} ... {{ task.scoring.judge.model }} ..."
   result: {file: "{ctx.eval_dir}/summary.json", field: "score", range: [0, 100]}
   format_contract: "assets/lm_eval_bridge/ptb/eval_tasks/posttrainbench/utils.py"
 assets:
@@ -162,7 +163,8 @@ assets:
 ```json
 { "environment": "h100_slurm", "task": "posttrainbench", "runtime_ref": "v0.1.0",
   "run_id": "...", "base_model": "...", "bench": "gsm8k",
-  "resource": {"node":"gpu04","gpus":1,"cpus":8}, "eval_limit": -1, "budget_hours": 10 }
+  "resource": {"node":"gpu04","gpus":1,"cpus":8}, "eval_limit": -1, "budget_hours": 10,
+  "fixed_pool": "/data2/.../posttrainbench_fixed_pool_v2", "benchmarks": "/data/.../posttrainbench_benchmarks" }
 ```
 `environment`+`task`+`runtime_ref` 选定 runtime 里的两份 schema;其余是 per-run 事实,喂给 `{run.*}`。
 
