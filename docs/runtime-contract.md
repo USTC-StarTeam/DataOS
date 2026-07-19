@@ -231,6 +231,11 @@ assets:
 - [ ] **C3 runtime 库 · 组合器**:实现 `compose/compose.py`(`resolve` 读 schema+填模板+校验;`render` 用 jinja2 渲染 `templates/*.j2` 出两段)+ 模板。删/降级 playbook.md(改由 render 产出人读版)。
 - [ ] **C4 DataOS · 接线**:sub-agent 提示词改为「调 runtime.compose 得两段 + 大脑 METHOD/REPORT 段」,替换硬写的 "read playbook.md"。
 - [ ] **C5 端到端**:选 gsm8k 起一次 run,对拍现结果(baseline≈41),确认渲染出的指令与现在等价或更好。同时用一个"假 baseline agent"直接调 compose 验证中立可复用。
+- [ ] **C6 接入 DataOS-train(按 §12 依赖规则)**:
+  - C6a(runtime 侧,可先行):verifier(`compute_score`)作为任务资产落进 `tasks/posttrainbench/`;`task.yaml` 加 `scoring.verifier`;CONTRACT.md 补字段。
+  - C6b(train 侧):删除内置的 posttrainbench reward(任务代码出库);`Reward` 改收注入的文件路径;hook 按名发现 + `validate()` 预检(reward 路径存在且含 compute_score、op 名可解析)。
+  - C6c(brain 侧):resolved 契约 → TrainSpec 适配器(env/cluster 事实注入,单一事实源);TRAIN stage 的 `invoke` 换成 dataos-train validate/build → env.operations.submit/poll → collect;dataos-train pip 进 H100 train env。
+  - C6d(验证):SFT 经 dataos-train 端到端对拍;RL(GRPO)冒烟待 verl env 建好;在线算子机制归一(dataos_operator 出逻辑、train hook 寄宿)最后做。
 
 ---
 
@@ -244,7 +249,33 @@ assets:
 - ✅ **run_root**:agent 自选、中立契约只约束在 `env.paths.runs_base` 下;DataOS 的 `{runs_base}/{run_id}/{study}/{exp}` 布局归大脑,不进契约。
 - ✅ **ctx.\* 清单**:见 CONTRACT.md §6(run_root/env_path/script/jobid/model_path/eval_dir/label/remote/local)。
 
-## 12. 仍需注意 / 风险
+## 12. 跨阶段接缝与依赖规则(data × train × eval)
+
+三阶段在**实现层**不可能完全解耦——在线算子要寄宿在训练循环里、RL 的 reward 要调 eval 的 verifier、
+造数据要对齐 scorer 的解析形状。耦合集中在三条边,**全部按「运行时注入」组织,仓库间保持零
+build-time 依赖**:
+
+| 边 | 载体 | 绑定方式 | 接口归属 |
+|---|---|---|---|
+| eval → data(格式契约) | scorer 源码(`task.yaml scoring.format_contract` 指针) | **只读文件**,无代码绑定 | task 契约 |
+| eval → train(reward==eval) | verifier 文件(含 `compute_score`),**任务资产**,`task.yaml scoring.verifier` 声明相对路径 | **文件路径注入**(verl `custom_reward_function.path` 原生按路径加载,无 import) | task 资产(住在 eval bridge 旁,任何任务自带自己的 verifier) |
+| data → train(在线算子寄宿) | 数值逻辑(torch-free,属 dataos_operator)+ 宿主胶水(属 train 的 `ext/`,唯一碰 LF 内部处) | **名字+参数注入**(`TrainSpec.online_ops`);宿主运行时按名解析(entry-point/注册表) | **hook 协议由 train(宿主)拥有**,按约定成文(duck-typed:`hook_point` 属性 + `__call__` 签名),不共享 base class |
+
+### 七条规则
+
+1. **零 build-time 依赖**:`dataos_operator` / `DataOS-train` / `DataOS-Runtime` 互不 import;所有跨阶段边 = 路径/名字 + 约定协议。
+2. **接口归属 = 宿主**:代码在谁的进程里执行,协议就归谁(train 拥有 hook 协议;eval/task 拥有 result 与 verifier 形状)。
+3. **组装点唯一 = 大脑**:从 resolved 契约取 verifier 路径、按 plan 填 online_ops、注入 env/cluster 事实拼 TrainSpec——绑定集中在一处(composition root),库之间互不知晓。
+4. **契约流逆流水线**:执行顺序 data→train→eval,契约方向 eval→train→data(冻结 scorer 是不动点,上游一切对齐它)。所有逆向边**只读**——尺子可读不可弯。
+5. **错误前置**:运行时绑定的破绽(路径不存在 / op 名打错 / 协议漂移)由 train 的 `validate()` 预检 + `runtime_ref`/Capabilities 版本化兜住,不留到 GPU 作业里炸。
+6. **部署共址 ≠ 代码耦合**:dataos_operator 与 dataos-train 需同装进 train conda env(作业内执行 convert/entry/算子)——这是环境事实,记在 env.yaml `tools.provides`。
+7. **在线算子机制归一**:train 的 hook seam 是**唯一**寄宿机制;dataos_operator 只保留数值逻辑,弃用其自带的 LF 集成(`dataos_enable` 路线)。
+
+由此的职责收缩:**train = validate/build/collect(方法层,任务无关、环境无关)**;提交/轮询/激活走
+env 契约的 operations(train 自带的 slurm launcher 在 DataOS 体系内不使用);任务专属代码(reward/
+verifier)一律是 task 资产。
+
+## 13. 仍需注意 / 风险
 
 - **多环境/多任务通用性**:schema 要能容纳非 slurm 环境(k8s/local)和非 PTB 任务而不改 DataOS——agent-中立的试金石(C5 用"假 baseline agent"验)。
 - **渲染 vs 自愈自由度**:渲染出的命令是"模板/建议",要明确允许 sub-agent 按需做兼容性微调,别把它当死命令。
