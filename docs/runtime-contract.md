@@ -226,12 +226,12 @@ assets:
 
 ## 10. 迁移计划
 
-- [ ] **C1 定稿本设计文档**(本文件)+ **`DataOS-Runtime/CONTRACT.md` 字段规范**。
-- [ ] **C2 runtime 库 · 声明**:给 `h100_slurm/env.yaml` 补 `operations`/`discipline`/`tools`;为 `posttrainbench` 写 `task.yaml`(从现有两份 playbook 抽结构)。
-- [ ] **C3 runtime 库 · 组合器**:实现 `compose/compose.py`(`resolve` 读 schema+填模板+校验;`render` 用 jinja2 渲染 `templates/*.j2` 出两段)+ 模板。删/降级 playbook.md(改由 render 产出人读版)。
-- [ ] **C4 DataOS · 接线**:sub-agent 提示词改为「调 runtime.compose 得两段 + 大脑 METHOD/REPORT 段」,替换硬写的 "read playbook.md"。
-- [ ] **C5 端到端**:选 gsm8k 起一次 run,对拍现结果(baseline≈41),确认渲染出的指令与现在等价或更好。同时用一个"假 baseline agent"直接调 compose 验证中立可复用。
-- [ ] **C6 接入 DataOS-train(按 §12 依赖规则;runtime 侧零改动——任务契约对 RL 零知识)**:
+- [x] **C1 定稿本设计文档**(本文件)+ **`DataOS-Runtime/CONTRACT.md` 字段规范**。
+- [x] **C2 runtime 库 · 声明**:给 `h100_slurm/env.yaml` 补 `operations`/`discipline`/`tools`;为 `posttrainbench` 写 `task.yaml`(从现有两份 playbook 抽结构)。
+- [x] **C3 runtime 库 · 组合器**:实现 `compose/compose.py`(`resolve` 读 schema+填模板+校验;`render` 用 jinja2 渲染 `templates/*.j2` 出两段)+ 模板。删/降级 playbook.md(改由 render 产出人读版)。
+- [x] **C4 DataOS · 接线**:sub-agent 提示词改为「调 runtime.compose 得两段 + 大脑 METHOD/REPORT 段」,替换硬写的 "read playbook.md"。
+- [x] **C5 端到端**(2026-07-19 与 C6 合并验证:baseline 41.0 二分点过;假 baseline agent 零依赖复用 ✓):选 gsm8k 起一次 run,对拍现结果(baseline≈41),确认渲染出的指令与现在等价或更好。同时用一个"假 baseline agent"直接调 compose 验证中立可复用。
+- [x] **C6 接入 DataOS-train(按 §12 依赖规则;runtime 侧零改动)**(2026-07-19 验证:4 个训练实验经 dataos-train,best 86.0 > 旧手写路径 80;RL/verl 与在线算子归一延后):
   - C6a(train 侧):删除内置的 posttrainbench reward(任务代码出库,`verl/data.py` 的 bridge import 一并改注入);`Reward` 由注册表 ref 改为**注入的文件路径**(runtime-owned);**reward 文件协议**(`compute_score(data_source, solution_str, ground_truth)` 签名)写进 train 的 schema 文档;`validate()` 预检:reward 路径存在且含 compute_score、online op 名可解析;hook 按名发现(entry-point/注册表)。
   - C6b(brain 侧):resolved 契约 → TrainSpec 适配器(env/cluster 事实注入,单一事实源);TRAIN stage 的 `invoke` 换成 dataos-train validate/build → env.operations.submit/poll → collect;**RL 方法时**,METHOD 指引 sub-agent 读 `format_contract` 自己写 `$RUN_ROOT/reward.py`(按宿主协议)+ 自检(几对已知 (solution, ground_truth) 对拍)后把路径填进 TrainSpec;dataos-train pip 进 H100 train env。
   - C6c(验证):SFT 经 dataos-train 端到端对拍;RL(GRPO)冒烟待 verl env 建好;在线算子机制归一(dataos_operator 出逻辑、train hook 寄宿)最后做。
