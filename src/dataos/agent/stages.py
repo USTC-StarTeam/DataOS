@@ -46,6 +46,28 @@ def _eval_invoke(scoring: dict, assets_root: str) -> str:
     return "\n  ".join(lines)
 
 
+def _train_invoke(resolved: dict) -> str:
+    tools = resolved.get("environment", {}).get("tools", {})
+    te = tools.get("train_env", {})
+    te_path = te.get("path") if isinstance(te, dict) else (te or "<train_env>")
+    cli = f"{te_path}/bin/dataos-train"
+    return (
+        "DETERMINISTIC via dataos-train (installed in train_env). Your task prompt carries a "
+        "ready TRAIN SPEC JSON — runtime-owned fields are code-injected, do NOT edit them; only "
+        "`method` came from the plan. Flow: "
+        "1) write it to {ctx.run_root}/trainspec.json on the exec host; "
+        f"2) on the LOGIN node: `{cli} validate {{ctx.run_root}}/trainspec.json` (fail-fast, no "
+        f"GPU) then `{cli} build {{ctx.run_root}}/trainspec.json` — build renders AND writes "
+        "run_train.sh + train config into run_root; "
+        "3) submit a thin sbatch wrapper (activate op with ctx.env_path=train_env, then `bash "
+        "{ctx.run_root}/run_train.sh`) via the submit op; poll to terminal; "
+        f"4) `{cli} collect --run-dir {{ctx.run_root}}` → result.json; merge its "
+        "report_fragment into report.json. "
+        "FALLBACK only if dataos-train is broken/unavailable: hand-write the LF config per the "
+        "legacy recipe in your system prompt (record the fallback in report.json)."
+    )
+
+
 def build_stages(resolved: dict) -> list[Stage]:
     """DATA/TRAIN are brain constants; EVAL is formatted from the resolved task scoring."""
     scoring = resolved.get("task", {}).get("scoring", {})
@@ -74,10 +96,7 @@ def build_stages(resolved: dict) -> list[Stage]:
                 "{ctx.run_root}/final_model — COMPLETE HF model dir (lora: adapter at "
                 "{ctx.run_root}/adapter, then export-merge; full/freeze: write final_model directly)"
             ),
-            invoke=(
-                "LLaMA-Factory in train_env: `llamafactory-cli train` + (lora) "
-                "`llamafactory-cli export` — recipe details in your system prompt"
-            ),
+            invoke=_train_invoke(resolved),
             where="same Slurm GPU job as the data stage",
             owner=OWNER_OURS,
         ),

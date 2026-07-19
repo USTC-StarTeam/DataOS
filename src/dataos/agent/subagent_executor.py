@@ -225,17 +225,26 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
     runtime_block = _runtime_prompt_block(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir, eval_limit=eval_limit,
     )
-    from . import runtime_compose, stages as _stages
+    from . import runtime_compose, stages as _stages, train_spec as _train_spec
     env_ops, task_def, resolved = runtime_compose.render_sections(
         cfg, parent_model=parent_model, eval_limit=eval_limit,
     )
     stage_blocks = _stages.render_stage_blocks(_stages.build_stages(resolved))
+    train = spec.get("train") or {}
+    train_spec_json = ""
+    if train.get("finetuning_type"):  # baseline runs carry no training
+        ts = _train_spec.build_train_spec(
+            resolved, name=spec["name"], plan_train=train, parent_model=parent_model,
+            run_root=run_root, time_h=2.0 if cfg.ptb_profile == "smoke" else 10.0,
+        )
+        train_spec_json = json.dumps(ts, ensure_ascii=False, indent=2)
     return _prompt.render(
         "subagent_task",
         exp_name=spec["name"],
         env_ops=env_ops,
         task_def=task_def,
         stage_blocks=stage_blocks,
+        train_spec_json=train_spec_json,
         bench=bench,
         profile=cfg.ptb_profile,
         parent_model=parent_model,

@@ -17,6 +17,10 @@ template: |
   {{ recipe_json }}
   SFT hyperparameters (fixed unless an execution tool requires a harmless format cast):
   {{ train_json }}
+  {% if train_spec_json %}
+  TRAIN SPEC (ready for dataos-train — runtime-owned fields injected by code, do NOT edit them; write this verbatim to {ctx.run_root}/trainspec.json and follow the train stage's invoke):
+  {{ train_spec_json }}
+  {% endif %}
   Main-agent brief:
   {{ subagent_brief }}
 
