@@ -55,9 +55,12 @@ def build_run_config(cfg, *, parent_model: str, eval_limit: int) -> dict:
     }
 
 
-def render_sections(cfg, *, parent_model: str, eval_limit: int) -> tuple[str, str]:
-    """Return (env_ops, task_def) prompt text rendered from the runtime contract."""
+def render_sections(cfg, *, parent_model: str, eval_limit: int) -> tuple[str, str, dict]:
+    """Return (env_ops, task_def, resolved) — the two prompt sections rendered from the
+    runtime contract plus the resolved contract itself (the brain's Stage abstraction
+    formats its EVAL capability block from ``resolved["task"]["scoring"]``)."""
     compose = _compose()
     rc = build_run_config(cfg, parent_model=parent_model, eval_limit=eval_limit)
     resolved = compose.resolve(rc)
-    return compose.render(resolved)
+    env_ops, task_def = compose.render(resolved)
+    return env_ops, task_def, resolved
