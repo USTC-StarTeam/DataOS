@@ -229,12 +229,15 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
     runtime_block = _runtime_prompt_block(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir, eval_limit=eval_limit,
     )
-    books = _playbooks(runtime_block)
+    from . import runtime_compose
+    env_ops, task_def = runtime_compose.render_sections(
+        cfg, parent_model=parent_model, eval_limit=eval_limit,
+    )
     return _prompt.render(
         "subagent_task",
         exp_name=spec["name"],
-        env_playbook=books["env_playbook"],
-        task_playbook=books["task_playbook"],
+        env_ops=env_ops,
+        task_def=task_def,
         bench=bench,
         profile=cfg.ptb_profile,
         parent_model=parent_model,
