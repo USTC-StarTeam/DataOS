@@ -1,6 +1,8 @@
 # DataOS Runtime 契约(Environment / Task 抽象)
 
-状态:**设计定稿中(待评审)**。目标:把 DataOS-Runtime 里现在的**散文 playbook** 升级为**带类型的声明式契约**,并明确「写什么 / 怎么拼 / 何时拼给 DataOS」。
+状态:**已实施并生产验证(2026-07-21)**。字段规范的当前真源是 `DataOS-Runtime/CONTRACT.md`;本文件讲设计与时序。目标:把 DataOS-Runtime 的**散文 playbook** 升级为**带类型的声明式契约**,并明确「写什么 / 怎么拼 / 何时拼给 DataOS」。
+
+> **当前实现要点(与早期草案的差异)**:① 组合器 `compose/`(resolve+render)在 runtime 库,agent 直接 import;② env 是 **(task,机器) 部署单元**(名如 `PTB_H100_slurm`),任务数据(fixed_pool/benchmarks)落 `env.paths`;③ 环境用 **uv venv**(sft/rl/eval,按 `{path}/bin/<tool>` 调,无 conda);④ 每 task = `task.yaml + eval/ + train/?`,`train/` 存在=训练冻结;⑤ EVAL 声明式(跑 `scoring.command` 读 `result.field`),无 common runner;⑥ posttrainbench 评测器扁平化为 `eval/{scripts,lmeval,models}`。
 
 ---
 
@@ -36,7 +38,7 @@ sub-agent 最终提示词 = **[大脑的方法段(算子/LLaMA-Factory,DataOS �
 DataOS-Runtime/
   environments/<env>/env.yaml          # 声明:环境契约
   tasks/<task>/task.yaml               # 声明:任务契约
-  tasks/<task>/lm_eval_bridge/         # 任务自带的评测器代码(有依赖)
+  tasks/<task>/eval/                   # 任务自带的评测器(把模型打成分);train/ 可选(存在=冻结)
   compose/
     compose.py                         # ★ 通用组合器:resolve(run_config) + render(resolved)
     templates/environment.j2         # ★ 「环境操作」段的提示词模板
@@ -63,7 +65,7 @@ env_ops, task_def = render(resolved)            # 两段可直接放进提示词
 | `name` `kind` | 是 | 标识 + 类型(`slurm`/`k8s`/`local`) |
 | `access` | 是 | 怎么到达:`host/user/port/key_ref`(私钥路径,秘钥本身不入库) |
 | `tools` | 是 | 有哪些可用运行时(声明,不强制用):每项 `{path, provides:[...]}` |
-| `paths` | 是 | **只放机器文件系统事实**:`runs_base`(必填)、`runtime_root`;任务数据(fixed_pool/benchmarks)走 run-config |
+| `paths` | 是 | 机器事实 `runs_base`(必填)/`runtime_root` + **本部署任务的数据** `fixed_pool`/`benchmarks`(env 任务绑定,故落此) |
 | `resources` | 否 | 供大脑规划参考:`gpu_type` 等 |
 | `gateway` | 否 | 从这台机可达的 LLM 端点(仅连接):`base_url/key_file`;model/并发在 task.scoring.judge |
 | `operations` | 是 | **★ 操作契约**:生命周期动词 → 参数化命令模板(见 §4) |
@@ -71,19 +73,23 @@ env_ops, task_def = render(resolved)            # 两段可直接放进提示词
 
 `operations` 必含的动词:`submit` / `poll` / `fetch` / `cancel` / `activate`。
 
-**示例(h100_slurm):**
+**示例(PTB_H100_slurm,uv 环境):**
 ```yaml
-name: h100_slurm
+name: PTB_H100_slurm                          # env = (task,机器) 部署单元
 kind: slurm
 access:   {host: 114.214.215.159, user: hcgu, port: 22, key_ref: ~/.ssh/ghc_miyao}
-tools:
-  train_env: {path: /data/hcgu/.conda/envs/Llama-op020, provides: [llamafactory]}
-  eval_env:  {path: /data/hcgu/.conda/envs/lm-eval,    provides: [lm-eval, vllm]}
-  conda_sh:  /data/software/miniconda3/etc/profile.d/conda.sh
-paths:    {runs_base: /data/hcgu/users/tjh/dataos_agentver_runs, runtime_root: /data/hcgu/users/tjh/dataos_runtime}  # 只放机器文件系统事实
-gateway:  {base_url: https://api.chatanywhere.tech/v1, key_file: ...}   # 仅连接事实;model/并发在 task.scoring.judge
+tools:                                         # uv venv;按 {path}/bin/<tool> 调,无 conda
+  sft_env:  {path: <root>/environments/PTB_H100_slurm/envs/sft/.venv,  provides: [llamafactory, torch, flash-attn]}
+  rl_env:   {path: <root>/environments/PTB_H100_slurm/envs/rl/.venv,   provides: [verl, vllm, ray]}
+  eval_env: {path: <root>/environments/PTB_H100_slurm/envs/eval/.venv, provides: [vllm, lm-eval]}
+paths:                                         # 机器事实 + 本部署的任务数据(env 任务绑定)
+  runs_base: /data2/hcgu/dataos_runs
+  runtime_root: /data/hcgu/users/tjh/dataos_runtime
+  fixed_pool: /data2/.../posttrainbench_fixed_pool_v2
+  benchmarks: /data/.../posttrainbench_benchmarks
+gateway:  {base_url: https://api.chatanywhere.tech/v1, key_file: ...}   # 仅连接;model/并发在 task.scoring.judge
 operations:
-  activate: "source {env.tools.conda_sh} && conda activate {ctx.env_path}"
+  activate: "source {ctx.env_path}/bin/activate"
   submit:   "ssh -i {env.access.key_ref} -p {env.access.port} {env.access.user}@{env.access.host}
              'sbatch --partition={env.slurm.partition} --qos={env.slurm.qos} --gres=gpu:{run.resource.gpus}
               --nodelist={run.resource.node} --cpus-per-task={run.resource.cpus}
@@ -120,7 +126,7 @@ discipline:
 name: posttrainbench
 inputs:
   base_model:   {from: run.base_model, kind: hf_model}
-  data_pool:    {from: run.fixed_pool, kind: fixed-pool}   # 路径由 run-config 给,不绑死某台机
+  data_pool:    {from: env.paths.fixed_pool, kind: fixed-pool}   # env 任务绑定,数据在 env.paths
   target_bench: {from: run.bench, one_of: [gsm8k, aime2025, humaneval, bfcl, gpqamain, healthbench, arenahardwriting]}
 objective: "只用 data_pool 里的数据,把 base_model 在 target_bench 上的分数做高"
 constraints:
@@ -128,16 +134,16 @@ constraints:
   - "评测器冻结;base 与产出模型走同一套评测"
 produce: {kind: hf_model, hint: "一个完整 HF 模型目录"}
 scoring:
-  evaluator: "assets/lm_eval_bridge/scripts/run_lmeval_eval.py"
-  command: "python {task.assets_root}/lm_eval_bridge/scripts/run_lmeval_eval.py
+  evaluator: "eval/scripts/run_lmeval_eval.py"
+  command: "{env.tools.eval_env.path}/bin/python {task.assets_root}/eval/scripts/run_lmeval_eval.py
             --task {run.bench} --model-path {ctx.model_path} --model-name {ctx.label}
             --output-dir {ctx.eval_dir} --limit {run.eval_limit}"
   judge: {model: qwen3.5-plus, workers: 32}   # 本任务的 judge 选择(端点用 env.gateway)
   judge_command: "... {{ env.gateway.base_url }} ... {{ task.scoring.judge.model }} ..."
   result: {file: "{ctx.eval_dir}/summary.json", field: "score", range: [0, 100]}
-  format_contract: "assets/lm_eval_bridge/ptb/eval_tasks/posttrainbench/utils.py"
+  format_contract: "eval/lmeval/utils.py"
 assets:
-  lm_eval_bridge: "lm_eval_bridge/"
+  eval: "eval/"
 ```
 
 ---
@@ -211,6 +217,19 @@ assets:
 - **每个 experiment**:`compose.render(resolved_runtime)` 得两段 + 大脑 METHOD/REPORT 段 + per-exp 的 `ctx.*`(run_root/model_path/eval_dir)→ sub-agent 提示词。
 - **`runtime_ref` 变了**才重新 checkout + resolve;契约破坏体现在版本号。
 - DataOS 怎么调 runtime 的 compose(**方案 A,直接 import**):控制面 checkout 了 runtime 库,把其目录加进 `sys.path`,`import compose` 后 `compose.resolve()/render()` 当函数调(同进程)。compose 用 **jinja2** 渲染模板 → 控制面 Python env 需装 jinja2(其他 Python agent 复用时同装)。
+
+---
+
+## 8.5 compose 已知边界与注意(2026-07-21 审计)
+
+无深层设计缺陷;以下是使用/维护时要清楚的语义与脆弱点:
+
+1. **`runtime_ref` 不由 compose 强制**:`resolve(run_config, runtime_root)` 读**磁盘上现有**的 runtime_root,`runtime_ref` 只是随 resolved 透传的元数据。**版本 pin 是调用方的责任**——调 resolve 前须自己 checkout 到该 ref;否则"pin 了版本"是假象(读的是当前工作副本)。
+2. **渲染范围不是整棵树**:只有 `operations` / `discipline` / `scoring.command` / `judge_command` / `scoring.result` 会被 jinja 填 `{{...}}`;`objective` / `constraints` / `inputs` / `produce` **原样透传**(它们是描述性文本)。→ task 作者:`{{...}}` 只写在会被渲染的字段里;描述字段里的引用(如 `data_pool.from: env.paths.fixed_pool`)是**字面标签**,不是模板。
+3. **缺失可选字段的守卫**:`format_contract` 可选,`task.j2` 已加 `{% if %}` 守卫(否则缺失时 render 会崩)——新增可选字段进模板时记得同样守卫。
+4. **缺 `{{run.X}}` 的报错**:命令模板用 StrictUndefined,run-config 缺键会抛 jinja `UndefinedError`(点名该属性),信息够定位但不算友好。
+5. **`ctx.*` 只支持单层**:`_Ctx` 代理把 `{{ctx.foo}}` 变字面量 `{ctx.foo}`;`{{ctx.foo.bar}}` 这种嵌套会失败(当前无此用法)。
+6. **`resolved` 是 JSON 安全的**(全是 dict/str),故 CLI 可 resolve→写盘→render 分两步跑。
 
 ---
 
