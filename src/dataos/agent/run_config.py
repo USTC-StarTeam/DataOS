@@ -91,6 +91,19 @@ DEFAULT_JUDGE = {
     # judge doc concurrency; passed to run_lmeval_judge.py --workers
     "workers": 32,  # judge doc concurrency; task.yaml scoring.judge.workers is authoritative for the composed scoring command
 }
+# env.yaml is now the source of truth for the data pool + runtimes; run-config `paths` defaults
+# from here so a run-config need not repeat them (env is a (task,machine) deployment).
+DEFAULT_FIXED_POOL = _ENV_PATHS.get("fixed_pool", "")
+_ENV_TOOLS = _ENV.get("tools", {})
+
+
+def _tool_path(name: str) -> str:
+    t = _ENV_TOOLS.get(name, {})
+    return t.get("path", "") if isinstance(t, dict) else str(t or "")
+
+
+DEFAULT_SFT_ENV = _tool_path("sft_env")    # the SFT runtime (uv venv) — fills the legacy train_env slot
+DEFAULT_EVAL_ENV = _tool_path("eval_env")  # the eval runtime (uv venv)
 
 
 @dataclass(slots=True)
@@ -122,24 +135,28 @@ class ResourceConfig:
 
 @dataclass(slots=True)
 class PathConfig:
-    fixed_pool: str
-    conda_sh: str
-    train_env: str
-    eval_env: str
+    """Per-run paths — all DEFAULTED from env.yaml (env is the source of truth for the data pool
+    + runtimes). A run-config need not set `paths` at all; override a field only to point THIS run
+    at a different pool/runtime than the environment's default. (conda_sh dropped: envs are uv.)"""
+
+    fixed_pool: str = ""
+    train_env: str = ""  # SFT runtime = env.yaml tools.sft_env; keeps the name the RUNTIME CONFIG block uses
+    eval_env: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PathConfig":
-        fields = ["fixed_pool", "conda_sh", "train_env", "eval_env"]
-        _require(data, fields, "paths")
-        return cls(**{field: _nonempty_str(data[field], f"paths.{field}") for field in fields})
+        return cls(
+            fixed_pool=_nonempty_str(data["fixed_pool"], "paths.fixed_pool") if data.get("fixed_pool") else DEFAULT_FIXED_POOL,
+            train_env=_nonempty_str(data["train_env"], "paths.train_env") if data.get("train_env") else DEFAULT_SFT_ENV,
+            eval_env=_nonempty_str(data["eval_env"], "paths.eval_env") if data.get("eval_env") else DEFAULT_EVAL_ENV,
+        )
+
+    @classmethod
+    def defaults(cls) -> "PathConfig":
+        return cls(fixed_pool=DEFAULT_FIXED_POOL, train_env=DEFAULT_SFT_ENV, eval_env=DEFAULT_EVAL_ENV)
 
     def to_record(self) -> dict[str, Any]:
-        return {
-            "fixed_pool": self.fixed_pool,
-            "conda_sh": self.conda_sh,
-            "train_env": self.train_env,
-            "eval_env": self.eval_env,
-        }
+        return {"fixed_pool": self.fixed_pool, "train_env": self.train_env, "eval_env": self.eval_env}
 
     def to_runtime_paths(self) -> dict[str, Any]:
         return {
@@ -177,8 +194,7 @@ class PtbRunConfig:
             "base_model_path",
             "time_budget_hours",
             "resource",
-            "paths",
-        ]
+        ]  # `paths` is optional — defaults from env.yaml (data pool + runtimes)
         _require(data, required, "run config")
         return cls(
             run_id=_nonempty_str(data["run_id"], "run_id"),
@@ -188,7 +204,9 @@ class PtbRunConfig:
             base_model_path=_nonempty_str(data["base_model_path"], "base_model_path"),
             time_budget_hours=_positive_float(data["time_budget_hours"], "time_budget_hours"),
             resource=ResourceConfig.from_dict(_object(data["resource"], "resource")),
-            paths=PathConfig.from_dict(_object(data["paths"], "paths")),
+            paths=PathConfig.from_dict(_object(data["paths"], "paths"))
+            if "paths" in data
+            else PathConfig.defaults(),
             eval_samples=_eval_samples(data["eval_samples"], "eval_samples")
             if "eval_samples" in data
             else -1,

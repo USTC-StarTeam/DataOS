@@ -40,8 +40,8 @@ _EXP_TIMEOUT_FORMAL_S = 10 * 3600.0  # PTB hard cap: 10 h / 1 H100
 _STATE_FILE = "subagent_state.json"
 _REQUIRED_CLUSTER_KEYS = ("host", "user", "port", "key", "partition", "qos", "gres")
 _REQUIRED_PATH_KEYS = (
-    "deploy_root", "runs_base", "fixed_pool", "conda_sh", "train_env", "eval_env",
-)
+    "deploy_root", "runs_base", "fixed_pool", "train_env", "eval_env",
+)  # conda_sh dropped — envs are uv venvs (called via {path}/bin/<tool>)
 _REQUIRED_GATEWAY_KEYS = ("base_url", "model", "key_file")
 
 
