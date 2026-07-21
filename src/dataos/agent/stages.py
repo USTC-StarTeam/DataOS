@@ -30,27 +30,25 @@ class Stage:
     owner: str   # OWNER_OURS | OWNER_PROVIDED
 
 
-def _eval_invoke(resolved: dict) -> str:
-    """UNIFORM across every task: score a model with the common eval runner."""
-    env = resolved.get("environment", {})
-    eval_py = f"{env.get('tools', {}).get('eval_env', {}).get('path', '<eval_env>')}/bin/python"
-    runner = f"{env.get('paths', {}).get('runtime_root', '<runtime_root>')}/common/eval_runner/evaluate.py"
-    task = resolved.get("task", {}).get("name", "")
-    scoring = resolved.get("task", {}).get("scoring", {})
-    assets_root = resolved.get("task", {}).get("assets_root", "")
+def _eval_invoke(scoring: dict, assets_root: str) -> str:
+    """Declarative: run the task's frozen scoring command on the model, read the native score."""
+    result = scoring.get("result", {})
+    lines = [
+        f"run the task's evaluator: `{str(scoring.get('command', '')).strip()}`",
+        f"then read `{result.get('field', 'score')}` from {result.get('file', '<result>')} "
+        f"(range {result.get('range', [0, 100])}) → report.json.",
+    ]
+    judge = scoring.get("judge_command")
+    if judge:
+        lines.append(
+            "judge benches (healthbench/arenahardwriting): the command above generates "
+            f"predictions only; then on the LOGIN node run: `{str(judge).strip()}`"
+        )
     fc = scoring.get("format_contract")
-    hint = (
-        f"  (want a high score? read how the scorer parses output first: {assets_root}/{fc})"
-        if fc and " " not in str(fc) else (f"  ({fc})" if fc else "")
-    )
-    return (
-        "UNIFORM (same for every task) — score the model with the common eval runner:\n"
-        f"  `{eval_py} {runner} --task {task} --model {{ctx.model_path}} "
-        "--out {ctx.eval_dir} --run-config {ctx.run_root}/run_config.json`\n"
-        "  it runs this task's frozen scorer on the model + normalizes → {ctx.eval_dir}/score.json;\n"
-        "  read score.json `score` into report.json. Write run_config.json from the RUN CONFIG "
-        "JSON in your task prompt before calling it." + ("\n" + hint if hint else "")
-    )
+    if fc:
+        loc = f"{assets_root}/{fc}" if " " not in str(fc) else str(fc)
+        lines.append(f"want a high score? read how the scorer parses output first: {loc}")
+    return "\n  ".join(lines)
 
 
 def _train_invoke(resolved: dict) -> str:
@@ -90,6 +88,7 @@ def build_stages(resolved: dict) -> list[Stage]:
     always the uniform model→score runner (provided)."""
     scoring = resolved.get("task", {}).get("scoring", {})
     result = scoring.get("result", {})
+    assets_root = resolved.get("task", {}).get("assets_root", "")
     train_frozen = bool(resolved.get("task", {}).get("train"))
     return [
         Stage(
@@ -122,14 +121,14 @@ def build_stages(resolved: dict) -> list[Stage]:
         ),
         Stage(
             name="eval",
-            role="model -> comparable score (uniform across tasks)",
+            role="model -> native benchmark score",
             input="{ctx.model_path} (the model from TRAIN; the parent model itself for a BASELINE run)",
             output=(
-                "{ctx.eval_dir}/score.json — normalized `score` in range "
-                f"{result.get('range', [0, 100])} (+ per-metric breakdown)"
+                f"{result.get('file', '{ctx.eval_dir}/summary.json')} — field "
+                f"`{result.get('field', 'score')}` in range {result.get('range', [0, 100])}"
             ),
-            invoke=_eval_invoke(resolved),
-            where="GPU job (vLLM) via the common eval runner",
+            invoke=_eval_invoke(scoring, assets_root),
+            where="scoring command in the GPU job (vLLM); judge step on the login node",
             owner=OWNER_PROVIDED,
         ),
     ]

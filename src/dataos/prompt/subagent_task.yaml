@@ -2,7 +2,7 @@ description: >
   Per-experiment task prompt handed to the execution sub-agent. Render params: exp_name, bench,
   profile, parent_model, root_base_model, node_id, parent_node_id, eval_limit, is_smoke,
   recipe_json, train_json, subagent_brief, runtime_config_json, run_root, report_path,
-  state_path, env_ops, task_def, stage_blocks, run_config_json, remaining_minutes (optional).
+  state_path, env_ops, task_def, stage_blocks, remaining_minutes (optional).
 template: |
   Implement experiment '{{ exp_name }}' (bench={{ bench }}, profile={{ profile }}).
   Parent model to continue training from (use this exact path): {{ parent_model }}
@@ -21,8 +21,6 @@ template: |
   TRAIN SPEC (ready for dataos-train — runtime-owned fields injected by code, do NOT edit them; write this verbatim to {ctx.run_root}/trainspec.json and follow the train stage's invoke):
   {{ train_spec_json }}
   {% endif %}
-  RUN CONFIG (write verbatim to {ctx.run_root}/run_config.json — the common eval runner reads it to score your model in the EVAL stage):
-  {{ run_config_json }}
   Main-agent brief:
   {{ subagent_brief }}
 
@@ -44,14 +42,14 @@ template: |
   {{ stage_blocks }}
 
   Execute the stages end to end (data+train fold into ONE Slurm job — the compute node has the pool AND the GPU; use the submit/poll ops). Self-heal execution failures (operator-port/data-port mismatches, etc.) with minimal compatibility fixes that preserve the intent, and record them in report.json. If a Slurm job is still running, keep polling it to terminal state; do not return a final prose-only update.
-  REPORT CONTRACT (this is OURS, not the runtime's — the common eval runner produces {ctx.eval_dir}/score.json; YOU assemble it into report.json for our search tree). Write report.json to the LOCAL path above with this exact shape:
+  REPORT CONTRACT (this is OURS, not the runtime's — the runtime only produces the native summary.json score; YOU assemble it into report.json for our search tree). Write report.json to the LOCAL path above with this exact shape:
     {"id":"<node_id>","name":"<name>","status":"completed",
-     "score":<float — score.json `score`, or null>,
+     "score":<float native % from summary.json, or null>,
      "stages":{"data":{"status":"completed"},"train":{"status":"completed"},"eval":{"status":"completed"}},
      "dataset":{"rows":<int>},
      "model":{"path":"<the scored model dir>","base_model":"<BASE>"},
-     "eval":{"score":<float>,"per_task":<score.json metrics>,"path":"<eval_dir>"}}
-  `status:"completed"` only if `score` is a real number read from score.json; otherwise `status:"failed"` with an `"error"` string. On a BASELINE run set stages data/train to `{"status":"skipped"}`. ALWAYS write a report at the end — never crash without one; a failed report is still required. Record any compatibility fixes / format-pre-check outcome in report.json.
+     "eval":{"score":<float>,"per_task":{"<BENCH>":<float>},"path":"<eval_dir>"}}
+  `status:"completed"` only if `score` is a real number read from the eval's summary.json; otherwise `status:"failed"` with an `"error"` string. On a BASELINE run set stages data/train to `{"status":"skipped"}`. ALWAYS write a report at the end — never crash without one; a failed report is still required. Record any compatibility fixes / format-pre-check outcome in report.json.
   FORMAT PRE-CHECK (inside the sbatch script, after building data and BEFORE the training step): if this bench's eval extracts a structured answer by PARSING model output (tool call / code / JSON / MCQ letter — NOT a free-text LLM judge), take 3 of the built `output` targets and run them through the SAME parser the sampled eval will use. If it cannot extract a valid structure from your own targets, the format is misaligned — you would train the model to emit something the scorer cannot read, capping the score regardless of data or hyperparameters. Abort before training, fix the recipe's rendering step so the target matches `expected_target_shape`, re-check, then train. Record the pre-check outcome (passed, or what you changed) in report.json.
   You are responsible for operator-port and dataset-port adaptation: inspect installed operator signatures inside the Slurm job, normalize fixed-pool source records into the fields needed by the operators and the LLaMA-Factory alpaca format, and record any compatibility notes in report.json.
   You are responsible for keeping GPU utilization high within the single-GPU budget: avoid login-node work, batch data work with training where possible, choose reasonable dataloader workers/batch/grad-accum/vLLM concurrency, and report any resource bottleneck.

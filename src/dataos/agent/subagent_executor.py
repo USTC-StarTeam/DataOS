@@ -230,11 +230,6 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         cfg, parent_model=parent_model, eval_limit=eval_limit,
     )
     stage_blocks = _stages.render_stage_blocks(_stages.build_stages(resolved))
-    # run_config.json for the common eval runner (evaluate.py resolves the contract from it)
-    run_config_json = json.dumps(
-        runtime_compose.build_run_config(cfg, parent_model=parent_model, eval_limit=eval_limit),
-        ensure_ascii=False, indent=2,
-    )
     train = spec.get("train") or {}
     train_frozen = bool(resolved.get("task", {}).get("train"))  # task ships a train/ dir
     train_spec_json = ""
@@ -251,7 +246,6 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         task_def=task_def,
         stage_blocks=stage_blocks,
         train_spec_json=train_spec_json,
-        run_config_json=run_config_json,
         bench=bench,
         profile=cfg.ptb_profile,
         parent_model=parent_model,
