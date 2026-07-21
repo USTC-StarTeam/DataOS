@@ -7,7 +7,7 @@ target / stop criterion. :func:`ptb_suite` (all 7, macro) is an optional multi-b
 view. The planner shapes training only; never the eval.
 
 Scoring runs through the self-contained lm-evaluation-harness bridge, which now lives in the
-agent-agnostic runtime repo (``DataOS-Runtime/tasks/posttrainbench/lm_eval_bridge``, read from
+agent-agnostic runtime repo (``DataOS-Runtime/tasks/posttrainbench/eval``, read from
 ``runtime_root`` on the exec host) — 5 deterministic benches scored in-job, 2 judge benches
 (healthbench, arenahardwriting) generated in-job then judged on the login node. This module only
 *fixes the protocol* (which benches, the sampled limit per profile); the sub-agent runs the

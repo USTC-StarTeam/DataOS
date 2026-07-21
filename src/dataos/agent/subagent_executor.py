@@ -230,9 +230,15 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         cfg, parent_model=parent_model, eval_limit=eval_limit,
     )
     stage_blocks = _stages.render_stage_blocks(_stages.build_stages(resolved))
+    # run_config.json for the common eval runner (evaluate.py resolves the contract from it)
+    run_config_json = json.dumps(
+        runtime_compose.build_run_config(cfg, parent_model=parent_model, eval_limit=eval_limit),
+        ensure_ascii=False, indent=2,
+    )
     train = spec.get("train") or {}
+    train_frozen = bool(resolved.get("task", {}).get("train"))  # task ships a train/ dir
     train_spec_json = ""
-    if train.get("finetuning_type"):  # baseline runs carry no training
+    if train.get("finetuning_type") and not train_frozen:  # our method; skip if frozen or baseline
         ts = _train_spec.build_train_spec(
             resolved, name=spec["name"], plan_train=train, parent_model=parent_model,
             run_root=run_root, time_h=2.0 if cfg.ptb_profile == "smoke" else 10.0,
@@ -245,6 +251,7 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         task_def=task_def,
         stage_blocks=stage_blocks,
         train_spec_json=train_spec_json,
+        run_config_json=run_config_json,
         bench=bench,
         profile=cfg.ptb_profile,
         parent_model=parent_model,
@@ -414,8 +421,8 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         cluster_json=json.dumps(
             {k: cluster.get(k) for k in ("host", "user", "port", "key")}, ensure_ascii=False
         ),
-        profile_script=f"{task_dir}/lm_eval_bridge/scripts/profile_source.py",
-        lm_bridge=f"{task_dir}/lm_eval_bridge",
+        profile_script=f"{deploy_root}/resources/recon/{runtime.get('task', 'posttrainbench')}/profile_source.py",
+        lm_bridge=f"{task_dir}/eval",
         recon_path=str(recon_path),
     )
     agent = build_agent(

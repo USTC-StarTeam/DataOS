@@ -30,23 +30,39 @@ class Stage:
     owner: str   # OWNER_OURS | OWNER_PROVIDED
 
 
-def _eval_invoke(scoring: dict, assets_root: str) -> str:
-    lines = [f"run: `{scoring.get('command', '').strip()}`"]
-    judge = scoring.get("judge_command")
-    if judge:
-        lines.append(
-            "judge benches (healthbench/arenahardwriting): the command above generates "
-            f"predictions only; then on the LOGIN node run: `{str(judge).strip()}`"
-        )
+def _eval_invoke(resolved: dict) -> str:
+    """UNIFORM across every task: score a model with the common eval runner."""
+    env = resolved.get("environment", {})
+    eval_py = f"{env.get('tools', {}).get('eval_env', {}).get('path', '<eval_env>')}/bin/python"
+    runner = f"{env.get('paths', {}).get('runtime_root', '<runtime_root>')}/common/eval_runner/evaluate.py"
+    task = resolved.get("task", {}).get("name", "")
+    scoring = resolved.get("task", {}).get("scoring", {})
+    assets_root = resolved.get("task", {}).get("assets_root", "")
     fc = scoring.get("format_contract")
-    if fc:
-        lines.append(
-            f"how the scorer parses model output (read BEFORE building data): {assets_root}/{fc}"
-        )
-    return "\n  ".join(lines)
+    hint = (
+        f"  (want a high score? read how the scorer parses output first: {assets_root}/{fc})"
+        if fc and " " not in str(fc) else (f"  ({fc})" if fc else "")
+    )
+    return (
+        "UNIFORM (same for every task) — score the model with the common eval runner:\n"
+        f"  `{eval_py} {runner} --task {task} --model {{ctx.model_path}} "
+        "--out {ctx.eval_dir} --run-config {ctx.run_root}/run_config.json`\n"
+        "  it runs this task's frozen scorer on the model + normalizes → {ctx.eval_dir}/score.json;\n"
+        "  read score.json `score` into report.json. Write run_config.json from the RUN CONFIG "
+        "JSON in your task prompt before calling it." + ("\n" + hint if hint else "")
+    )
 
 
 def _train_invoke(resolved: dict) -> str:
+    frozen = resolved.get("task", {}).get("train")
+    if frozen:  # task ships a train/ dir → training is FROZEN (agent doesn't choose the recipe)
+        cmd = str(frozen.get("command", "")).strip()
+        produces = frozen.get("produces", "the harness run_dir model")
+        return (
+            "FROZEN recipe — you do NOT choose hyperparameters. Turn your curated data into a "
+            f"model with the task's fixed training: `{cmd}` → model at {produces}. Fill the "
+            "{ctx.*} placeholders; that model is the EVAL stage's {ctx.model_path}."
+        )
     tools = resolved.get("environment", {}).get("tools", {})
     te = tools.get("train_env", {})
     te_path = te.get("path") if isinstance(te, dict) else (te or "<train_env>")
@@ -69,10 +85,12 @@ def _train_invoke(resolved: dict) -> str:
 
 
 def build_stages(resolved: dict) -> list[Stage]:
-    """DATA/TRAIN are brain constants; EVAL is formatted from the resolved task scoring."""
+    """All three stages derive from the task contract. Owners: DATA=ours (agent's lever);
+    TRAIN=frozen if the task ships a train/ dir (resolved.task.train set) else ours; EVAL is
+    always the uniform model→score runner (provided)."""
     scoring = resolved.get("task", {}).get("scoring", {})
     result = scoring.get("result", {})
-    assets_root = resolved.get("task", {}).get("assets_root", "")
+    train_frozen = bool(resolved.get("task", {}).get("train"))
     return [
         Stage(
             name="data",
@@ -90,26 +108,28 @@ def build_stages(resolved: dict) -> list[Stage]:
         ),
         Stage(
             name="train",
-            role="(parent model, dataset, plan.train) -> a complete HF model",
-            input="parent model path + {ctx.run_root}/data/sft + the plan's SFT hyperparameters",
+            role="(data, recipe) -> a complete HF model",
+            input="the curated data from DATA + " + (
+                "the task's FROZEN recipe" if train_frozen else "the plan's SFT hyperparameters"
+            ),
             output=(
-                "{ctx.run_root}/final_model — COMPLETE HF model dir (lora: adapter at "
-                "{ctx.run_root}/adapter, then export-merge; full/freeze: write final_model directly)"
+                "the task's frozen-training model output" if train_frozen else
+                "{ctx.run_root}/final_model — COMPLETE HF model dir (lora: adapter then export-merge)"
             ),
             invoke=_train_invoke(resolved),
-            where="same Slurm GPU job as the data stage",
-            owner=OWNER_OURS,
+            where="a Slurm GPU job" if not train_frozen else "the task's frozen training harness",
+            owner=OWNER_PROVIDED if train_frozen else OWNER_OURS,
         ),
         Stage(
             name="eval",
-            role="model -> native benchmark score",
-            input="{ctx.model_path} (final_model; the parent model itself for a BASELINE run)",
+            role="model -> comparable score (uniform across tasks)",
+            input="{ctx.model_path} (the model from TRAIN; the parent model itself for a BASELINE run)",
             output=(
-                f"{result.get('file', '{ctx.eval_dir}/summary.json')} — field "
-                f"`{result.get('field', 'score')}` in range {result.get('range', [0, 100])}"
+                "{ctx.eval_dir}/score.json — normalized `score` in range "
+                f"{result.get('range', [0, 100])} (+ per-metric breakdown)"
             ),
-            invoke=_eval_invoke(scoring, assets_root),
-            where="scoring command in the GPU job (vLLM); judge step on the login node",
+            invoke=_eval_invoke(resolved),
+            where="GPU job (vLLM) via the common eval runner",
             owner=OWNER_PROVIDED,
         ),
     ]
