@@ -60,7 +60,7 @@ def _runtime_config(cfg) -> dict:
     runtime.setdefault("cluster", {})
     paths.setdefault("runs_base", _RUNS_BASE)
     # DataOS-Runtime split: default the new keys so pre-split runtime_configs still work.
-    runtime.setdefault("environment", "h100_slurm")
+    runtime.setdefault("environment", "PTB_H100_slurm")
     runtime.setdefault("task", "posttrainbench")
     paths.setdefault("runtime_root", paths.get("deploy_root", ""))
     return runtime

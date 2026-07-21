@@ -26,7 +26,7 @@ from .config import AutoRunConfig, Budget, Criterion
 # code root on the exec host — a brain-side fact), and the judge model/workers (a task
 # choice — task.yaml scoring.judge; the DEFAULT_JUDGE below only feeds the legacy
 # RUNTIME CONFIG block). Hardcoded values are FALLBACKS when no checkout is present.
-DEFAULT_ENVIRONMENT = os.environ.get("DATAOS_ENVIRONMENT", "h100_slurm")
+DEFAULT_ENVIRONMENT = os.environ.get("DATAOS_ENVIRONMENT", "PTB_H100_slurm")
 DEFAULT_TASK = os.environ.get("DATAOS_TASK", "posttrainbench")
 DEFAULT_RUNTIME_REF = os.environ.get("DATAOS_RUNTIME_REF", "main")
 
