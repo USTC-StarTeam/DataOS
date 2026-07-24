@@ -85,15 +85,30 @@ def _cfg(ws):
     )
 
 
-def _clock_for_rounds(n):
-    """started -> 0, then `n` in-budget loop checks, then a huge value to trip stop."""
-    seq = iter([0.0] + [0.0] * n + [1e9] * 1000)
-    return lambda: next(seq)
+def _clock_for_rounds(ws, n):
+    """Fake clock that trips the wall-clock stop once `n` NEW rounds (review.json written)
+    complete in `ws`. Counting completed rounds — not call sites — keeps the test
+    independent of how many times the loop calls _clock() per round (budget check +
+    live-monitor publishes). The first call is `started` and always reads as in-budget."""
+    pdir = Path(ws) / "p"
+
+    def _done() -> int:
+        return len(list(pdir.glob("round-*/review.json"))) if pdir.exists() else 0
+
+    state: dict = {"baseline": None}
+
+    def clock() -> float:
+        if state["baseline"] is None:
+            state["baseline"] = _done()  # resume-safe: pre-existing reviews don't count
+            return 0.0
+        return 1e9 if _done() - state["baseline"] >= n else 0.0
+
+    return clock
 
 
 def test_stop_wall_clock_after_n_rounds(tmp_path):
     ws = str(tmp_path / "ws")
-    res = run_auto(_cfg(ws), _clock=_clock_for_rounds(2))
+    res = run_auto(_cfg(ws), _clock=_clock_for_rounds(ws, 2))
     assert res["stop_reason"] == "budget:wall_clock"
     assert res["rounds_completed"] == 2
 
@@ -117,14 +132,14 @@ def test_stop_wall_clock_after_n_rounds(tmp_path):
 
 def test_stop_wall_clock_immediate(tmp_path):
     ws = str(tmp_path / "ws")
-    res = run_auto(_cfg(ws), _clock=_clock_for_rounds(0))
+    res = run_auto(_cfg(ws), _clock=_clock_for_rounds(ws, 0))
     assert res["stop_reason"] == "budget:wall_clock"
     assert res["rounds_completed"] == 0
 
 
 def test_best_over_tree_final_model(tmp_path):
     ws = str(tmp_path / "ws")
-    res = run_auto(_cfg(ws), _clock=_clock_for_rounds(2))
+    res = run_auto(_cfg(ws), _clock=_clock_for_rounds(ws, 2))
     fm = res["final_model"]
     assert fm and fm["source"] == "best_over_tree" and fm["score"] == 0.5
     assert (Path(ws) / "p" / "final_model.json").is_file()
@@ -132,11 +147,11 @@ def test_best_over_tree_final_model(tmp_path):
 
 def test_resume_skips_done_round(tmp_path):
     ws = str(tmp_path / "ws")
-    run_auto(_cfg(ws), _clock=_clock_for_rounds(1))
+    run_auto(_cfg(ws), _clock=_clock_for_rounds(ws, 1))
     rp = Path(ws) / "p" / "round-0000" / "experiments" / "child-0" / "report.json"
     before = json.loads(rp.read_text())
 
-    res = run_auto(_cfg(ws), _clock=_clock_for_rounds(1))
+    res = run_auto(_cfg(ws), _clock=_clock_for_rounds(ws, 1))
     after = json.loads(rp.read_text())
     assert after["id"] == before["id"]
     assert res["rounds_completed"] == 2
