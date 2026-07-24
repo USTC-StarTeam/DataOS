@@ -1,0 +1,13 @@
+description: >
+  EVAL stage tool — the task's frozen scorer (an Evaluator registered from the resolved
+  runtime contract). Render params: command, result_field, result_file, result_range,
+  judge_command (str, may be empty), format_contract_loc (str, may be empty).
+template: |
+  run the task's evaluator: `{{ command }}`
+    then read `{{ result_field }}` from {{ result_file }} (range {{ result_range }}) → report.json.
+  {% if judge_command %}
+    judge benches (healthbench/arenahardwriting): the command above generates predictions only; then on the LOGIN node run: `{{ judge_command }}`
+  {% endif %}
+  {% if format_contract_loc %}
+    want a high score? read how the scorer parses output first: {{ format_contract_loc }}
+  {% endif %}

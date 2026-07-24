@@ -1,0 +1,8 @@
+description: >
+  DATA stage tool — the dataos_operator toolbox (an Operator registered from the installed
+  dataos_operator package). Render params: catalog (the installed operator catalog string).
+template: |
+  dataos_operator recipe (discover: `python -c "import dataos_operator as o; print(o.guide())"` / `o.usage('<op>')`) + hand-written prep scripts where the toolbox lacks a step; custom ops via DATAOS_OPERATOR_PLUGINS — full mechanics in your system prompt
+
+  The operator toolbox installed for this run (the brain's pinned dataos-operator; inside the Slurm job confirm with `o.catalog()` and prefer `o.usage('<name>')` for exact signatures):
+  {{ catalog }}

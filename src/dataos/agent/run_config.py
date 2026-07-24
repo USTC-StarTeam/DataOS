@@ -290,7 +290,7 @@ class PtbRunConfig:
             workspace=self.workspace_root,
             backend=os.environ.get("DATAOS_BACKEND", "cli"),
             agent_provider=os.environ.get("DATAOS_AGENT_PROVIDER", "claude"),
-            agent_model=os.environ.get("DATAOS_AGENT_MODEL", "claude-opus-4-8"),
+            agent_model=os.environ.get("DATAOS_AGENT_MODEL") or None,  # None = CLI default
             runtime_config=self.runtime_config(),
             runtime_config_path=str(resolved_config_path),
             h100_base_model=self.base_model_path,

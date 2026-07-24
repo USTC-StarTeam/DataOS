@@ -38,13 +38,17 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
 
 - `src/dataos/agent` — the loop: `loop.py` (`run_auto`), `state_tree`, `planner`, `reviewer`,
   `subagent_executor` (drives the per-experiment sub-agent), `eval_freeze`, `schemas`,
+  `stages` (the data→train→eval contract; each stage's `invoke` is assembled from registered
+  tools), `tools` (the pluggable stage-tool registry: Operator/Trainer/Evaluator protocols —
+  the Trainer slot is RESERVED, unregistered until dataos-train lands),
   `run_config` (the single-JSON config boundary), `backend`, `budget`, `config`, `logging`,
   `llm/` (`cli_agent.py` — the provider-neutral dataos-agent adapter — + structured-output
   helper), `posttrainbench.py`
   (the eval protocol: bench list + sampled limits per profile), and `monitor.py`
   (the live HTTP monitor — pure stdlib, embedded by `run_auto`; serves the `web/` UI).
 - `src/dataos/prompt` — EVERY prompt as a Jinja2 YAML template (`<name>.yaml` with a `template:`).
-  No prompt text is hardcoded in `.py`; render via `from dataos import prompt; prompt.render(name, **facts)`.
+  No prompt text is hardcoded in `.py` (that includes the stage invoke prose: `stage_data_operators` /
+  `stage_train_legacy` / `stage_eval_scorer`); render via `from dataos import prompt; prompt.render(name, **facts)`.
   Run facts (budget, GPUs, the per-experiment context) are passed in as render params.
   `strategy.yaml` is a maintainable **strategy playbook** appended to the main-agent system
   prompt (`backend._system_prompt` = `main_agent.yaml` + `strategy.yaml`); update it from each
