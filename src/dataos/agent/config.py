@@ -77,10 +77,9 @@ class AutoRunConfig:
     poll_interval_s: float = 10.0
 
     # LLM backend
-    backend: str = "claude_code"  # "claude_code" | "claude" | "openai" | "stub"
-    model: str = "mimo-v2.5-pro"  # model id for the claude/openai backends
-    base_url: str = "https://token-plan-cn.xiaomimimo.com/anthropic"  # for claude/openai backends
-    claude_code_model: str | None = "claude-opus-4-8"  # main-agent and sub-agents
+    backend: str = "cli"  # "cli" (a code-agent CLI via dataos_agent) | "stub"
+    agent_provider: str = "claude"  # dataos_agent registry name: claude | kimi | qwen | ...
+    agent_model: str | None = "claude-opus-4-8"  # main-agent and sub-agents; None = CLI default
     max_steps: int = 12
     # stub backend only: "plan"/"review" (or legacy role names) -> fixed JSON reply string(s)
     stub_replies: dict[str, Any] = field(default_factory=dict)

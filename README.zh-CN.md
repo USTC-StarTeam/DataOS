@@ -118,7 +118,7 @@ DataOS/
 │   │   ├── subagent_executor.py     #   驱动逐实验的 sub-agent（Claude Code + shell）
 │   │   ├── eval_freeze.py           #   每次运行冻结一次评测协议
 │   │   ├── backend.py               #   构建角色 agent（渲染角色提示词）
-│   │   ├── llm/                     #   Claude Code 驱动（claude_code）+ 结构化输出 helper
+│   │   ├── llm/                     #   code-agent CLI 驱动（cli_agent，走 dataos-agent）+ 结构化输出 helper
 │   │   ├── posttrainbench.py        #   PTB 评测协议（bench 列表 + 各 profile 的采样 limit）
 │   │   ├── schemas.py               #   ExperimentPlan / ReviewOut（校验过的 JSON）
 │   │   ├── monitor.py               #   实时 HTTP 监控（一个端口服务所有 run；心跳）

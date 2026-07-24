@@ -13,7 +13,8 @@ def _cfg(ws):
         target_bench="gsm8k",
         ptb_profile="smoke",
         h100_base_model="/models/qwen-base",
-        claude_code_model="sonnet",
+        agent_provider="claude",
+        agent_model="sonnet",
         max_steps=1,
         data_limit=20,
         slurm={},
@@ -58,7 +59,9 @@ def test_subagent_resumes_same_session_until_report(tmp_path, monkeypatch):
                 stop_reason="end_turn",
             )
 
-    monkeypatch.setattr(subagent_exec, "ClaudeCodeAgent", FakeAgent)
+    monkeypatch.setattr(
+        subagent_exec, "build_agent", lambda *args, **kwargs: FakeAgent(**kwargs)
+    )
     monkeypatch.setattr(subagent_exec.time, "sleep", lambda _seconds: None)
 
     spec = {"name": "explore-0", "data": {}, "train": {}, "init_model": "/models/parent"}

@@ -5,10 +5,11 @@ here the loop owns the call, so an unparseable reply is re-asked in code and, on
 exhausting retries, raised — never swallowed into a silent stop.
 
 Transport faults (dropped connections, flaky endpoints) are handled ONE LAYER DOWN, inside
-:meth:`dataos.agent.llm.claude_code.ClaudeCodeAgent.run` (policy in
-:mod:`dataos.agent.llm.net_retry`), so this module owns only the *semantic* retry: re-ask
-"JSON only" when ``output=`` cannot be parsed. A transport error only reaches here if the
-backend could not recover it, and it is intentionally raised rather than retried again.
+dataos_agent's self-healing stream (reached via
+:meth:`dataos.agent.llm.cli_agent.CliAgent.run`), so this module owns only the *semantic*
+retry: re-ask "JSON only" when ``output=`` cannot be parsed. A transport error only
+reaches here if the backend could not recover it, and it is intentionally raised rather
+than retried again.
 """
 
 from __future__ import annotations
@@ -62,9 +63,9 @@ def run_structured_dialog(
     session_id: str | None = None,
     parse_retries: int = 2,
 ) -> tuple[Any, str | None]:
-    """Run one structured call, preserving a Claude Code dialog when available.
+    """Run one structured call, preserving the agent CLI's dialog when available.
 
-    ``ClaudeCodeAgent.run(output=...)`` parses inside the call, which loses the
+    ``CliAgent.run(output=...)`` parses inside the call, which loses the
     session id on parse failure. For dialog-capable agents we therefore ask for raw
     text, parse it here, and if it is invalid, resume the same session with a
     correction prompt. Non-dialog backends fall back to ``run_structured``.

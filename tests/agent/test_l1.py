@@ -1,8 +1,9 @@
-"""L1 smoke: the main-agent (claude_code backend) returns a parseable ExperimentPlan.
+"""L1 smoke: the main-agent (cli backend) returns a parseable ExperimentPlan.
 
-Skipped unless the `claude` CLI is on PATH. The claude_code backend uses the CLI's own
-login (subscription account, or an ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN endpoint) — no
-API key from config. No GPU and no training; it only proves the structured-output contract.
+Skipped unless the `claude` CLI is on PATH. The cli backend (dataos_agent) uses the CLI's
+own login (subscription account, or an ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN endpoint) —
+no API key from config. No GPU and no training; it only proves the structured-output
+contract.
 """
 
 import shutil
@@ -14,7 +15,7 @@ _HAS_CLI = shutil.which("claude") is not None
 
 @pytest.mark.skipif(
     not _HAS_CLI,
-    reason="needs the claude CLI on PATH (claude_code backend uses its login)",
+    reason="needs the claude CLI on PATH (cli backend uses its login)",
 )
 def test_main_agent_real_llm_plan(tmp_path):
     from dataos.agent.backend import make_agent
@@ -25,7 +26,7 @@ def test_main_agent_real_llm_plan(tmp_path):
     cfg = AutoRunConfig(
         project_id="l1",
         workspace=str(tmp_path / "ws"),
-        backend="claude_code",
+        backend="cli",
         goal="raise gsm8k accuracy of a small base model",
         instruct="fine-tune a base model to improve gsm8k",
         criterion=Criterion(threshold=0.5),

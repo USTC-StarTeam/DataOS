@@ -288,11 +288,9 @@ class PtbRunConfig:
             criterion=Criterion(metric="score", threshold=None, direction="max"),
             budget=Budget(max_wall_clock_s=self.time_budget_hours * 3600.0),
             workspace=self.workspace_root,
-            backend=os.environ.get("DATAOS_BACKEND", "claude_code"),
-            model=os.environ.get("DATAOS_MODEL", "mimo-v2.5-pro"),
-            base_url=os.environ.get(
-                "DATAOS_BASE_URL", "https://token-plan-cn.xiaomimimo.com/anthropic"
-            ),
+            backend=os.environ.get("DATAOS_BACKEND", "cli"),
+            agent_provider=os.environ.get("DATAOS_AGENT_PROVIDER", "claude"),
+            agent_model=os.environ.get("DATAOS_AGENT_MODEL", "claude-opus-4-8"),
             runtime_config=self.runtime_config(),
             runtime_config_path=str(resolved_config_path),
             h100_base_model=self.base_model_path,

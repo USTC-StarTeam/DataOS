@@ -1,9 +1,9 @@
 """Construct the agent for a role — the single place that knows about backend choice.
 
-- ``backend == "claude_code"`` → local Claude Code via the CLI's own Claude-account
-  (subscription) login — NO API key. Used for the persistent main-agent dialog and
-  execution sub-agents. See :mod:`dataos.agent.llm.claude_code` and
-  :func:`dataos.agent.llm.config.build_agent`.
+- ``backend == "cli"`` → a code-agent CLI (claude / kimi / qwen ..., chosen by
+  ``cfg.agent_provider``) via dataos_agent, using the CLI's own local login — NO API
+  key. Used for the persistent main-agent dialog and execution sub-agents. See
+  :mod:`dataos.agent.llm.cli_agent` and :func:`dataos.agent.llm.config.build_agent`.
 - ``backend == "stub"``  → a deterministic in-process fake (:class:`_StubMainAgent`)
   that returns fixed structured plans/reviews for tests; no network, no external package.
 """
@@ -126,8 +126,8 @@ def make_agent(role: str, cfg: AutoRunConfig):
             return _StubMainAgent(cfg.stub_replies)
         raise ValueError(f"stub backend only supports role 'main_agent', got {role!r}")
 
-    if cfg.backend == "claude_code":
-        # Local Claude Code with the CLI's own Claude-account (subscription) login — no API key.
+    if cfg.backend == "cli":
+        # A code-agent CLI with its own local login — no API key handled here.
         return build_agent(cfg, instructions=_system_prompt(role, cfg), workspace=ws)
 
-    raise ValueError(f"unknown backend {cfg.backend!r}; use 'claude_code' or 'stub'")
+    raise ValueError(f"unknown backend {cfg.backend!r}; use 'cli' or 'stub'")

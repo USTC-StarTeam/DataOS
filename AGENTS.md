@@ -26,16 +26,21 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
 
 - Python `>=3.11`; env/build via `uv` + `setuptools`; lint `ruff`; tests `pytest`.
 - Core deps: `datasets`, `pyarrow`, `pydantic`, `tenacity`, `dataos-operator` (operator catalog),
-  `dataos-agent[claude]` (Claude Code backend). Training/eval stacks (LLaMA-Factory, lm-eval, vLLM,
-  torch) live in **H100 conda envs**, not the agent-host venv.
-- LLM backend: the **Claude Code CLI** (`backend="claude_code"`), authenticated on the agent host.
+  `dataos-agent` (code-agent CLI drivers: claude/kimi/qwen + transport self-healing; git-tag dep).
+  Training/eval stacks (LLaMA-Factory, lm-eval, vLLM, torch) live in **H100 conda envs**, not the
+  agent-host venv.
+- LLM backend: a **code-agent CLI** (`backend="cli"`) driven via the **dataos-agent** package
+  (`cli_agent.py` adapter); provider/model are config facts (`agent_provider` default `"claude"`,
+  `agent_model`), auth is the CLI's own login on the agent host. Transport self-healing
+  (endpoint drop → backoff → resume-reconnect) lives INSIDE dataos-agent.
 
 ## Repository map
 
 - `src/dataos/agent` — the loop: `loop.py` (`run_auto`), `state_tree`, `planner`, `reviewer`,
   `subagent_executor` (drives the per-experiment sub-agent), `eval_freeze`, `schemas`,
   `run_config` (the single-JSON config boundary), `backend`, `budget`, `config`, `logging`,
-  `llm/` (the Claude Code driver + structured-output helper), `posttrainbench.py`
+  `llm/` (`cli_agent.py` — the provider-neutral dataos-agent adapter — + structured-output
+  helper), `posttrainbench.py`
   (the eval protocol: bench list + sampled limits per profile), and `monitor.py`
   (the live HTTP monitor — pure stdlib, embedded by `run_auto`; serves the `web/` UI).
 - `src/dataos/prompt` — EVERY prompt as a Jinja2 YAML template (`<name>.yaml` with a `template:`).

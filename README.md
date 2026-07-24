@@ -130,7 +130,7 @@ DataOS/
 │   │   ├── subagent_executor.py     #   drives the per-experiment sub-agent (Claude Code + shell)
 │   │   ├── eval_freeze.py           #   freeze the eval protocol once per run
 │   │   ├── backend.py               #   builds the role agent (renders the role prompt)
-│   │   ├── llm/                     #   Claude Code driver (claude_code) + structured-output helper
+│   │   ├── llm/                     #   code-agent CLI driver (cli_agent, via dataos-agent) + structured-output helper
 │   │   ├── posttrainbench.py        #   PTB eval protocol (bench list + sampled limits per profile)
 │   │   ├── schemas.py               #   ExperimentPlan / ReviewOut (validated JSON)
 │   │   ├── monitor.py               #   live HTTP monitor (one port serves every run; heartbeats)
