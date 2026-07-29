@@ -1,0 +1,26 @@
+## 环境操作(environment: {{ env.name }}, kind: {{ env.kind }})
+
+可用运行时(tools,按需选,activate 时把 {ctx.env_path} 填成对应 path):
+{% for name, spec in env.tools.items() %}
+{% if spec is mapping %}
+- {{ name }}: {{ spec.path }}  —— 装有 {{ spec.provides | join(", ") }}
+{% else %}
+- {{ name }}: {{ spec }}
+{% endif %}
+{% endfor %}
+
+关键路径:runs_base={{ env.paths.runs_base }}{% if env.paths.benchmarks %} · benchmarks={{ env.paths.benchmarks }}{% endif %}{% if env.paths.fixed_pool %} · fixed_pool={{ env.paths.fixed_pool }}{% endif %}
+
+命令模板(env/run 已填好;`{ctx.*}` 由你在执行时替换 —— run_root/env_path/script/jobid/model_path/eval_dir/label/remote/local):
+- activate: `{{ env.operations.activate }}`
+- submit:   `{{ env.operations.submit }}`
+- poll:     `{{ env.operations.poll }}`
+- fetch:    `{{ env.operations.fetch }}`
+- cancel:   `{{ env.operations.cancel }}`
+
+`ctx.run_root` 你自己选,但**必须落在 {{ env.paths.runs_base }} 下**(否则 fetch/隔离失效)。
+
+硬约束(必须遵守):
+{% for d in env.discipline %}
+- {{ d }}
+{% endfor %}

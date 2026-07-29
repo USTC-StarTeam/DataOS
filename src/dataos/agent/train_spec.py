@@ -24,12 +24,16 @@ _STRIP = {"model_name_or_path", "stage", "do_train", "dataset", "dataset_dir",
 
 def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_model: str,
                      run_root: str, time_h: float) -> dict:
-    """TrainSpec dict for dataos-train (SFT via llamafactory)."""
+    """TrainSpec dict for dataos-train. The backend and its env binding come from the
+    environment's ``train:`` block in env.yaml (declared exactly once, in configs/)."""
     env = resolved.get("environment", {})
     run = resolved.get("run", {})
     tools = env.get("tools", {})
-    train_env = tools.get("train_env", {})
-    train_env_path = train_env.get("path") if isinstance(train_env, dict) else train_env
+    train_cfg = env.get("train", {}) or {}
+    backend = train_cfg.get("backend", "llamafactory")
+    tool_key = (train_cfg.get("backends") or {}).get(backend, "sft_env")
+    te = tools.get(tool_key, {})
+    train_env_path = te.get("path") if isinstance(te, dict) else te
     resource = run.get("resource", {}) or {}
     gpus = int(resource.get("gpus") or 1)
     cpus = int(resource.get("cpus") or 8)
@@ -45,15 +49,14 @@ def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_mode
 
     return {
         "name": name,
-        "backend": "llamafactory",
+        "backend": backend,
         "base_model": parent_model,
         "run_dir": run_root,
         "dataset": {"path": f"{run_root}/data/sft", "format": "alpaca"},
         "method": method,
         "resources": {"nodes": 1, "gpus": gpus, "cpus": cpus, "time_h": time_h},
         "env": {
-            "conda_sh": tools.get("conda_sh"),
-            "backends": {"llamafactory": train_env_path},
+            "backends": {backend: train_env_path},
         },
         "cluster": {
             "partition": env.get("slurm", {}).get("partition"),

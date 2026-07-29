@@ -1,35 +1,140 @@
-"""C4 wiring — call the DataOS-Runtime composer (agent-neutral) and get the two
-prompt sections (environment ops + task definition) rendered from the typed contract.
+"""Runtime composer — resolve the three-layer config into the two prompt sections.
 
-DataOS imports the runtime's ``compose`` directly (design decision A: sys.path +
-import; the runtime composer is pure jinja2). Build the compose run-config from our
-AutoRunConfig, then resolve() + render(). See DataOS/docs/runtime-contract.md.
+The unified config lives IN this repo under ``configs/``:
+
+    configs/environments/<env>/env.yaml   deployment facts (machine, tools, train, ops)
+    configs/tasks/<task>/task.yaml        task contract (scoring, assets, eval bridge)
+    configs/runs/*.json                   per-run facts + environment/task pointers
+
+``resolve()`` fills ``{{env.*}}/{{run.*}}/{{task.*}}`` in the env/task contracts
+(``{ctx.*}`` placeholders are preserved for the experimenter to fill at execution
+time); ``render()`` turns the resolved contract into the ENV OPS + TASK prompt
+sections. Absorbed from DataOS-Runtime's compose.py — no external checkout, no
+sys.path games. Only pyyaml + jinja2. Field spec: ``configs/CONTRACT.md``; design:
+``docs/runtime-contract.md``.
 """
+
 from __future__ import annotations
 
-import sys
-from functools import lru_cache
+from pathlib import Path
 
-from .run_config import runtime_dir
+import yaml
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+CONFIGS_DIR = _REPO_ROOT / "configs"
+_TEMPLATES_DIR = Path(__file__).resolve().parent / "compose_templates"
+
+_JINJA = Environment(undefined=StrictUndefined)   # env/run/task missing field -> error
 
 
-@lru_cache(maxsize=1)
-def _compose():
-    rd = runtime_dir()
-    if rd is None:
-        raise RuntimeError(
-            "DataOS-Runtime checkout not found — set DATAOS_RUNTIME_DIR or place it as ../DataOS-Runtime"
-        )
-    cdir = str(rd / "compose")
-    if cdir not in sys.path:
-        sys.path.insert(0, cdir)
-    import compose  # noqa: E402  (from the runtime checkout)
+class _Ctx:
+    """Execution-time placeholder proxy: {{ ctx.foo }} renders as the literal {ctx.foo}."""
 
-    return compose
+    def __getattr__(self, name: str) -> str:
+        return "{ctx.%s}" % name
+
+
+def _render_str(s: str, ns: dict) -> str:
+    return _JINJA.from_string(s).render(**ns)
+
+
+def _render_tree(obj, ns):
+    if isinstance(obj, str):
+        return _render_str(obj, ns)
+    if isinstance(obj, dict):
+        return {k: _render_tree(v, ns) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_render_tree(v, ns) for v in obj]
+    return obj
+
+
+def _require(d: dict, keys: list[str], where: str) -> None:
+    missing = [k for k in keys if k not in d or d[k] in (None, "")]
+    if missing:
+        raise ValueError(f"{where} missing fields: {', '.join(missing)}")
+
+
+def _validate(env: dict, task: dict) -> None:
+    _require(env, ["name", "kind", "access", "tools", "operations", "discipline"], "env.yaml")
+    for verb in ("submit", "poll", "fetch", "cancel", "activate"):
+        if verb not in env["operations"]:
+            raise ValueError(f"env.yaml.operations missing verb: {verb}")
+    _require(task, ["name", "inputs", "objective", "constraints", "produce", "scoring"], "task.yaml")
+    sc = task["scoring"]
+    _require(sc, ["evaluator", "command", "result"], "task.yaml.scoring")
+    _require(sc["result"], ["file", "field", "range"], "task.yaml.scoring.result")
+
+
+def resolve(run_config: dict, configs_root: str | Path = CONFIGS_DIR) -> dict:
+    """Read env.yaml + task.yaml, fill {{env.*}}/{{run.*}}/{{task.*}} (ctx preserved),
+    validate, and return the resolved contract."""
+    configs_root = Path(configs_root)
+    envn = run_config["environment"]
+    taskn = run_config["task"]
+    task_dir = configs_root / "tasks" / taskn
+    env = yaml.safe_load(
+        (configs_root / "environments" / envn / "env.yaml").read_text(encoding="utf-8")
+    )
+    task = yaml.safe_load((task_dir / "task.yaml").read_text(encoding="utf-8"))
+    task["assets_root"] = str(task_dir)
+    # runs_base: per-run override wins, else the env's declared default (configs/environments).
+    if run_config.get("runs_base"):
+        env.setdefault("paths", {})["runs_base"] = run_config["runs_base"]
+    _validate(env, task)
+
+    ns = {"env": env, "run": run_config, "task": task, "ctx": _Ctx()}
+
+    resolved_env = dict(env)
+    resolved_env["operations"] = {k: _render_str(v, ns).strip() for k, v in env["operations"].items()}
+    resolved_env["discipline"] = [_render_str(d, ns) for d in env["discipline"]]
+
+    resolved_task = dict(task)
+    sc = dict(task["scoring"])
+    for k in ("command", "judge_command"):
+        if sc.get(k):
+            sc[k] = _render_str(sc[k], ns).strip()
+    sc["result"] = _render_tree(sc["result"], ns)
+    resolved_task["scoring"] = sc
+
+    # Per-task layout: a `train/` dir means training is FROZEN (the task fixes the recipe);
+    # its absence means training is the agent's method (e.g. dataos-train).
+    train_dir = task_dir / "train"
+    if train_dir.is_dir():
+        train_spec = {"frozen": True}
+        train_yaml = train_dir / "train.yaml"
+        if train_yaml.is_file():
+            spec = yaml.safe_load(train_yaml.read_text(encoding="utf-8")) or {}
+            if spec.get("command"):
+                spec["command"] = _render_str(spec["command"], ns).strip()
+            train_spec.update(spec)
+        resolved_task["train"] = train_spec
+    else:
+        resolved_task["train"] = None  # agent-owned training
+
+    return {
+        "runtime_ref": run_config.get("runtime_ref"),
+        "environment": resolved_env,
+        "task": resolved_task,
+        "run": run_config,
+    }
+
+
+def render(resolved: dict) -> tuple[str, str]:
+    """Render the resolved contract into the two prompt sections (env ops, task def)."""
+    jenv = Environment(
+        loader=FileSystemLoader(str(_TEMPLATES_DIR)), trim_blocks=True, lstrip_blocks=True
+    )
+    env_ops = jenv.get_template("environment.j2").render(env=resolved["environment"])
+    task_def = jenv.get_template("task.j2").render(task=resolved["task"], run=resolved["run"])
+    return env_ops, task_def
+
+
+# --- brain-side wiring ---------------------------------------------------------
 
 
 def build_run_config(cfg, *, parent_model: str, eval_limit: int) -> dict:
-    """Assemble the run-config dict the composer expects, from our AutoRunConfig."""
+    """Assemble the compose run-config dict from our AutoRunConfig (runtime_config facts)."""
     rt = getattr(cfg, "runtime_config", {}) or {}
     cluster = rt.get("cluster", {})
     paths = rt.get("paths", {})
@@ -44,6 +149,7 @@ def build_run_config(cfg, *, parent_model: str, eval_limit: int) -> dict:
         "runtime_ref": rt.get("runtime_ref", "main"),
         "base_model": parent_model,
         "bench": cfg.target_bench,
+        "runs_base": paths.get("runs_base"),
         "resource": {
             "node": cluster.get("nodelist"),
             "gpus": gpus,
@@ -57,10 +163,8 @@ def build_run_config(cfg, *, parent_model: str, eval_limit: int) -> dict:
 
 def render_sections(cfg, *, parent_model: str, eval_limit: int) -> tuple[str, str, dict]:
     """Return (env_ops, task_def, resolved) — the two prompt sections rendered from the
-    runtime contract plus the resolved contract itself (the brain's Stage abstraction
-    formats its EVAL capability block from ``resolved["task"]["scoring"]``)."""
-    compose = _compose()
+    resolved contract plus the contract itself (stages/tools/train_spec read it)."""
     rc = build_run_config(cfg, parent_model=parent_model, eval_limit=eval_limit)
-    resolved = compose.resolve(rc)
-    env_ops, task_def = compose.render(resolved)
+    resolved = resolve(rc)
+    env_ops, task_def = render(resolved)
     return env_ops, task_def, resolved

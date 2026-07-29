@@ -1,0 +1,17 @@
+{
+  "run_id": "ptb-gsm8k-splitverify2",
+  "workspace": "workspace/ptb-gsm8k-splitverify2",
+  "goal": "Split verification: gsm8k end-to-end through the DataOS-Runtime split (sub-agent reads env+task playbooks from runtime_root). Confirm RECON, data-build, train, eval and report.json all run via the new paths.",
+  "environment": "PTB_H100_slurm",
+  "task": "posttrainbench",
+  "bench": "gsm8k",
+  "base_model_path": "/data/hcgu/archive/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
+  "time_budget_hours": 2.5,
+  "eval_samples": 100,
+  "resource": {
+    "node": "gpu04",
+    "gpus": 1,
+    "cpus": 8
+  },
+  "monitor_port": 8782
+}

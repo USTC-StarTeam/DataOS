@@ -22,7 +22,10 @@ def _resolved(*, frozen: bool = False) -> dict:
         task["train"] = {"command": "bash train.sh", "produces": "out/model"}
     return {
         "task": task,
-        "environment": {"tools": {"train_env": {"path": "/envs/Llama"}}},
+        "environment": {
+            "train": {"backend": "llamafactory", "backends": {"llamafactory": "sft_env"}},
+            "tools": {"sft_env": {"path": "/envs/Llama"}},
+        },
     }
 
 

@@ -55,6 +55,9 @@ dataos = "dataos.cli:main"
 where = ["src"]
 include = ["dataos*"]
 
+[tool.setuptools.package-data]
+dataos = ["agent/compose_templates/*.j2", "prompt/**/*.yaml"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

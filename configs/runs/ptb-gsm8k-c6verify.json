@@ -1,0 +1,17 @@
+{
+  "run_id": "ptb-gsm8k-c6verify",
+  "workspace": "workspace/ptb-gsm8k-c6verify",
+  "goal": "C6 verification: gsm8k end-to-end through the typed contract chain (compose-rendered ENV OPS/STAGES) and the dataos-train train stage. Baseline first, then one training experiment via dataos-train.",
+  "environment": "PTB_H100_slurm",
+  "task": "posttrainbench",
+  "bench": "gsm8k",
+  "base_model_path": "/data/hcgu/archive/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
+  "time_budget_hours": 3,
+  "eval_samples": 100,
+  "resource": {
+    "node": "gpu04",
+    "gpus": 1,
+    "cpus": 8
+  },
+  "monitor_port": 8783
+}

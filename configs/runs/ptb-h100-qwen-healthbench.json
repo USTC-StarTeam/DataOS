@@ -2,6 +2,8 @@
   "run_id": "ptb-h100-qwen-healthbench",
   "workspace": "workspace/ptb-h100-qwen-healthbench",
   "goal": "Use the fixed PTB data pool to improve the base model within a limited H100 budget.",
+  "environment": "PTB_H100_slurm",
+  "task": "posttrainbench",
   "bench": "healthbench",
   "base_model_path": "/data/hcgu/archive/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
   "time_budget_hours": 10,
@@ -10,12 +12,6 @@
     "node": "gpu04",
     "gpus": 1,
     "cpus": 8
-  },
-  "paths": {
-    "fixed_pool": "/data/hcgu/archive/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full",
-    "conda_sh": "/data/software/miniconda3/etc/profile.d/conda.sh",
-    "train_env": "/data/hcgu/.conda/envs/Llama-op020",
-    "eval_env": "/data/hcgu/.conda/envs/lm-eval"
   },
   "monitor_port": 8772
 }

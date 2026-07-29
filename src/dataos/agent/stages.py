@@ -44,8 +44,12 @@ def _train_invoke(resolved: dict, registry: _tools.ToolRegistry) -> str:
     if registry.trainer is not None:
         return registry.trainer.invoke(resolved)
     frozen = resolved.get("task", {}).get("train")
-    tools = resolved.get("environment", {}).get("tools", {})
-    te = tools.get("train_env", {})
+    env = resolved.get("environment", {})
+    train_cfg = env.get("train", {}) or {}
+    tool_key = (train_cfg.get("backends") or {}).get(
+        train_cfg.get("backend", "llamafactory"), "sft_env"
+    )
+    te = env.get("tools", {}).get(tool_key, {})
     te_path = te.get("path") if isinstance(te, dict) else (te or "<train_env>")
     return _prompt.render(
         "kb/stage_train_legacy",

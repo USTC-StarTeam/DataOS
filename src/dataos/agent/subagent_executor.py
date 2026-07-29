@@ -55,15 +55,15 @@ def _exp_timeout(cfg, deadline: float | None) -> float:
 
 
 def _runtime_config(cfg) -> dict:
-    """Return the runtime config (paths / cluster / gateway), defaulting runs_base."""
+    """Return the runtime config (paths / cluster / gateway) with legacy fallbacks for
+    sparse test doubles. Production cfgs carry everything from configs/environments."""
     runtime = json.loads(json.dumps(getattr(cfg, "runtime_config", {}) or {}))
     paths = runtime.setdefault("paths", {})
     runtime.setdefault("cluster", {})
     paths.setdefault("runs_base", _RUNS_BASE)
-    # DataOS-Runtime split: default the new keys so pre-split runtime_configs still work.
     runtime.setdefault("environment", "PTB_H100_slurm")
     runtime.setdefault("task", "posttrainbench")
-    paths.setdefault("runtime_root", paths.get("deploy_root", ""))
+    paths.setdefault("runtime_root", f"{paths.get('deploy_root', '')}/configs")
     return runtime
 
 

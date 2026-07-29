@@ -1,0 +1,28 @@
+## 任务(task: {{ task.name }})
+
+目标:{{ task.objective }}
+
+输入:
+{% for name, spec in task.inputs.items() %}
+- {{ name }}: {{ spec.get('from', spec.get('path', '')) }}{{ '  [' + spec.get('kind') + ']' if spec.get('kind') else '' }}{{ '  取值 ∈ ' + (spec.get('one_of') | join(', ')) if spec.get('one_of') else '' }}
+{% endfor %}
+
+约束:
+{% for c in task.constraints %}
+- {{ c }}
+{% endfor %}
+
+交付:{{ task.produce.kind }}{% if task.produce.hint %} —— {{ task.produce.hint }}{% endif %}
+
+
+怎么被打分(原生结果契约):
+- 跑评测(确定性 bench,in-job 出分):
+  `{{ task.scoring.command }}`
+{% if task.scoring.judge_command %}
+- judge 类 bench(healthbench/arenahardwriting)先由上面生成 predictions,再在有网的 login 节点补分:
+  `{{ task.scoring.judge_command }}`
+{% endif %}
+- 结果:读 `{{ task.scoring.result.file }}` 的 `{{ task.scoring.result.field }}` 字段(范围 {{ task.scoring.result.range }})= 你的分数。
+{% if task.scoring.format_contract %}
+- 想拿高分先读评测器如何解析输出(唯一真源):{{ (task.assets_root ~ '/' ~ task.scoring.format_contract) if ' ' not in task.scoring.format_contract else task.scoring.format_contract }}
+{% endif %}
