@@ -28,8 +28,8 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
 - Python `>=3.11`; env/build via `uv` + `setuptools`; lint `ruff`; tests `pytest`.
 - Core deps: `datasets`, `pyarrow`, `pydantic`, `tenacity`, `dataos-operator` (operator catalog),
   `dataos-agent` (code-agent CLI drivers: claude/kimi/qwen + transport self-healing; git-tag dep).
-  Training/eval stacks (LLaMA-Factory, lm-eval, vLLM, torch) live in **H100 conda envs**, not the
-  agent-host venv.
+  Training/eval stacks (LLaMA-Factory, lm-eval, vLLM, torch) live in **frozen uv venvs on H100**
+  (`sft_env`/`rl_env`/`eval_env`, see configs/environments), not the agent-host venv.
 - LLM backend: a **code-agent CLI** (`backend="cli"`) driven via the **dataos-agent** package
   (`cli_agent.py` adapter); provider/model are config facts (`agent_provider` default `"kimi"`,
   `agent_model` default `None` = the CLI's own default model), auth is the CLI's own login on
@@ -66,16 +66,15 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
 - `src/dataos/core` — the `Project → Study → Experiment → Stage` / `Data·Model·Eval` abstraction,
   `workspace`, `io`, `ids`, `report`, `provenance`, `catalog`, `loading`. (Kept as the data model;
   the `Stage.run()` train/eval executors were removed — execution is the experimenter's.)
-- `configs/runs/*.json` — the user-facing run config (one per run).
-- `resources/code/posttrainbench/` — (STALE PATH: not in this repo; the eval bridge lives in the
-  DataOS-Runtime checkout) `lm_eval_bridge/` (the self-contained lm-eval PostTrainBench eval: task package + `run_lmeval_eval.py`
-  + `run_lmeval_judge.py`). `run_lmeval_eval.py` batches eval requests into the vLLM server with a
-  uniform `DEFAULT_NUM_CONCURRENT = 32` (`--num-concurrent` overrides) — not score-affecting, just
-  throughput; the inherited per-bench `1` made bfcl/healthbench eval serial.
-- `resources/data/posttrainbench_benchmarks/` — the eval's benchmark data (slim, ~16M, git-tracked):
-  `hf_datasets/` (offline HF cache for the deterministic benches) + `local/` (bfcl + judge jsonl).
-  Deployed with the code; the eval reads it via `$AGENTVER/resources/data/posttrainbench_benchmarks`
-  (no separate H100 data dir, no `paths.benchmarks` config knob).
+- `configs/` — the unified, in-repo config (DataOS-Runtime was merged in and archived):
+  `environments/<env>/env.yaml` (deployment facts: access/slurm/frozen uv venvs/paths/gateway/
+  ops + the `train:` backend↔env binding), `tasks/<task>/` (task contract + the self-contained
+  `eval/` lm-eval bridge + `benchmarks/` data, ~16M git-tracked), `runs/*.json` (per-run facts
+  ONLY + required `environment`/`task` pointers — paths/train/env facts are forbidden there and
+  rejected at load). `configs/CONTRACT.md` is the field spec. The composer
+  (`agent/runtime_compose.py`) resolves these into the experimenter's ENV OPS/TASK prompt sections.
+- `resources/` — `custom_operators/` (shared sedimented ops), `recon/` (source profiler),
+  `data/` (misc).
 - `docs/` — architecture notes; **several predate the agent-version refactor and are stale**.
 - `tests/` — `pytest`, grouped by agent / core.
 
@@ -113,9 +112,12 @@ GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
 - Deploy (the repo on H100): `/data/hcgu/users/tjh/dataos_agentver` — a **git checkout of `origin/main`**.
   Deploy = `git push origin main` (host) then `ssh h100 'git -C <deploy_root> pull'`.
 - Run scratch (per experiment): `/data/hcgu/users/tjh/dataos_agentver_runs/...`.
-- Fixed pool: `/data/hcgu/dataos_fixed_pools/processed/...` (config `paths.fixed_pool`). Eval
-  benchmark data ships IN the repo (`$AGENTVER/resources/data/posttrainbench_benchmarks`).
-- Conda envs: train = `…/envs/Llama` (LLaMA-Factory + torch), eval = `…/envs/lm-eval` (lm-eval + vLLM).
+- Fixed pool: `/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2`
+  (env.yaml `paths.fixed_pool`). Eval benchmark data ships IN the repo
+  (`$AGENTVER/configs/tasks/posttrainbench/benchmarks` — comes down with `git pull`).
+- Frozen uv venvs (defined in `configs/environments/PTB_H100_slurm/envs/`): `sft_env`
+  (LLaMA-Factory + torch), `rl_env` (verl), `eval_env` (lm-eval + vLLM), under
+  `/data/hcgu/users/tjh/dataos_runtime/environments/PTB_H100_slurm/envs/`.
 - Submit GPU work through Slurm (default `gpu04`); the login node is orchestration only.
 - **Compute nodes have no internet.** Datasets resolve offline from the benchmarks HF cache; the
   2 judge benches generate on the GPU node then score on the login node.

@@ -1,6 +1,6 @@
 # DataOS Runtime 契约(Environment / Task 抽象)
 
-状态:**已实施并生产验证(2026-07-21)**。字段规范的当前真源是 `DataOS-Runtime/CONTRACT.md`;本文件讲设计与时序。目标:把 DataOS-Runtime 的**散文 playbook** 升级为**带类型的声明式契约**,并明确「写什么 / 怎么拼 / 何时拼给 DataOS」。
+状态:**已实施;2026-07-29 起 DataOS-Runtime 全量迁入本仓库 `configs/`(environments/tasks/CONTRACT.md),外部仓库归档**。字段规范的当前真源是 `configs/CONTRACT.md`;本文件讲设计与时序。目标:把**散文 playbook** 升级为**带类型的声明式契约**,并明确「写什么 / 怎么拼 / 何时拼给 DataOS」。
 
 > **当前实现要点(与早期草案的差异)**:① 组合器 `compose/`(resolve+render)在 runtime 库,agent 直接 import;② env 是 **(task,机器) 部署单元**(名如 `PTB_H100_slurm`),任务数据(fixed_pool/benchmarks)落 `env.paths`;③ 环境用 **uv venv**(sft/rl/eval,按 `{path}/bin/<tool>` 调,无 conda);④ 每 task = `task.yaml + eval/ + train/?`,`train/` 存在=训练冻结;⑤ EVAL 声明式(跑 `scoring.command` 读 `result.field`),无 common runner;⑥ posttrainbench 评测器扁平化为 `eval/{scripts,lmeval,models}`。
 
@@ -17,7 +17,7 @@
 - **组合机制(拼接模板 + 拼接 py)放在 runtime 库**:runtime 不只暴露 schema,还附一份**通用组合器**(`compose/compose.py` + `compose/templates/*.j2`),任何 agent `resolve()+render()` 即可拿到「环境操作 + 任务」指令。这份 py 是**纯通用拼装逻辑,不含任何 agent 的私有方法**,所以 runtime 仍 agent-中立、可被别的 baseline agent 直接复用。模板引擎用 **jinja2**;调用方(如 DataOS)把 runtime 目录加进 `sys.path` **直接 import compose**(同进程,方案 A),故控制面 env 需装 jinja2。
 - **environment 只讲「怎么操作这台机」,task 只讲「问题是什么 + 怎么打分」;都不含解法**(造数据/训练的方法是各 agent 私有,留各自的 agent 库)。
 - runtime **agent-中立**:任何 agent 都能按同一契约 + 同一组合器驱动它。
-- **字段规范**见 `DataOS-Runtime/CONTRACT.md`(逐字段说明 env/task 能写什么);本文件讲设计与时序。
+- **字段规范**见 `configs/CONTRACT.md`(逐字段说明 env/task 能写什么);本文件讲设计与时序。
 
 ---
 
@@ -35,7 +35,7 @@ sub-agent 最终提示词 = **[大脑的方法段(算子/LLaMA-Factory,DataOS �
 
 ### runtime 库布局(含组合机制)
 ```
-DataOS-Runtime/
+configs/  (迁入后)
   environments/<env>/env.yaml          # 声明:环境契约
   tasks/<task>/task.yaml               # 声明:任务契约
   tasks/<task>/eval/                   # 任务自带的评测器(把模型打成分);train/ 可选(存在=冻结)
@@ -65,7 +65,7 @@ env_ops, task_def = render(resolved)            # 两段可直接放进提示词
 | `name` `kind` | 是 | 标识 + 类型(`slurm`/`k8s`/`local`) |
 | `access` | 是 | 怎么到达:`host/user/port/key_ref`(私钥路径,秘钥本身不入库) |
 | `tools` | 是 | 有哪些可用运行时(声明,不强制用):每项 `{path, provides:[...]}` |
-| `paths` | 是 | 机器事实 `runs_base`(必填)/`runtime_root` + **本部署任务的数据** `fixed_pool`/`benchmarks`(env 任务绑定,故落此) |
+| `paths` | 是 | 本部署的路径事实 `fixed_pool`/`deploy_root`/`runs_base`/`benchmarks`(唯一声明处;run JSON 不得重复) |
 | `resources` | 否 | 供大脑规划参考:`gpu_type` 等 |
 | `gateway` | 否 | 从这台机可达的 LLM 端点(仅连接):`base_url/key_file`;model/并发在 task.scoring.judge |
 | `operations` | 是 | **★ 操作契约**:生命周期动词 → 参数化命令模板(见 §4) |
@@ -83,8 +83,8 @@ tools:                                         # uv venv;按 {path}/bin/<tool> �
   rl_env:   {path: <root>/environments/PTB_H100_slurm/envs/rl/.venv,   provides: [verl, vllm, ray]}
   eval_env: {path: <root>/environments/PTB_H100_slurm/envs/eval/.venv, provides: [vllm, lm-eval]}
 paths:                                         # 机器事实 + 本部署的任务数据(env 任务绑定)
-  runs_base: /data2/hcgu/dataos_runs
-  runtime_root: /data/hcgu/users/tjh/dataos_runtime
+  runs_base: /data/hcgu/users/tjh/dataos_agentver_runs
+  deploy_root: /data/hcgu/users/tjh/dataos_agentver
   fixed_pool: /data2/.../posttrainbench_fixed_pool_v2
   benchmarks: /data/.../posttrainbench_benchmarks
 gateway:  {base_url: https://api.chatanywhere.tech/v1, key_file: ...}   # 仅连接;model/并发在 task.scoring.judge
@@ -190,7 +190,7 @@ assets:
                   "discipline": ["...","..."]},
   "task": {"name","objective","inputs","constraints","produce",
            "scoring": {"command":"<半解析>","result":{...},"format_contract":"...","judge_command":"..."},
-           "assets_root": "<runtime_root>/tasks/posttrainbench"},
+           "assets_root": "<configs>/tasks/posttrainbench"},
   "run": {"run_id","base_model","bench","resource","budget_hours","eval_limit"} }
 ```
 校验:必填段齐全、operations 五个动词都在、scoring.result 完整;缺则报错(契约不满足)。
@@ -224,7 +224,7 @@ assets:
 
 无深层设计缺陷;以下是使用/维护时要清楚的语义与脆弱点:
 
-1. **`runtime_ref` 不由 compose 强制**:`resolve(run_config, runtime_root)` 读**磁盘上现有**的 runtime_root,`runtime_ref` 只是随 resolved 透传的元数据。**版本 pin 是调用方的责任**——调 resolve 前须自己 checkout 到该 ref;否则"pin 了版本"是假象(读的是当前工作副本)。
+1. **`runtime_ref` 已是遗留字段**:configs 迁入本仓库后,版本就是本仓库的 git 版本,`resolve(run_config, configs_root)` 读的是仓库内 `configs/`;`runtime_ref` 仅作为透传元数据保留(恒 `"main"`),不再承担 pin 语义。
 2. **渲染范围不是整棵树**:只有 `operations` / `discipline` / `scoring.command` / `judge_command` / `scoring.result` 会被 jinja 填 `{{...}}`;`objective` / `constraints` / `inputs` / `produce` **原样透传**(它们是描述性文本)。→ task 作者:`{{...}}` 只写在会被渲染的字段里;描述字段里的引用(如 `data_pool.from: env.paths.fixed_pool`)是**字面标签**,不是模板。
 3. **缺失可选字段的守卫**:`format_contract` 可选,`task.j2` 已加 `{% if %}` 守卫(否则缺失时 render 会崩)——新增可选字段进模板时记得同样守卫。
 4. **缺 `{{run.X}}` 的报错**:命令模板用 StrictUndefined,run-config 缺键会抛 jinja `UndefinedError`(点名该属性),信息够定位但不算友好。
@@ -245,7 +245,7 @@ assets:
 
 ## 10. 迁移计划
 
-- [x] **C1 定稿本设计文档**(本文件)+ **`DataOS-Runtime/CONTRACT.md` 字段规范**。
+- [x] **C1 定稿本设计文档**(本文件)+ **CONTRACT.md 字段规范**(现 `configs/CONTRACT.md`)。
 - [x] **C2 runtime 库 · 声明**:给 `h100_slurm/env.yaml` 补 `operations`/`discipline`/`tools`;为 `posttrainbench` 写 `task.yaml`(从现有两份 playbook 抽结构)。
 - [x] **C3 runtime 库 · 组合器**:实现 `compose/compose.py`(`resolve` 读 schema+填模板+校验;`render` 用 jinja2 渲染 `templates/*.j2` 出两段)+ 模板。删/降级 playbook.md(改由 render 产出人读版)。
 - [x] **C4 DataOS · 接线**:sub-agent 提示词改为「调 runtime.compose 得两段 + 大脑 METHOD/REPORT 段」,替换硬写的 "read playbook.md"。
@@ -281,7 +281,7 @@ build-time 依赖**:
 
 ### 七条规则
 
-1. **零 build-time 依赖**:`dataos_operator` / `DataOS-train` / `DataOS-Runtime` 互不 import;所有跨阶段边 = 路径/名字 + 约定协议。
+1. **零 build-time 依赖**:`dataos_operator` / `DataOS-train` 互不 import;所有跨阶段边 = 路径/名字 + 约定协议(configs 已入库,不再存在 runtime 依赖)。
 2. **接口归属 = 宿主**:代码在谁的进程里执行,协议就归谁(train 拥有 hook 协议;eval/task 拥有 result 与 verifier 形状)。
 3. **组装点唯一 = 大脑**:从 resolved 契约取 verifier 路径、按 plan 填 online_ops、注入 env/cluster 事实拼 TrainSpec——绑定集中在一处(composition root),库之间互不知晓。
 4. **契约流逆流水线**:执行顺序 data→train→eval,契约方向 eval→train→data(冻结 scorer 是不动点,上游一切对齐它)。所有逆向边**只读**——尺子可读不可弯。
