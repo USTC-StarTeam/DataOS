@@ -10,9 +10,8 @@ Three kinds, one shape:
 
 - :class:`Operator`  (data)  — turns fixed-pool sources into THIS experiment's dataset.
   Registered FROM the installed ``dataos_operator`` package (:class:`OperatorToolbox`).
-- :class:`Trainer`   (train) — (data, recipe) -> a complete HF model dir. RESERVED:
-  no implementation until dataos-train lands; the slot stays empty and the stage
-  falls back to the legacy prose block.
+- :class:`Trainer`   (train) — (data, recipe) -> a complete HF model dir. Shipped:
+  :class:`DataosTrainCli` (the deterministic dataos-train launcher lifecycle).
 - :class:`Evaluator` (eval)  — model -> native benchmark score. Registered FROM the
   resolved runtime contract (:class:`FrozenEvaluator`, the task's frozen scorer).
 """
@@ -40,11 +39,9 @@ class Operator(Protocol):
 class Trainer(Protocol):
     """train-stage tool: (data, recipe) -> a complete HF model dir.
 
-    RESERVED — no implementation until dataos-train lands. Then implement this
-    protocol, ``registry.register_trainer(...)``, and the legacy prose block
-    (``stage_train_legacy``) disappears automatically. Contract: the brain
-    code-injects the runtime-owned TRAIN SPEC fields; only ``method`` comes from
-    the leader's plan.
+    Shipped implementation: :class:`DataosTrainCli` (the deterministic TrainSpec
+    lifecycle). Contract: the brain code-injects the runtime-owned TRAIN SPEC fields;
+    only ``method`` comes from the leader's plan.
     """
 
     name: str
@@ -104,6 +101,29 @@ class FrozenEvaluator:
         )
 
 
+class DataosTrainCli:
+    """dataos-train, registered as the train-stage Trainer: (data, recipe) -> a complete
+    HF model via the deterministic lifecycle — validate / build / submit --launcher slurm
+    / status / collect. The invoke prose (kb/stage_train) points the experimenter at the
+    CLI in train.cli_env (the thin orchestrator env) or, undeclared, the backend env."""
+
+    name = "dataos_train"
+    owner = OWNER_OURS
+
+    def invoke(self, resolved: dict) -> str:
+        env = resolved.get("environment", {})
+        train_cfg = env.get("train", {}) or {}
+        tool_key = train_cfg.get("cli_env") or (train_cfg.get("backends") or {}).get(
+            train_cfg.get("backend", "llamafactory"), "sft_env"
+        )
+        te = env.get("tools", {}).get(tool_key, {})
+        te_path = te.get("path") if isinstance(te, dict) else (te or "<train_env>")
+        return _prompt.render(
+            "kb/stage_train", frozen_command="", frozen_produces="",
+            cli_path=f"{te_path}/bin/dataos-train",
+        )
+
+
 @dataclass
 class ToolRegistry:
     """The three tool slots behind the three stages. Sources register; stages.py
@@ -111,7 +131,7 @@ class ToolRegistry:
     single slots (one training method / one frozen scorer per run)."""
 
     operators: list[Operator] = field(default_factory=list)
-    trainer: Trainer | None = None  # the RESERVED slot — empty until dataos-train lands
+    trainer: Trainer | None = None  # single slot — one training method per run
     evaluator: Evaluator | None = None
 
     def register_operator(self, op: Operator) -> None:
@@ -126,8 +146,9 @@ class ToolRegistry:
 
 def build_registry(resolved: dict) -> ToolRegistry:  # noqa: ARG001 — impls are self-sourcing
     """The default registry: the operator toolbox FROM the installed dataos_operator,
-    the frozen scorer FROM the resolved runtime contract, and an EMPTY trainer slot."""
+    the dataos-train Trainer, and the frozen scorer FROM the resolved runtime contract."""
     reg = ToolRegistry()
     reg.register_operator(OperatorToolbox())
+    reg.register_trainer(DataosTrainCli())
     reg.register_evaluator(FrozenEvaluator())
     return reg

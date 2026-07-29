@@ -39,8 +39,8 @@ def _stage(resolved, registry=None, name="data"):
 def test_default_registry_slots():
     reg = _tools.build_registry(_resolved())
     assert [op.name for op in reg.operators] == ["dataos_operator"]
+    assert reg.trainer is not None and reg.trainer.name == "dataos_train"
     assert reg.evaluator is not None and reg.evaluator.name == "frozen_evaluator"
-    assert reg.trainer is None  # the reserved slot stays empty until dataos-train lands
 
 
 def test_data_invoke_carries_the_installed_catalog():
@@ -60,19 +60,22 @@ def test_eval_invoke_from_the_resolved_contract():
 
 # --- the reserved trainer slot -----------------------------------------------
 
-def test_train_falls_back_to_legacy_block_while_slot_empty():
+def test_train_invoke_is_the_registered_trainer():
     invoke = _stage(_resolved(), name="train").invoke
     assert invoke.startswith("DETERMINISTIC via dataos-train")
+    # the launcher lifecycle, NOT a hand-written sbatch wrapper
     assert "`/envs/Llama/bin/dataos-train validate {ctx.run_root}/trainspec.json`" in invoke
+    assert "submit {ctx.run_root}/spec.json --launcher slurm" in invoke
+    assert "handle.json" in invoke
 
 
-def test_train_frozen_branch_from_legacy_block():
+def test_train_frozen_branch_wins_over_the_trainer():
     invoke = _stage(_resolved(frozen=True), name="train").invoke
     assert invoke.startswith("FROZEN recipe — you do NOT choose hyperparameters")
     assert "`bash train.sh` → model at out/model" in invoke
 
 
-def test_registering_a_trainer_replaces_the_legacy_block():
+def test_registering_a_trainer_replaces_the_default():
     class DummyTrainer:
         name = "dummy_train"
         owner = _tools.OWNER_OURS
@@ -84,7 +87,7 @@ def test_registering_a_trainer_replaces_the_legacy_block():
     reg.register_trainer(DummyTrainer())
     invoke = _stage(_resolved(), reg, name="train").invoke
     assert invoke == "dummy trainer invoke"
-    assert "DETERMINISTIC" not in invoke  # the legacy block disappeared automatically
+    assert "DETERMINISTIC" not in invoke  # the default Trainer is replaced
 
 
 def test_multiple_operators_concatenate_in_order():
@@ -111,6 +114,7 @@ def test_rendered_blocks_parity():
     assert "- invoke: dataos_operator recipe (discover: `python -c \"import dataos_operator as o;" in blocks
     assert "custom ops via DATAOS_OPERATOR_PLUGINS — full mechanics in your system prompt" in blocks
     assert "FALLBACK only if dataos-train is broken/unavailable: hand-write the LF config" in blocks
+    assert "submit {ctx.run_root}/spec.json --launcher slurm" in blocks
     assert "want a high score? read how the scorer parses output first: /assets/contracts/gsm8k.md" in blocks
 
 
@@ -131,11 +135,11 @@ def test_train_spec_injects_the_full_env_menu():
 def test_templates_render_with_declared_params():
     assert "o.guide()" in prompt.render("kb/stage_data", catalog="CATALOG")
     frozen = prompt.render(
-        "kb/stage_train_legacy", frozen_command="cmd", frozen_produces="prod", cli_path=""
+        "kb/stage_train", frozen_command="cmd", frozen_produces="prod", cli_path=""
     )
     assert "`cmd` → model at prod" in frozen
     ours = prompt.render(
-        "kb/stage_train_legacy", frozen_command="", frozen_produces="", cli_path="/te/bin/dataos-train"
+        "kb/stage_train", frozen_command="", frozen_produces="", cli_path="/te/bin/dataos-train"
     )
     assert ours.startswith("DETERMINISTIC via dataos-train")
     minimal = prompt.render(

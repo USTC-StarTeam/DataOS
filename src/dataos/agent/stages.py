@@ -8,9 +8,8 @@ and the artifact expectations all derive from this one table.
 
 Each stage's ``invoke`` is ASSEMBLED FROM REGISTERED TOOLS (see
 :mod:`dataos.agent.tools`): Operators from the installed dataos_operator, the
-Evaluator from the resolved runtime contract, and — once dataos-train lands — a
-Trainer from the reserved registry slot (until then the train stage renders the
-legacy prose block ``stage_train_legacy``). No prompt prose lives in this file.
+Trainer (dataos-train's deterministic lifecycle via :class:`~dataos.agent.tools.DataosTrainCli`),
+and the Evaluator from the resolved runtime contract. No prompt prose lives in this file.
 
 Ownership encodes lever-vs-ruler: DATA and TRAIN are *ours* (the agent's improvable
 method); EVAL is *provided* (the task's frozen scorer — outside the method space).
@@ -39,26 +38,19 @@ class Stage:
 
 
 def _train_invoke(resolved: dict, registry: _tools.ToolRegistry) -> str:
-    """The train stage's invoke: the registered Trainer's own contract once one exists;
-    the legacy prose block (frozen recipe / dataos-train CLI flow) while the slot is empty."""
-    if registry.trainer is not None:
-        return registry.trainer.invoke(resolved)
+    """The train stage's invoke: FROZEN tasks (the task ships a train/ dir) render the
+    frozen branch; everything else is the registered Trainer's own contract."""
     frozen = resolved.get("task", {}).get("train")
-    env = resolved.get("environment", {})
-    train_cfg = env.get("train", {}) or {}
-    # the dataos-train CLI lives in train.cli_env when declared (thin orchestrator env),
-    # else in the default backend env
-    tool_key = train_cfg.get("cli_env") or (train_cfg.get("backends") or {}).get(
-        train_cfg.get("backend", "llamafactory"), "sft_env"
-    )
-    te = env.get("tools", {}).get(tool_key, {})
-    te_path = te.get("path") if isinstance(te, dict) else (te or "<train_env>")
-    return _prompt.render(
-        "kb/stage_train_legacy",
-        frozen_command=str((frozen or {}).get("command", "")).strip(),
-        frozen_produces=(frozen or {}).get("produces", "the harness run_dir model"),
-        cli_path=f"{te_path}/bin/dataos-train",
-    )
+    if frozen:
+        return _prompt.render(
+            "kb/stage_train",
+            frozen_command=str(frozen.get("command", "")).strip(),
+            frozen_produces=frozen.get("produces", "the harness run_dir model"),
+            cli_path="",
+        )
+    if registry.trainer is None:
+        raise ValueError("no Trainer registered in the tool registry (train stage)")
+    return registry.trainer.invoke(resolved)
 
 
 def build_stages(resolved: dict, registry: _tools.ToolRegistry | None = None) -> list[Stage]:
