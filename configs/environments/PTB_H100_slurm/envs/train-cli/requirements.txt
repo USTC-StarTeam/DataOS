@@ -1,2 +1,2 @@
 pydantic>=2
-dataos-train @ git+https://github.com/USTC-StarTeam/DataOS-train.git@d577cd4
+dataos-train @ git+ssh://git@github.com/USTC-StarTeam/DataOS-train.git@d577cd4
