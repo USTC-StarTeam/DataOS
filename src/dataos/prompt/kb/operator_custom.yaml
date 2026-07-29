@@ -1,0 +1,21 @@
+description: >
+  KB block — when the toolbox lacks a step: hand-write a small script, then sediment reusable
+  logic into a custom operator (two tiers: run-local first, shared after proving general).
+  Audience: experimenter. No render params.
+template: |
+  - WHEN THE OPERATOR BOX LACKS WHAT YOU NEED, HAND-WRITE IT. The 22-operator toolbox has no
+    "keep only valid target-format rows" filter and no "normalize output to the eval's exact shape"
+    step. If the recipe/brief needs cleaning or format-alignment the operators can't do, WRITE A
+    SMALL STANDALONE PYTHON SCRIPT (run it inside the Slurm job) — e.g. keep only rows whose output
+    parses as the eval's target shape, drop "no access to functions" negatives, and render targets
+    with the SAME template the evaluator parses. Do NOT force-fit unsuitable operators into a
+    pipeline that silently trains on garbage (that is exactly how a BFCL run scored 4 instead of 83).
+    Record the script + its filter/format logic in report.json.
+  - SEDIMENT REUSABLE LOGIC INTO AN OPERATOR — two tiers, so parallel runs never collide. If that
+    cleaning/format logic is worth reusing, write it as a `DataOperator` subclass (read
+    `dataos_operator.guide()` for the family→method template). Save it FIRST to the run-local dir
+    `$RUN_ROOT/custom_operators/` (`mkdir -p` it): isolated to THIS experiment, usable by name at
+    once, zero collision with other runs. ONLY if it proves general across benches, promote it to the
+    shared `$AGENTVER/resources/custom_operators/` dir (committed in the DataOS brain repo, so it
+    persists across runs). Both dirs are on `DATAOS_OPERATOR_PLUGINS`, so either is discoverable in
+    the OPERATOR CATALOG. e.g. a "keep only valid function-call rows" filter becomes `function_call_filter`.

@@ -5,25 +5,25 @@
 DataOS 在**固定数据池**和**固定 GPU 时间预算**下，把**一个** base 模型 post-train 到在
 **一个** PostTrainBench bench 上分数最高 —— 全程由 agent 驱动。
 
-一个常驻的 **main-agent**（Claude Code 长对话）维护一棵实验**树**。每一轮它给出一个实验方案 ——
+一个常驻的 **leader**（Claude Code 长对话）维护一棵实验**树**。每一轮它给出一个实验方案 ——
 一份*数据配方*（对固定池跑一条 [DataOS-Operator](https://github.com/USTC-StarTeam/DataOS-Operator)
-算子流水线）加一组*训练*超参 —— 由 **sub-agent** 端到端实现：
+算子流水线）加一组*训练*超参 —— 由 **experimenter** 端到端实现：
 
 ```
 构建 SFT 数据(算子)  →  在 H100 上用 LLaMA-Factory 训练(Slurm)
         →  用 lm-eval 的 PostTrainBench 协议评测  →  写 report.json
 ```
 
-main-agent 复盘结果，树从最有潜力的节点继续生长，直到耗尽时间预算。树上最优的模型即为提交。
+leader 复盘结果，树从最有潜力的节点继续生长，直到耗尽时间预算。树上最优的模型即为提交。
 
 ## 架构
 
 ```
             ┌──────────────────────── agent host(本机) ────────────────────────┐
-  第 N 轮:  │  main-agent(CC 对话) ──plan──▶ code: 校验 · 建节点 · 注入父模型     │
+  第 N 轮:  │  leader(CC 对话) ──plan──▶ code: 校验 · 建节点 · 注入父模型     │
             │        ▲                                       │                  │
             │     复盘 ◀── report.json ◀───────────┐         ▼                  │
-            │                                       │   sub-agent(CC + shell)   │
+            │                                       │   experimenter(CC + shell)   │
             └───────────────────────────────────────┼──────────│────────────────┘
                                                      │   ssh / slurm / rsync
                                                      │          ▼
@@ -34,7 +34,7 @@ main-agent 复盘结果，树从最有潜力的节点继续生长，直到耗尽
 
 - **agent host** 在本地跑 *两个* agent。代码（`dataos.agent.loop`）负责树、plan 校验、父模型注入、
   落盘；LLM 只负责出 plan 和复盘。
-- **H100 集群** 做全部 GPU 活。sub-agent 通过 SSH 把训练（Slurm + LLaMA-Factory）和评测
+- **H100 集群** 做全部 GPU 活。experimenter 通过 SSH 把训练（Slurm + LLaMA-Factory）和评测
   （vLLM + lm-eval）丢到 H100；judge bench 在登录节点打分。
 - **实时监控**（`src/dataos/agent/monitor.py` + `web/`）由 `run_auto` 内嵌在一个端口上（默认
   `8765`）：打开 `http://localhost:8765` 就能看实验树生长、运行中节点的 `data → train → eval`
@@ -44,7 +44,7 @@ main-agent 复盘结果，树从最有潜力的节点继续生长，直到耗尽
 ## 前置条件
 
 - [`uv`](https://docs.astral.sh/uv/)（Python 环境），Python ≥ 3.11。
-- 已登录的 Claude Code CLI —— 它是 main-agent 和 sub-agent 的后端。
+- 已登录的 Claude Code CLI —— 它是 leader 和 experimenter 的后端。
 - 从 agent host 到 H100 集群的免密 SSH（集群上有预建的 conda 环境、固定数据池、base 模型、benchmark 缓存）。
 
 ```bash
@@ -78,18 +78,18 @@ uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
 ```
 
 config 只承载事实（路径、唯一 bench、预算、资源）。所有**策略** —— 数据配方、训练方式
-（LoRA / 全参、超参）、选树上哪个节点生长、eval 采样 —— 都由 main-agent 每轮自主决定，并写进
+（LoRA / 全参、超参）、选树上哪个节点生长、eval 采样 —— 都由 leader 每轮自主决定，并写进
 运行 workspace 下的每轮 plan。
 
 ## 一次运行是怎么跑的
 
 1. `freeze_eval` 一次性冻结评测协议（唯一 bench + 采样 limit）。
-2. 每轮代码把树、最近的复盘、算子目录发给 main-agent；它返回一个 `ExperimentPlan`（父节点 +
+2. 每轮代码把树、最近的复盘、算子目录发给 leader；它返回一个 `ExperimentPlan`（父节点 +
    数据配方 + 训练配置）。代码校验、加子节点、注入父模型路径（子节点在父模型上续训）。
-3. sub-agent 在 H100 上按
+3. experimenter 在 H100 上按
    [`resources/code/posttrainbench/PLAYBOOK.md`](resources/code/posttrainbench/PLAYBOOK.md) 执行计划，
    写出 `report.json`。
-4. main-agent 复盘 report；代码附上分数、生长树，循环直到预算耗尽。最优节点的模型写入
+4. leader 复盘 report；代码附上分数、生长树，循环直到预算耗尽。最优节点的模型写入
    `final_model.json`。
 
 在 `http://localhost:8765` 实时观看（config 里设 `monitor_port` 改端口，或 `DATAOS_MONITOR_PORT=0`
@@ -110,12 +110,12 @@ config 只承载事实（路径、唯一 bench、预算、资源）。所有**�
 DataOS/
 ├── src/dataos/
 │   ├── cli.py                       # `dataos` 入口：读 run 配置 → run_auto
-│   ├── agent/                       # 自主循环 + 逐实验 sub-agent
+│   ├── agent/                       # 自主循环 + 逐实验 experimenter
 │   │   ├── loop.py                  #   run_auto：每轮 = 出plan → 执行 → 复盘 → 生长树
 │   │   ├── state_tree.py            #   实验树（节点、可生长集合、最优节点）
 │   │   ├── run_config.py            #   单 JSON 配置边界（只放事实）
-│   │   ├── planner.py · reviewer.py #   向 main-agent 要 ExperimentPlan / ReviewOut
-│   │   ├── subagent_executor.py     #   驱动逐实验的 sub-agent（Claude Code + shell）
+│   │   ├── planner.py · reviewer.py #   向 leader 要 ExperimentPlan / ReviewOut
+│   │   ├── subagent_executor.py     #   驱动逐实验的 experimenter（Claude Code + shell）
 │   │   ├── eval_freeze.py           #   每次运行冻结一次评测协议
 │   │   ├── backend.py               #   构建角色 agent（渲染角色提示词）
 │   │   ├── llm/                     #   code-agent CLI 驱动（cli_agent，走 dataos-agent）+ 结构化输出 helper
@@ -139,7 +139,7 @@ DataOS/
 │   └── runs/ptb-h100-qwen-gsm8k.json #  面向用户的 run 配置（每次运行一个 JSON）
 ├── resources/
 │   ├── code/posttrainbench/
-│   │   ├── PLAYBOOK.md              #   sub-agent 手册（数据 → 训练 → 评测 → report）
+│   │   ├── PLAYBOOK.md              #   experimenter 手册（数据 → 训练 → 评测 → report）
 │   │   └── lm_eval_bridge/          #   自包含的 lm-eval PostTrainBench 评测
 │   │       ├── scripts/run_lmeval_eval.py   #  起服务 + 打分（judge bench = 只生成）
 │   │       ├── scripts/run_lmeval_judge.py  #  登录节点 judge（healthbench / arena）

@@ -1,5 +1,5 @@
 description: >
-  Per-round planner task message asking the main-agent dialog for one ExperimentPlan.
+  Per-round planner task message asking the leader dialog for one ExperimentPlan.
   Render params: context_json, catalog_json, validation_errors_json (optional).
 template: |
   Choose the next single experiment to grow on the tree.

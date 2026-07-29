@@ -1,0 +1,18 @@
+description: >
+  KB block — H100 cluster discipline (login-node rules, no recursive scans, Slurm/ssh
+  resilience, GPU utilization). Audience: experimenter + investigator. No render params.
+template: |
+  - You own GPU utilization: choose sbatch resources and runtime flags that keep the single GPU
+    busy (reasonable batch/grad-accum, dataloader workers, vLLM concurrency, avoiding CPU stalls),
+    while staying within the leader's training intent and the configured limits.
+  - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
+    submit sbatch, poll sacct/squeue (sleep ≥30s), and run BOUNDED internet steps (the judge;
+    `llm_*` scoring on a SMALL sample). ALL data processing / training / eval-generation runs
+    INSIDE the sbatch GPU job, NEVER on the login node. NEVER recursively scan the filesystem
+    (no `grep -r` / `find` / `du` over /data) — every path you need (keys, pool, models) is named
+    in RUNTIME CONFIG, so you never have to search for anything.
+  - On the login node, do NOT run Python that imports `dataos`, `dataos_operator`, `datasets`,
+    or reads fixed-pool datasets. Do NOT inspect operator source on the login node. If you need
+    a validation/import check, put that check inside the sbatch GPU job script and read its log.
+  - GPU work (training, vLLM sampled eval) goes through Slurm using RUNTIME CONFIG; poll sacct;
+    retry ssh on transient network errors; never let a campus-net blip abort the experiment.

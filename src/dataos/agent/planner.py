@@ -1,6 +1,6 @@
-"""Main-agent planning prompt.
+"""Leader planning prompt.
 
-Code sends a compact context bundle to the persistent main-agent dialog. The
+Code sends a compact context bundle to the persistent leader dialog. The
 agent returns exactly one :class:`ExperimentPlan`; code validates and applies it.
 """
 
@@ -35,7 +35,7 @@ def _build_prompt(
     validation_errors: list[str] | None = None,
 ) -> str:
     return _prompt.render(
-        "planner_task",
+        "task/plan",
         context_json=json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
         catalog_json=json.dumps(_summarize_catalog(catalog), ensure_ascii=False, indent=2),
         validation_errors_json=(
@@ -54,7 +54,7 @@ def next_plan(
     session_id: str | None = None,
     validation_errors: list[str] | None = None,
 ) -> tuple[ExperimentPlan, str | None]:
-    """Ask the main-agent dialog for one next experiment plan."""
+    """Ask the leader dialog for one next experiment plan."""
 
     task = _build_prompt(
         context=context,

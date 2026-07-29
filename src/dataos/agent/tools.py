@@ -1,9 +1,9 @@
-"""Pluggable stage tools — the three symmetric tool kinds behind the sub-agent's
+"""Pluggable stage tools — the three symmetric tool kinds behind the experimenter's
 data → train → eval pipeline.
 
 A tool is a PROMPT ASSEMBLY UNIT, not a runtime ``tool_use``: it declares a capability
 (``name`` / ``owner`` / ``invoke(resolved)`` prose) that stages.py assembles into the
-sub-agent task prompt. The sub-agent stays a free CLI agent that discovers and calls
+experimenter task prompt. The experimenter stays a free CLI agent that discovers and calls
 the actual mechanics at execution time.
 
 Three kinds, one shape:
@@ -44,7 +44,7 @@ class Trainer(Protocol):
     protocol, ``registry.register_trainer(...)``, and the legacy prose block
     (``stage_train_legacy``) disappears automatically. Contract: the brain
     code-injects the runtime-owned TRAIN SPEC fields; only ``method`` comes from
-    the main-agent's plan.
+    the leader's plan.
     """
 
     name: str
@@ -66,7 +66,7 @@ class OperatorToolbox:
     """The installed ``dataos_operator`` toolbox, registered as the data-stage Operator.
 
     The invoke prose carries the toolbox's own catalog (introspected from the installed
-    package, so it always matches the pinned version) so the sub-agent plans its recipe
+    package, so it always matches the pinned version) so the experimenter plans its recipe
     against the real menu instead of discovering it blind inside the Slurm job."""
 
     name = "dataos_operator"
@@ -75,7 +75,7 @@ class OperatorToolbox:
     def invoke(self, resolved: dict) -> str:  # noqa: ARG002 — catalog is install-local
         import dataos_operator
 
-        return _prompt.render("stage_data_operators", catalog=dataos_operator.catalog())
+        return _prompt.render("kb/stage_data", catalog=dataos_operator.catalog())
 
 
 class FrozenEvaluator:
@@ -92,7 +92,7 @@ class FrozenEvaluator:
         fc = scoring.get("format_contract")
         assets_root = task.get("assets_root", "")
         return _prompt.render(
-            "stage_eval_scorer",
+            "kb/stage_eval",
             command=str(scoring.get("command", "")).strip(),
             result_field=result.get("field", "score"),
             result_file=result.get("file", "<result>"),

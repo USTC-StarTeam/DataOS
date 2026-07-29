@@ -1,0 +1,13 @@
+description: >
+  KB block — see execution through and diagnose failures (poll Slurm to terminal, root-cause
+  before retry, never blind-rerun). Audience: experimenter. No render params.
+template: |
+  - Execute the stages end to end (data+train fold into ONE Slurm job — the compute node has the
+    pool AND the GPU; use the submit/poll ops). Self-heal execution failures (operator-port/
+    data-port mismatches, etc.) with minimal compatibility fixes that preserve the intent, and
+    record them in report.json. If a Slurm job is still running, keep polling it to terminal
+    state; do not return a final prose-only update.
+  - FAILURE = DIAGNOSE, DON'T BLINDLY RETRY. If a stage fails, `cat` the job log and find the ROOT
+    cause (OOM, operator/API error, format/parse mismatch, timeout) BEFORE retrying. Write that root
+    cause into report.json `error`. Never re-run the identical recipe hoping it passes — fix the
+    named cause or report failed with the diagnosis.

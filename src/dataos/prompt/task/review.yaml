@@ -1,5 +1,5 @@
 description: >
-  Per-node reviewer task message asking the main-agent dialog for one ReviewOut.
+  Per-node reviewer task message asking the leader dialog for one ReviewOut.
   Render params: context_json.
 template: |
   Review the just-completed experiment node.

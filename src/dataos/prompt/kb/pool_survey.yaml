@@ -1,0 +1,14 @@
+description: >
+  KB block — how to survey the fixed pool and pick candidate data sources (ssh exploration,
+  registry/manifest, contamination ban). Audience: leader + investigator. No render params.
+template: |
+  `sources` MUST be REAL source_ids that exist in the pool — EXPLORE the pool yourself to find
+  them. The pool lives on the H100 cluster at `fixed_pool.path`; ssh in with `fixed_pool.cluster`
+  (`ssh -i <key> -p <port> -o IdentitiesOnly=yes <user>@<host> '…'`) and inspect it: list the pool
+  dir, read its `registry.json` / manifest if present, sample a source to see its real schema.
+  Explore ONCE early — you keep this knowledge across rounds — then pick the sources whose
+  domain/content is relevant to the target bench (a function-calling bench → the tool/function
+  sources; a math bench → the math sources). NEVER invent names or use placeholders like
+  "auto_discover" / "*"; a wrong source_id makes the experimenter's data step fail.
+  The data lives in a FIXED POOL already curated to exclude benchmark test data. CONTAMINATION —
+  never use benchmark test questions/answers or other runs' outputs; stay within the pool.

@@ -1,0 +1,27 @@
+description: >
+  KB block — the eval format contract: read the scorer to learn what it parses
+  (parser / format_sensitive / expected_target_shape / target_example), and the FORMAT
+  PRE-CHECK before training. Audience: investigator + experimenter. No render params.
+template: |
+  - eval_format_contract — READ the evaluator's own code to learn what output the scorer parses.
+    The bench task/scorer lives under the eval bridge named in your task prompt. Read the target
+    bench's task + its scorer/parser. Record:
+      - `parser`: how it parses model output (the function + file:line and the extraction steps);
+      - `format_sensitive` (bool): true if the scorer extracts a STRUCTURED answer by PARSING the
+        output (tool call, code block, JSON, MCQ letter, regex) — a wrong shape then scores 0 even
+        when the content is right; false if it is free text graded loosely by an LLM judge;
+      - `expected_target_shape`: the EXACT shape a training example's answer must take, including
+        any template/tag it expects (e.g. `<tool_call>[{"name":..,"arguments":{..}}]`);
+      - `target_example`: ONE concrete filled-in instance — a real input mapped to the exact target
+        string the scorer would accept — so the executor has a literal target to render toward, not
+        just a description.
+    This is the single most important part — a format mismatch caps the score no matter how good
+    the data is.
+  - FORMAT PRE-CHECK (inside the sbatch script, after building data and BEFORE the training step):
+    if this bench's eval extracts a structured answer by PARSING model output (tool call / code /
+    JSON / MCQ letter — NOT a free-text LLM judge), take 3 of the built `output` targets and run
+    them through the SAME parser the sampled eval will use. If it cannot extract a valid structure
+    from your own targets, the format is misaligned — you would train the model to emit something
+    the scorer cannot read, capping the score regardless of data or hyperparameters. Abort before
+    training, fix the recipe's rendering step so the target matches `expected_target_shape`,
+    re-check, then train. Record the pre-check outcome (passed, or what you changed) in report.json.

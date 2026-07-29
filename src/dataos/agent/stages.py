@@ -1,8 +1,8 @@
-"""Declarative Stage abstraction — the single source of truth for the sub-agent's
+"""Declarative Stage abstraction — the single source of truth for the experimenter's
 three-phase pipeline (data → train → eval).
 
 A Stage is a CONTRACT-AND-PRESENTATION structure, not a scheduling one: execution
-stays a single self-healing sub-agent session (data+train deliberately share one
+stays a single self-healing experimenter session (data+train deliberately share one
 Slurm job), but the prompt capability blocks, the report.json ``stages`` skeleton,
 and the artifact expectations all derive from this one table.
 
@@ -48,7 +48,7 @@ def _train_invoke(resolved: dict, registry: _tools.ToolRegistry) -> str:
     te = tools.get("train_env", {})
     te_path = te.get("path") if isinstance(te, dict) else (te or "<train_env>")
     return _prompt.render(
-        "stage_train_legacy",
+        "kb/stage_train_legacy",
         frozen_command=str((frozen or {}).get("command", "")).strip(),
         frozen_produces=(frozen or {}).get("produces", "the harness run_dir model"),
         cli_path=f"{te_path}/bin/dataos-train",

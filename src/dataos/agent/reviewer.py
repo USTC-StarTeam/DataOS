@@ -1,4 +1,4 @@
-"""Main-agent review prompt for one completed tree node."""
+"""Leader review prompt for one completed tree node."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from .schemas import ReviewOut
 
 def _build_prompt(*, context: dict) -> str:
     return _prompt.render(
-        "reviewer_task",
+        "task/review",
         context_json=json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
     )
 
@@ -23,7 +23,7 @@ def review_result(
     context: dict,
     session_id: str | None = None,
 ) -> tuple[ReviewOut, str | None]:
-    """Ask the main-agent dialog to interpret one completed node."""
+    """Ask the leader dialog to interpret one completed node."""
 
     return run_structured_dialog(agent, _build_prompt(context=context), ReviewOut, session_id=session_id)
 

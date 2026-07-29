@@ -1,4 +1,4 @@
-"""L1 smoke: the main-agent (cli backend) returns a parseable ExperimentPlan.
+"""L1 smoke: the leader (cli backend) returns a parseable ExperimentPlan.
 
 Skipped unless the configured provider's CLI is on PATH. The cli backend (dataos_agent)
 uses the CLI's own local login — no API key from config. No GPU and no training; it only
@@ -42,7 +42,7 @@ def test_main_agent_real_llm_plan(tmp_path):
         },
         "constraints": ["parent_node_id must be n0000"],
     }
-    plan, _ = next_plan(agent=make_agent("main_agent", cfg), context=context, catalog=[])
+    plan, _ = next_plan(agent=make_agent("leader", cfg), context=context, catalog=[])
     assert isinstance(plan, ExperimentPlan)
     assert plan.parent_node_id == "n0000"
     assert plan.name

@@ -56,8 +56,9 @@ LIVE = LiveState()
 
 # --- agent activity (Claude Code transcripts) -------------------------------
 # Claude Code stores each session as JSONL under ~/.claude/projects/<munged-cwd>/.
-# The main-agent's cwd is <workspace>/_agent/<run>/main_agent; the sub-agent runs
-# at the repo root. We read those transcripts to show what each agent is doing.
+# The leader's cwd is <workspace>/_agent/<run>/<role> (renamed main_agent->leader;
+# both probed); the experimenter runs at the repo root. We read those transcripts
+# to show what each agent is doing.
 _CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _MSG_TYPES = ("assistant", "user")
@@ -70,15 +71,20 @@ def _munge(path) -> str:
 
 def _transcript_dir(workspace: Path, run_id: str, agent: str) -> Path | None:
     if agent == "main":
-        cwd = Path(workspace) / "_agent" / run_id / "main_agent"
-    else:  # the sub-agent runs at the repo root (one dir, newest session = live)
-        cwd = _REPO_ROOT
-    direct = _CLAUDE_PROJECTS / _munge(cwd)
-    if direct.is_dir():
-        return direct
+        # the role dir was renamed main_agent -> leader; probe both so old runs stay visible
+        for role_dir in ("leader", "main_agent"):
+            direct = _CLAUDE_PROJECTS / _munge(Path(workspace) / "_agent" / run_id / role_dir)
+            if direct.is_dir():
+                return direct
+    else:  # the experimenter runs at the repo root (one dir, newest session = live)
+        direct = _CLAUDE_PROJECTS / _munge(_REPO_ROOT)
+        if direct.is_dir():
+            return direct
+        return None
     if agent == "main":  # workspace abspath may differ — fall back to a run_id match
         hits = sorted(
-            _CLAUDE_PROJECTS.glob(f"*{_munge(run_id)}*main-agent"),
+            (h for pat in (f"*{_munge(run_id)}*leader", f"*{_munge(run_id)}*leader")
+             for h in _CLAUDE_PROJECTS.glob(pat)),
             key=lambda p: p.stat().st_mtime,
         )
         return hits[-1] if hits else None
@@ -164,7 +170,7 @@ def activity(workspace: Path, run_id: str, agent: str) -> dict:
 
 
 # --- sub-stage detection (data / train / eval) from the H100 run_root markers ---
-# We ssh in and count the dirs the sub-agent's job fills in order: data/sft built,
+# We ssh in and count the dirs the experimenter's job fills in order: data/sft built,
 # training started, model merged. The cluster creds stay here (not in LiveState).
 _CLUSTER: dict | None = None
 _STAGE_CACHE: dict[str, tuple[float, dict]] = {}
@@ -196,7 +202,7 @@ def _ssh_read(remote_cmd: str, timeout: int = 8) -> str | None:
 
 
 def _parse_stage(text: str | None) -> dict:
-    """Infer the sub-agent's sub-stage (data / train / eval) from the marker dirs
+    """Infer the experimenter's sub-stage (data / train / eval) from the marker dirs
     a run_root accumulates: data/sft built -> training started -> model merged."""
     if text is None or "PROBE_END" not in text:
         return {"reachable": False, "stage": None}  # truncated/failed probe

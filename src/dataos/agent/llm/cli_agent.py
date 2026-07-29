@@ -62,7 +62,7 @@ class CliAgent:
         prompt = task
         if output is not None:
             schema = json.dumps(output.model_json_schema())
-            prompt = _prompt.render("structured_schema", task=task, schema=schema)
+            prompt = _prompt.render("task/structured_schema", task=task, schema=schema)
 
         log = logging.getLogger(__name__)
         # ``timeout`` is the wall-clock budget for the whole call and COVERS dataos_agent's

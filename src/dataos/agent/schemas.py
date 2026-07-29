@@ -1,6 +1,6 @@
 """Structured-output contracts for the agentic main loop.
 
-The main-agent is a Claude Code dialog. It proposes exactly one next experiment
+The leader is a Claude Code dialog. It proposes exactly one next experiment
 plan at a time, then reviews the completed report. Python owns validation and
 state mutation: a JSON reply becomes durable tree state only after it validates
 against these models and repository-side invariants.
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExperimentPlan(BaseModel):
-    """The main-agent's next experiment plan.
+    """The leader's next experiment plan.
 
     The agent chooses a parent node and executable data/train knobs. Code generates
     the child node id, injects the parent model path, freezes eval, and writes state.
@@ -42,13 +42,13 @@ class ExperimentPlan(BaseModel):
     expected_signal: str = Field(default="", description="what outcome would be informative")
     subagent_brief: str = Field(
         default="",
-        description="concrete instruction for the experiment sub-agent",
+        description="concrete instruction for the experiment experimenter",
     )
     rationale: str = Field(default="", description="why this is the next tree growth")
 
 
 class ReviewOut(BaseModel):
-    """The main-agent's interpretation of one completed node."""
+    """The leader's interpretation of one completed node."""
 
     model_config = ConfigDict(extra="forbid")
 

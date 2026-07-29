@@ -1,0 +1,44 @@
+description: >
+  Per-experiment task message handed to the experimenter. Render params: exp_name, bench,
+  profile, parent_model, root_base_model, node_id, parent_node_id, eval_limit, is_smoke,
+  recipe_json, train_json, train_spec_json, subagent_brief, runtime_config_json, run_root,
+  report_path, state_path, env_ops, task_def, stage_blocks, remaining_minutes (optional).
+template: |
+  Implement experiment '{{ exp_name }}' (bench={{ bench }}, profile={{ profile }}).
+  Parent model to continue training from (use this exact path): {{ parent_model }}
+  Root base model for provenance only: {{ root_base_model }}
+  Tree node: {{ node_id }} parent={{ parent_node_id }}
+  sampled eval limit: {{ eval_limit }}{% if is_smoke %}    smoke→cap data to ≤1000 rows{% endif %}
+  {% if remaining_minutes is defined and remaining_minutes %}
+  TIME BUDGET: ~{{ remaining_minutes }} minutes of wall-clock remain for THIS experiment. Pace to FINISH within it: size training (n_samples / steps) to fit, run the sampled eval, and WRITE report.json before time runs out — a partial or failed report still counts, getting killed with no report does not. Do not schedule far-out wakeups; poll tightly and finish ASAP.
+  {% endif %}
+
+  DATA RECIPE (leader intent — preserve it; use minimal mechanical compatibility fixes if needed and record them in report.json):
+  {{ recipe_json }}
+  SFT hyperparameters (fixed unless an execution tool requires a harmless format cast):
+  {{ train_json }}
+  {% if train_spec_json %}
+  TRAIN SPEC (ready for dataos-train — runtime-owned fields injected by code, do NOT edit them; write this verbatim to {ctx.run_root}/trainspec.json and follow the train stage's invoke):
+  {{ train_spec_json }}
+  {% endif %}
+  Leader brief:
+  {{ subagent_brief }}
+
+  RUNTIME CONFIG (authoritative for the paths / model / conda envs your data-building & training METHOD needs — deploy_root/$AGENTVER, fixed_pool, train_env, etc.):
+  {{ runtime_config_json }}
+
+  H100 scratch for this experiment: RUN_ROOT={{ run_root }}
+  Write the report to this LOCAL path (absolute): {{ report_path }}
+  Keep durable execution state at this LOCAL path: {{ state_path }}
+
+  The ENVIRONMENT OPS and TASK below are rendered from the DataOS-Runtime contract for THIS run (env/run values already filled). `{ctx.*}` are placeholders YOU fill at execution time: run_root / env_path / script / jobid / model_path / eval_dir / label / remote / local. The TASK defines the problem + how it is scored, NOT how to solve it.
+
+  {{ env_ops }}
+
+  {{ task_def }}
+
+  Your pipeline is the three STAGES below — same shape, different owners: `data` and `train` are OUR method (improvable; details in your system prompt), `eval` is PROVIDED (the frozen scorer — never modify it):
+
+  {{ stage_blocks }}
+
+  Important local facts: the remote deploy repo uses src layout, so remote Python commands that import dataos need PYTHONPATH=$AGENTVER/src:$AGENTVER. When ssh/scp uses the configured cluster.key, pass -o IdentitiesOnly=yes to avoid local agent key-flood failures.

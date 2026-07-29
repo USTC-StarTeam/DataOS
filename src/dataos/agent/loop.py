@@ -2,8 +2,8 @@
 
 The old main loop exposed the tree and deterministically picked three nodes per
 round. The current loop is simpler and more agentic: Python maintains durable
-state; one persistent main-agent dialog proposes the next single experiment plan;
-Python validates/applies it; one sub-agent executes data/train/eval; the main
+state; one persistent leader dialog proposes the next single experiment plan;
+Python validates/applies it; one experimenter executes data/train/eval; the main
 dialog reviews the report; Python writes the tree.
 """
 
@@ -300,7 +300,7 @@ def _plan_context(
         },
         "fixed_pool": {
             "path": (cfg.runtime_config.get("paths") or {}).get("fixed_pool"),
-            # the pool lives on the H100 cluster — the main-agent ssh's in and explores it itself
+            # the pool lives on the H100 cluster — the leader ssh's in and explores it itself
             "cluster": {
                 k: (cfg.runtime_config.get("cluster") or {}).get(k)
                 for k in ("host", "user", "port", "key")
@@ -313,7 +313,7 @@ def _plan_context(
             "data.sources must be real source_ids you verified by exploring fixed_pool.path on "
             "the cluster — never invent names or use placeholders.",
             "Do not set train.model_name_or_path; code injects the parent model path.",
-            "One sub-agent owns the full data/train/eval experiment.",
+            "One experimenter owns the full data/train/eval experiment.",
             "Use the frozen eval protocol for this run (eval_limit from runtime config; -1 = full).",
             "GPU work must run through the configured executor, not on a login node.",
         ],
@@ -342,7 +342,7 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
     # Gate ②: every planned source must be one RECON profiled, and domain-relevant. The
     # DIRTY-format rejection was removed (2026-07-14, per user): off-format data may still teach
     # the model useful signal, and blocking it hard-crashed runs when the pool had no HIGH source.
-    # RECON still profiles sources (incl. target_ratio) as INFO for the main-agent — it just no
+    # RECON still profiles sources (incl. target_ratio) as INFO for the leader — it just no
     # longer forbids a low-target_ratio source. Skipped when recon has no profiles.
     profiles = {p.get("source"): p for p in (recon or {}).get("source_profiles", [])
                 if isinstance(p, dict) and p.get("source")}
@@ -459,10 +459,10 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     base_model = cfg.h100_base_model or cfg.base_model_id or "base"
     tree = TreeState.load(proj.project_dir, base_model)
 
-    main_agent = make_agent("main_agent", cfg)
+    main_agent = make_agent("leader", cfg)
     session_id = _load_session(Path(proj.project_dir))
     if session_id:
-        log.info("main-agent: resuming dialog session %s", session_id)
+        log.info("leader: resuming dialog session %s", session_id)
 
     started = _clock()
     round_idx = len(_reviewed_studies(proj))
@@ -478,7 +478,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
 
     _start_monitor(cfg, log)
 
-    # RECON gate ①: before ANY training, force a one-shot reconnaissance so the main-agent plans
+    # RECON gate ①: before ANY training, force a one-shot reconnaissance so the leader plans
     # with facts (eval format contract, base failure cause, per-source quality) instead of guessing.
     # Resume-safe: a valid recon.json on disk skips it. Skipped for the stub backend (no cluster).
     recon = _load_recon(Path(proj.project_dir))
@@ -544,7 +544,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     now=now,
                     recon=recon,
                 )
-                log.info("round %d: asking main-agent for plan (attempt %d)", round_idx, attempt)
+                log.info("round %d: asking leader for plan (attempt %d)", round_idx, attempt)
                 plan, session_id = next_plan(
                     agent=main_agent,
                     context=context,
@@ -568,7 +568,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                 )
             if validation_errors:
                 raise RuntimeError(
-                    "main-agent returned invalid ExperimentPlan after retries: "
+                    "leader returned invalid ExperimentPlan after retries: "
                     + "; ".join(validation_errors)
                 )
             assert plan is not None
@@ -604,7 +604,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
 
         tree.mark_running(node_id)
         tree.save()
-        log.info("round %d: executing node %s via sub-agent", round_idx, node_id)
+        log.info("round %d: executing node %s via experimenter", round_idx, node_id)
         from dataos.agent import subagent_executor
 
         _publish_live(
@@ -654,7 +654,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             "tree": tree.to_context(),
             "goal": cfg.goal or cfg.instruct,
         }
-        log.info("round %d: asking main-agent for review", round_idx)
+        log.info("round %d: asking leader for review", round_idx)
         _publish_live(
             cfg,
             round_idx=round_idx,

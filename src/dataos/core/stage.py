@@ -6,7 +6,7 @@ template that records status / timing / error and persists itself to
 three concrete stages are uniform in shape but differ in who executes:
 ``DataStage`` runs a deterministic operator recipe (or an injected dataset), while
 ``TrainStage`` / ``EvalStage`` are structural nodes whose execution is delegated to the
-sub-agent executor (:mod:`dataos.agent.subagent_executor`) — it realizes train/eval on
+experimenter executor (:mod:`dataos.agent.subagent_executor`) — it realizes train/eval on
 H100, so they carry no in-process executor body.
 
 Heavy deps (operators) are imported lazily inside ``run`` so ``import dataos`` stays light.
@@ -327,25 +327,25 @@ class DataStage(Stage):
 
 class TrainStage(Stage):
     """Train stage — a structural node of the experiment. Execution is delegated to the
-    sub-agent executor (:mod:`dataos.agent.subagent_executor`), which realizes training on
+    experimenter executor (:mod:`dataos.agent.subagent_executor`), which realizes training on
     H100; this in-process stage only carries the declarative config and tracks state."""
 
     kind = "train"
 
     def _run(self) -> Model:
         raise NotImplementedError(
-            "in-process training was removed; the sub-agent executor runs training on H100"
+            "in-process training was removed; the experimenter executor runs training on H100"
         )
 
 
 class EvalStage(Stage):
     """Eval stage — a structural node of the experiment. Execution is delegated to the
-    sub-agent executor (:mod:`dataos.agent.subagent_executor`), which runs the frozen
+    experimenter executor (:mod:`dataos.agent.subagent_executor`), which runs the frozen
     PostTrainBench eval; this in-process stage only carries config and tracks state."""
 
     kind = "eval"
 
     def _run(self) -> Eval:
         raise NotImplementedError(
-            "in-process eval was removed; the sub-agent executor runs the frozen PTB eval"
+            "in-process eval was removed; the experimenter executor runs the frozen PTB eval"
         )

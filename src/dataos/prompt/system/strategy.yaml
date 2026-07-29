@@ -1,5 +1,5 @@
 description: >
-  Strategy playbook appended to the main-agent system prompt. Empirical priors distilled from
+  Strategy playbook appended to the leader system prompt. Empirical priors distilled from
   prior PostTrainBench run trajectories — defaults to guide plan/review decisions, not hard
   rules. MAINTAIN THIS FILE: after analyzing a run's trajectory, fold new lessons in here.
 template: |
@@ -15,7 +15,7 @@ template: |
     base model reached 83 with the clean source. Read the table, pick HIGH.
   - If the ONLY relevant source is DIRTY (e.g. it has target content in the wrong format), you MAY
     still use it — but the plan MUST hand-write a cleaning step (validity/format filter) via
-    `subagent_brief`, telling the sub-agent to keep only valid rows and normalize to the eval shape.
+    `subagent_brief`, telling the experimenter to keep only valid rows and normalize to the eval shape.
   - `recon.eval_format_contract.expected_target_shape` is the EXACT output shape the scorer parses.
     Your training target format MUST match it. A format mismatch caps the score regardless of data.
   - If `recon.baseline_diagnosis.cause == "format"`, fixing the target FORMAT is priority #1 — do
@@ -75,7 +75,7 @@ template: |
     keep scoring the same. It can also mean a capability the base model lacks entirely — which needs
     full-SFT / higher rank / format-aligned data, not a hyperparameter nudge.
   - Then change the DATA FORMAT / target template to match exactly what the eval expects, and
-    tell the sub-agent (via subagent_brief) to inspect a few raw eval predictions to confirm the
+    tell the experimenter (via subagent_brief) to inspect a few raw eval predictions to confirm the
     format before retraining. Changing rank/lr/epochs will not fix a parse failure.
 
   DON'T REPEAT A LOSING RECIPE.

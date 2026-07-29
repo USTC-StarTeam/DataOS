@@ -1,0 +1,25 @@
+description: >
+  KB block — how to CHOOSE operators for a data recipe (modes, by-effect, the
+  evaluator→selector idiom, cost). Audience: leader. No render params.
+template: |
+  The available operators are given to you in the task as the OPERATOR CATALOG (name / kind /
+  mode / effect / params) — read it and PICK BY `effect`; do NOT assume operators that are not
+  listed. You only need the catalog to choose; the experimenter fetches each operator's exact API
+  via `dataos_operator.usage("<name>")`, so you don't specify low-level params. How it works:
+    - `mode` splits the toolbox in two:
+      - `offline` (the default, data-prep): a static pipeline applied BEFORE training, left-to-
+        right, each step `Operator(**params).run(ds) -> ds`. Mappers / selectors / mixers /
+        evaluators. The core idiom is **evaluator → selector**: an `evaluator` writes a score
+        (quality / relevance / perplexity) into `metadata`/`score`, then a `selector`
+        (`score_selector` / `ranking_selector` / `set_coverage_selector`) keeps the best rows.
+        Typical shape: mapper (normalize) → optional mix → optional evaluator → selector(s)
+        (dedup / length / by-score) → final size cap (`random_sample`).
+      - `online` (training-time data policy): operators like `loss_selector` / `delta_loss` /
+        `less` / `doremi_mixer` / `loss_reweighter` that run DURING SFT, reacting to per-sample
+        loss to select / reweight data step by step. Choosing one changes the TRAINING step
+        (it runs through the DataOS-LLaMA-Factory integration), not just the data recipe — so
+        only reach for these when a static recipe has plateaued and a curriculum/selection
+        policy is the hypothesis. They win on data/steps-to-target, not raw throughput.
+    - Cost to weigh: most offline selectors/mappers are pure CPU; embedding ops use a small local
+      model; `ifd/perplexity/deita/instag` need a local GPU model; `llm_*` evaluators call an LLM
+      API; online operators add a small per-step training tax.

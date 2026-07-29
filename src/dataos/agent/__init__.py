@@ -1,6 +1,6 @@
 """DataOS autonomous runtime.
 
-The main loop is a code-owned state machine around a persistent main-agent dialog:
+The main loop is a code-owned state machine around a persistent leader dialog:
 Claude Code proposes one next experiment plan and reviews one completed node; Python
 validates JSON, updates the tree, injects the parent model, launches execution, and
 persists reports/reviews.

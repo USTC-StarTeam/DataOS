@@ -5,9 +5,9 @@
 DataOS post-trains **one** base model to maximize **one** PostTrainBench benchmark, within a
 fixed data pool and a fixed GPU-time budget — driven end to end by agents.
 
-A persistent **main-agent** (a Claude Code dialog) maintains an experiment **tree**. Each round
+A persistent **leader** (a Claude Code dialog) maintains an experiment **tree**. Each round
 it proposes a single experiment — a *data recipe* (a [DataOS-Operator](https://github.com/USTC-StarTeam/DataOS-Operator)
-pipeline over the fixed pool) plus *training* hyperparameters — and a **sub-agent** realizes it
+pipeline over the fixed pool) plus *training* hyperparameters — and a **experimenter** realizes it
 end to end:
 
 ```
@@ -15,17 +15,17 @@ build SFT data (operators)  →  train with LLaMA-Factory on H100 (Slurm)
         →  evaluate with the lm-eval PostTrainBench protocol  →  write report.json
 ```
 
-The main-agent then reviews the result and the tree grows from the most promising node, until
+The leader then reviews the result and the tree grows from the most promising node, until
 the wall-clock budget is spent. The best model over the tree is the submission.
 
 ## Architecture
 
 ```
             ┌──────────────────────── agent host (this machine) ────────────────────────┐
-  round N:  │  main-agent (CC dialog) ──plan──▶ code: validate · add node · inject parent │
+  round N:  │  leader (CC dialog) ──plan──▶ code: validate · add node · inject parent │
             │        ▲                                            │                       │
             │     review ◀── report.json ◀───────────────┐       ▼                       │
-            │                                             │   sub-agent (CC + shell)      │
+            │                                             │   experimenter (CC + shell)      │
             └─────────────────────────────────────────────┼───────────│──────────────────┘
                                                            │     ssh / slurm / rsync
                                                            │           ▼
@@ -36,7 +36,7 @@ the wall-clock budget is spent. The best model over the tree is the submission.
 
 - The **agent host** runs *both* agents locally. Code (`dataos.agent.loop`) owns the tree, plan
   validation, parent-model injection, and persistence; the LLM only proposes plans and reviews.
-- The **H100 cluster** does all GPU work. The sub-agent ships training (Slurm + LLaMA-Factory) and
+- The **H100 cluster** does all GPU work. The experimenter ships training (Slurm + LLaMA-Factory) and
   evaluation (vLLM + lm-eval) to H100 over SSH; judge benches score on the login node.
 - A **live monitor** (`src/dataos/agent/monitor.py` + `web/`) is embedded by `run_auto` on one port
   (default `8765`): open `http://localhost:8765` to watch the experiment tree grow, the running
@@ -47,7 +47,7 @@ the wall-clock budget is spent. The best model over the tree is the submission.
 ## Prerequisites
 
 - [`uv`](https://docs.astral.sh/uv/) (Python env), Python ≥ 3.11.
-- Claude Code CLI, authenticated — it is the main-agent and sub-agent backend.
+- Claude Code CLI, authenticated — it is the leader and experimenter backend.
 - Passwordless SSH from the agent host to the H100 cluster (the cluster holds the prebuilt conda
   envs, the fixed data pool, the base models, and the benchmark cache).
 
@@ -83,21 +83,21 @@ uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
 
 The config carries only facts (paths, the single bench, budget, resources). All **strategy** — the
 data recipe, training method (LoRA vs full, hyperparameters), which tree node to grow, eval
-sampling — is decided by the main-agent each round and persisted in the per-round plans under the
+sampling — is decided by the leader each round and persisted in the per-round plans under the
 run workspace.
 
 ## How a run works
 
 1. `freeze_eval` fixes the eval protocol once (the single bench + sampled limit).
-2. Each round, code sends the main-agent the tree, recent reviews, and the operator catalog; it
+2. Each round, code sends the leader the tree, recent reviews, and the operator catalog; it
    returns one `ExperimentPlan` (parent node + data recipe + train config). Code validates it, adds
    a child node, and injects the parent's model path (children continue from the parent model).
-3. The sub-agent executes the plan on H100. Its prompt carries two sections rendered from the
+3. The experimenter executes the plan on H100. Its prompt carries two sections rendered from the
    DataOS-Runtime typed contract (`env.yaml` + `task.yaml`, via the runtime's `compose`):
    ENVIRONMENT OPS (filled submit/poll/fetch/activate commands + cluster discipline) and TASK
    (goal + frozen-eval scoring). The data-building/training METHOD and the report.json shape
    stay in the brain's own prompts. It writes `report.json`.
-4. The main-agent reviews the report; code attaches the score, grows the tree, and loops until the
+4. The leader reviews the report; code attaches the score, grows the tree, and loops until the
    budget is spent. The best node's model is written to `final_model.json`.
 
 Watch it live at `http://localhost:8765` (set `monitor_port` in the config to change it, or
@@ -122,12 +122,12 @@ score-affecting.
 DataOS/
 ├── src/dataos/
 │   ├── cli.py                       # `dataos` entrypoint: load the run config → run_auto
-│   ├── agent/                       # the autonomous loop + per-experiment sub-agent
+│   ├── agent/                       # the autonomous loop + per-experiment experimenter
 │   │   ├── loop.py                  #   run_auto: each round = plan → execute → review → grow tree
 │   │   ├── state_tree.py            #   the experiment tree (nodes, growable set, best node)
 │   │   ├── run_config.py            #   the single-JSON config boundary (facts only)
-│   │   ├── planner.py · reviewer.py #   ask the main-agent for an ExperimentPlan / ReviewOut
-│   │   ├── subagent_executor.py     #   drives the per-experiment sub-agent (Claude Code + shell)
+│   │   ├── planner.py · reviewer.py #   ask the leader for an ExperimentPlan / ReviewOut
+│   │   ├── subagent_executor.py     #   drives the per-experiment experimenter (Claude Code + shell)
 │   │   ├── eval_freeze.py           #   freeze the eval protocol once per run
 │   │   ├── backend.py               #   builds the role agent (renders the role prompt)
 │   │   ├── llm/                     #   code-agent CLI driver (cli_agent, via dataos-agent) + structured-output helper

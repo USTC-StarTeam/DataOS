@@ -1,7 +1,7 @@
-"""Agentic per-experiment executor — a sub-agent IMPLEMENTS one tree node.
+"""Agentic per-experiment executor — a experimenter IMPLEMENTS one tree node.
 
-The main-agent fixes WHAT each experiment is (parent model, data intent, and SFT
-hyperparameters). This module hands each experiment to an agentic Claude Code sub-agent that
+The leader fixes WHAT each experiment is (parent model, data intent, and SFT
+hyperparameters). This module hands each experiment to an agentic Claude Code experimenter that
 figures out HOW to realize it — run the data recipe, submit training to H100 (ssh/sbatch,
 configured Slurm), run the frozen official PostTrainBench eval, and write ``report.json`` —
 self-healing around env/network/sbatch/operator failures.
@@ -24,6 +24,7 @@ from dataos.core.io import atomic_write_json
 from dataos.core.study import _slug
 
 from dataos import prompt as _prompt
+from dataos.agent.backend import system_prompt
 from dataos.agent.llm.config import build_agent
 
 log = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ log = logging.getLogger(__name__)
 _REPO_ROOT = str(Path(__file__).resolve().parents[3])
 _RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"  # legacy fallback; prefer runtime_config
 # Let the executor run FREE within its time budget. The real bound is the per-experiment
-# DEADLINE (the timeout on each agent.run); if the sub-agent stops before writing report.json
+# DEADLINE (the timeout on each agent.run); if the experimenter stops before writing report.json
 # the resume loop continues the SAME session. A high cap means max_turns ~never chops a live
 # experiment into artificial 150-turn pieces (which only added latency + a failure surface).
 SUBAGENT_MAX_STEPS = 100_000
@@ -98,7 +99,7 @@ def _run_root(cfg, study_id: str, name) -> str:
 
 def _artifacts(cfg, study_id: str, name, exp_dir: Path, eval_limit: int) -> dict:
     """The DETERMINISTIC artifact layout for one experiment (H100 RUN_ROOT + local report).
-    Fixed by the runtime, recorded on the tree node — not left to the sub-agent's whim."""
+    Fixed by the runtime, recorded on the tree node — not left to the experimenter's whim."""
     rr = _run_root(cfg, study_id, name)
     return {
         "run_root": rr,
@@ -130,17 +131,17 @@ def _report_from_disk(path: Path) -> dict | None:
 
 def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
                   report: dict) -> dict:
-    """Attach runtime-owned provenance to any report the sub-agent wrote."""
+    """Attach runtime-owned provenance to any report the experimenter wrote."""
     name = spec["name"]
     report.setdefault("id", _make_id("exp"))
     report.setdefault("name", name)
     report["artifacts"] = _artifacts(cfg, study_id, name, exp_dir, eval_limit)
-    # The sub-agent writes its own training (LLaMA-Factory) and may record the commands it used
+    # The experimenter writes its own training (LLaMA-Factory) and may record the commands it used
     # under report["scripts"]; the runtime only guarantees the keys exist for provenance.
     scripts = report.setdefault("scripts", {})
     scripts.setdefault("train", "")
     scripts.setdefault("data", "")
-    # the sub-agent writes report.json freeform; "model" may be a bare path string,
+    # the experimenter writes report.json freeform; "model" may be a bare path string,
     # a dict, or missing — normalize to {"path": ...} before stamping.
     model = report.get("model")
     if isinstance(model, str):
@@ -240,7 +241,7 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         )
         train_spec_json = json.dumps(ts, ensure_ascii=False, indent=2)
     return _prompt.render(
-        "subagent_task",
+        "task/experimenter",
         exp_name=spec["name"],
         env_ops=env_ops,
         task_def=task_def,
@@ -267,7 +268,7 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
 
 def _continue_prompt(state: dict, last_text: str, remaining_minutes: int | None = None) -> str:
     return _prompt.render(
-        "subagent_continue",
+        "task/experimenter_continue",
         report_path=state["report_path"],
         state_path=state["state_path"],
         state_json=json.dumps(state, ensure_ascii=False),
@@ -305,7 +306,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
 
     agent = build_agent(
         cfg,
-        instructions=_prompt.render("subagent"),
+        instructions=system_prompt("experimenter", cfg),
         workspace=_REPO_ROOT,  # cwd at repo root so it can run .venv/ssh tooling
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
     )
@@ -369,7 +370,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
 
     report = _report_from_disk(report_path)
     if report is None or report.get("status") not in {"completed", "failed"}:
-        err = "sub-agent produced no terminal report.json before the PTB/experiment deadline"
+        err = "experimenter produced no terminal report.json before the PTB/experiment deadline"
         if state.get("last_error"):
             err = f"{err}: {state['last_error']}"
         report = _failed_report(
@@ -392,7 +393,7 @@ _RECON_TIMEOUT_S = 45 * 60.0  # recon is cheap intel-gathering, not training —
 
 
 def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None) -> dict:
-    """RECON stage — a one-shot sub-agent that gathers ground-truth intel BEFORE any training and
+    """RECON stage — a one-shot experimenter that gathers ground-truth intel BEFORE any training and
     writes ``recon.json`` (eval_format_contract + baseline_diagnosis + source_profiles). It does NOT
     train; it ssh's to H100, reads the eval scorer, and runs the deterministic source profiler over
     the whole pool. Returns the parsed recon dict (also written to ``proj.project_dir/recon.json``).
@@ -406,7 +407,7 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
     eval_env = paths.get("eval_env", "")
     task_dir = _task_assets_dir(runtime)
     prompt = _prompt.render(
-        "subagent_recon",
+        "task/investigator",
         target_bench=cfg.target_bench,
         base_model=cfg.h100_base_model,
         fixed_pool=paths.get("fixed_pool", ""),
@@ -421,7 +422,7 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
     )
     agent = build_agent(
         cfg,
-        instructions=_prompt.render("subagent"),
+        instructions=system_prompt("investigator", cfg),
         workspace=_REPO_ROOT,
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
     )
@@ -463,7 +464,7 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
 
 
 def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -> dict[str, dict]:
-    """Run each spec as an agentic sub-agent. PTB allows only ONE H100 for the whole run, so
+    """Run each spec as an agentic experimenter. PTB allows only ONE H100 for the whole run, so
     experiments execute SEQUENTIALLY (never in parallel), sharing the single-GPU / 10h budget.
     ``deadline`` (monotonic) stops launching further experiments once the budget is spent."""
     if not cfg.target_bench:
@@ -476,7 +477,7 @@ def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -
             "subagent executor needs runtime config with: " + ", ".join(missing_runtime)
         )
     exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
-    log.info("fan_out: %d agentic sub-agent(s), SEQUENTIAL (PTB: 1 H100 at a time) bench=%s",
+    log.info("fan_out: %d agentic experimenter(s), SEQUENTIAL (PTB: 1 H100 at a time) bench=%s",
              len(specs), cfg.target_bench)
     reports: dict[str, dict] = {}
     for spec in specs:

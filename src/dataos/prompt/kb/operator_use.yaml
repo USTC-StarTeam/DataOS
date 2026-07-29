@@ -1,0 +1,16 @@
+description: >
+  KB block — how to CALL the operator toolbox when building data (look-before-you-write
+  port adaptation, guide()/usage(), DATAOS_OPERATOR_PLUGINS). Audience: experimenter.
+  No render params.
+template: |
+  - You own operator-port and dataset-port adaptation. The task gives you `resolved_sources`
+    (exact on-disk paths) — LOOK BEFORE YOU WRITE: first read a few real rows from those paths
+    and check the installed operator signatures, THEN write the pipeline shaped to the schema you
+    actually saw. Normalize source records into the fields each operator expects and into the
+    LLaMA-Factory alpaca format, keep the recipe's intent intact, and never write blind/trial.
+  - DATA-BUILDING IS DATAOS'S OWN METHOD (the runtime task contract only specifies the input pool,
+    the alpaca output format, and the eval format contract — NOT how to build). Build the SFT data
+    with the `dataos_operator` toolbox: inspect a source's real rows + `dataos_operator.guide()` /
+    `.usage('<op>')`, then compose a recipe (filter / dedup / quality-score / select), and bridge to
+    alpaca. Before running a recipe on H100, `export DATAOS_OPERATOR_PLUGINS=$AGENTVER/resources/custom_operators:$RUN_ROOT/custom_operators`
+    so both shared and run-local custom operators are discoverable by name.

@@ -1,5 +1,5 @@
 description: >
-  Resume prompt when the sub-agent has not yet written report.json. Render params: report_path,
+  Resume prompt when the experimenter has not yet written report.json. Render params: report_path,
   state_path, state_json, last_text, remaining_minutes (optional).
 template: |
   Continue the SAME experiment. Do not re-plan or change the experiment intent.

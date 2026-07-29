@@ -8,18 +8,19 @@ shared code, and keep these invariants unless the user explicitly asks to change
 `DataOS` is an **autonomous PostTrainBench agent**. It post-trains ONE base model to maximize ONE
 PostTrainBench benchmark, within a fixed data pool and a fixed GPU-time budget.
 
-- A persistent **main-agent** (a Claude Code dialog) maintains an experiment **tree**. Each round it
-  returns ONE `ExperimentPlan` (parent node + data recipe + train config) and ONE `ReviewOut`. It
-  only proposes plans / reviews — it never executes, edits files, or writes model paths.
+- A persistent **leader** agent (a code-agent CLI dialog) maintains an experiment **tree**. Each
+  round it returns ONE `ExperimentPlan` (parent node + data recipe + train config) and ONE
+  `ReviewOut`. It only proposes plans / reviews — it never executes, edits files, or writes model
+  paths.
 - **Code** (`dataos.agent.loop.run_auto`) owns the tree, plan validation, parent-model injection,
   frozen eval, and persistence.
-- A **sub-agent** (also Claude Code, with a shell) realizes ONE experiment end to end on the H100
-  cluster, following `resources/code/posttrainbench/PLAYBOOK.md`: build SFT data (DataOS-Operator) →
-  train with LLaMA-Factory (Slurm) → evaluate with the lm-eval PostTrainBench protocol → write
-  `report.json`.
+- An **experimenter** agent (also a code-agent CLI, with a shell) realizes ONE experiment end to
+  end on the H100 cluster: build SFT data (DataOS-Operator) → train with LLaMA-Factory (Slurm) →
+  evaluate with the lm-eval PostTrainBench protocol → write `report.json`. (A third role, the
+  **investigator**, gathers pre-training intel once per run and writes `recon.json`.)
 - Both agents run on the **agent host**; all GPU work ships to the **H100 cluster** over SSH.
 
-There is exactly ONE execution path: the agentic sub-agent. The old in-process "code-executor"
+There is exactly ONE execution path: the agentic experimenter. The old in-process "code-executor"
 (`run_one.py`, `runtime/executor.py`, in-process train/eval stages) was removed — do not reintroduce it.
 
 ## Stack
@@ -38,7 +39,8 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
 ## Repository map
 
 - `src/dataos/agent` — the loop: `loop.py` (`run_auto`), `state_tree`, `planner`, `reviewer`,
-  `subagent_executor` (drives the per-experiment sub-agent), `eval_freeze`, `schemas`,
+  `subagent_executor` (drives the per-experiment experimenter + the investigator), `eval_freeze`,
+  `schemas`,
   `stages` (the data→train→eval contract; each stage's `invoke` is assembled from registered
   tools), `tools` (the pluggable stage-tool registry: Operator/Trainer/Evaluator protocols —
   the Trainer slot is RESERVED, unregistered until dataos-train lands),
@@ -47,22 +49,26 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
   helper), `posttrainbench.py`
   (the eval protocol: bench list + sampled limits per profile), and `monitor.py`
   (the live HTTP monitor — pure stdlib, embedded by `run_auto`; serves the `web/` UI).
-- `src/dataos/prompt` — EVERY prompt as a Jinja2 YAML template (`<name>.yaml` with a `template:`).
-  No prompt text is hardcoded in `.py` (that includes the stage invoke prose: `stage_data_operators` /
-  `stage_train_legacy` / `stage_eval_scorer`); render via `from dataos import prompt; prompt.render(name, **facts)`.
-  Run facts (budget, GPUs, the per-experiment context) are passed in as render params.
-  `strategy.yaml` is a maintainable **strategy playbook** appended to the main-agent system
-  prompt (`backend._system_prompt` = `main_agent.yaml` + `strategy.yaml`); update it from each
-  run's trajectory analysis.
+- `src/dataos/prompt` — EVERY prompt as a Jinja2 YAML template, in THREE layers/folders:
+  `system/` (role skeletons: `leader` / `experimenter` / `investigator` + `strategy`),
+  `kb/` (single-sourced knowledge blocks assembled into system prompts: operator_* / pool_survey /
+  training / cluster_discipline / eval_format / report_contract / failure_diagnosis + the three
+  stage-tool blocks), `task/` (per-call task messages — facts only). No prompt text is hardcoded
+  in `.py`; render via `from dataos import prompt; prompt.render(name, **facts)` where `name` is
+  the folder-relative path (`prompt.render("kb/cluster_discipline")`). System prompts are composed
+  in ONE place — `backend.system_prompt(role, cfg)` (`_BLOCKS`: skeleton + kb blocks, joined with
+  blank lines); run facts (budget, GPUs) are render params of the leader skeleton only.
+  `system/strategy.yaml` is a maintainable **strategy playbook** appended to the leader system
+  prompt; update it from each run's trajectory analysis.
 - `web/` — the live monitor's single-page UI (`index.html`) and a standalone CLI wrapper
   (`server.py`, `python web/server.py` to browse run history). One monitor per workspace serves
   every run on one port; see "Live monitor" below.
 - `src/dataos/core` — the `Project → Study → Experiment → Stage` / `Data·Model·Eval` abstraction,
   `workspace`, `io`, `ids`, `report`, `provenance`, `catalog`, `loading`. (Kept as the data model;
-  the `Stage.run()` train/eval executors were removed — execution is the sub-agent's.)
+  the `Stage.run()` train/eval executors were removed — execution is the experimenter's.)
 - `configs/runs/*.json` — the user-facing run config (one per run).
-- `resources/code/posttrainbench/` — `PLAYBOOK.md` (the sub-agent manual) and
-  `lm_eval_bridge/` (the self-contained lm-eval PostTrainBench eval: task package + `run_lmeval_eval.py`
+- `resources/code/posttrainbench/` — (STALE PATH: not in this repo; the eval bridge lives in the
+  DataOS-Runtime checkout) `lm_eval_bridge/` (the self-contained lm-eval PostTrainBench eval: task package + `run_lmeval_eval.py`
   + `run_lmeval_judge.py`). `run_lmeval_eval.py` batches eval requests into the vLLM server with a
   uniform `DEFAULT_NUM_CONCURRENT = 32` (`--num-concurrent` overrides) — not score-affecting, just
   throughput; the inherited per-bench `1` made bfcl/healthbench eval serial.
@@ -118,20 +124,20 @@ GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
 
 - **Config = facts, not strategy.** `configs/runs/*.json` holds paths / the single bench / budget /
   resources / `monitor_port` (host-side infra) only. Data recipe, training method (LoRA vs full,
-  hyperparameters), tree growth, and eval sampling are the **main-agent's** decisions, persisted in
+  hyperparameters), tree growth, and eval sampling are the **leader's** decisions, persisted in
   per-round plans. Do not add *strategy* knobs to the config or CLI (`monitor_port` is a fact, not
   strategy — it's fine).
-- **Training = LLaMA-Factory, authored by the sub-agent.** The sub-agent writes the LF YAML/commands
+- **Training = LLaMA-Factory, authored by the experimenter.** The experimenter writes the LF YAML/commands
   per the PLAYBOOK; there is no in-repo bespoke trainer.
 - **Eval = the `lm_eval_bridge`** (pre-main lm-eval protocol; baseline-comparable). Do not reintroduce
   the InspectAI/external-scorer path.
 - **Secrets never enter git.** Gateway/judge API keys live in `0600` key_files on H100, exported
   inline at run time. The config carries `base_url` / `model` / `key_file` paths only.
-- The main-agent returns JSON only (validated; it is re-asked on invalid output); it never writes
+- The leader returns JSON only (validated; it is re-asked on invalid output); it never writes
   model paths or changes the eval.
 - **Prompts live in `src/dataos/prompt/*.yaml`, never hardcoded in `.py`.** Add/edit a prompt by
   editing its YAML template; pass run-specific facts as `prompt.render()` params (no literals like
-  "10h" / "60000" baked into the text). `strategy.yaml` is appended to the main-agent prompt as
+  "10h" / "60000" baked into the text). `system/strategy.yaml` is appended to the leader prompt as
   empirical *priors* — it guides decisions but the agent still chooses each plan; keep it in YAML
   and maintain it from trajectory analysis, don't turn it into hard config knobs.
 
@@ -153,8 +159,7 @@ relevant smoke command when the change affects runtime behavior (e.g. an H100 ev
 
 - Run entry: `src/dataos/agent/cli.py` → `dataos.agent.loop.run_auto`.
 - Config boundary: `src/dataos/agent/run_config.py`.
-- Sub-agent driver: `src/dataos/agent/subagent_executor.py`.
-- Sub-agent manual: `resources/code/posttrainbench/PLAYBOOK.md`.
+- Experimenter/investigator driver: `src/dataos/agent/subagent_executor.py`.
 - Eval: `resources/code/posttrainbench/lm_eval_bridge/`.
 - Prompts: `src/dataos/prompt/*.yaml` (loader: `src/dataos/prompt/__init__.py`).
 - Strategy playbook: `src/dataos/prompt/strategy.yaml` (appended by `backend._system_prompt`).

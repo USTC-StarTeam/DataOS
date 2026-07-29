@@ -8,8 +8,8 @@ DataOS and never from :class:`AutoRunConfig`:
 
 So the only settings this layer owns are the *provider*, the *model* and the
 per-role *step budget*, taken from the run's :class:`AutoRunConfig` here. Routing
-every role through :func:`build_agent` guarantees the main-agent and the execution
-sub-agents build the same backend the same way.
+every role through :func:`build_agent` guarantees the leader and the execution
+experimenters build the same backend the same way.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def build_agent(
     ``provider``/``model`` always come from ``cfg.agent_provider`` /
     ``cfg.agent_model`` (``None`` model -> the CLI's default model). ``max_steps``
     defaults to ``cfg.max_steps``; callers that need a bigger turn budget
-    (execution sub-agents) pass their own.
+    (execution experimenters) pass their own.
     """
     return CliAgent(
         instructions=instructions,

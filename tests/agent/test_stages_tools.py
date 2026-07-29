@@ -113,17 +113,17 @@ def test_rendered_blocks_parity():
 # --- the three templates render standalone (StrictUndefined — no empty holes) --
 
 def test_templates_render_with_declared_params():
-    assert "o.guide()" in prompt.render("stage_data_operators", catalog="CATALOG")
+    assert "o.guide()" in prompt.render("kb/stage_data", catalog="CATALOG")
     frozen = prompt.render(
-        "stage_train_legacy", frozen_command="cmd", frozen_produces="prod", cli_path=""
+        "kb/stage_train_legacy", frozen_command="cmd", frozen_produces="prod", cli_path=""
     )
     assert "`cmd` → model at prod" in frozen
     ours = prompt.render(
-        "stage_train_legacy", frozen_command="", frozen_produces="", cli_path="/te/bin/dataos-train"
+        "kb/stage_train_legacy", frozen_command="", frozen_produces="", cli_path="/te/bin/dataos-train"
     )
     assert ours.startswith("DETERMINISTIC via dataos-train")
     minimal = prompt.render(
-        "stage_eval_scorer", command="cmd", result_field="score", result_file="<result>",
+        "kb/stage_eval", command="cmd", result_field="score", result_file="<result>",
         result_range=[0, 100], judge_command="", format_contract_loc="",
     )
     assert minimal == "run the task's evaluator: `cmd`\n  then read `score` from <result> (range [0, 100]) → report.json."

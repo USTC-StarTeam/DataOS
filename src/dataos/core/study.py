@@ -159,10 +159,10 @@ class Study:
                 if isinstance(_eval_entry, dict):
                     eval_current = _eval_entry.get("status") == "completed"
                 else:
-                    # sub-agent wrote bare string value e.g. "completed"
+                    # experimenter wrote bare string value e.g. "completed"
                     eval_current = _eval_entry == "completed"
             else:
-                # sub-agent wrote stages as a name-list or other non-dict — fall back to score presence
+                # experimenter wrote stages as a name-list or other non-dict — fall back to score presence
                 eval_current = evaluation.get("score") is not None or evaluation.get("macro_average") is not None
             rows.append(
                 {

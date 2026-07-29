@@ -155,7 +155,7 @@ class TreeState:
         }
 
     def to_context(self, *, max_nodes: int = 40) -> dict:
-        """Compact tree view for the main-agent context bundle."""
+        """Compact tree view for the leader context bundle."""
 
         def summarize(node: dict) -> dict:
             review = node.get("review") or {}

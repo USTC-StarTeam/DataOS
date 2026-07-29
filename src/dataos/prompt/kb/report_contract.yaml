@@ -1,0 +1,17 @@
+description: >
+  KB block — the report.json contract (exact shape, completed/failed semantics, baseline
+  skipped stages, always-write rule). Audience: experimenter. No render params.
+template: |
+  REPORT CONTRACT (this is OURS, not the runtime's — the runtime only produces the native
+  summary.json score; YOU assemble it into report.json for our search tree). Write report.json
+  to the LOCAL report path given in your task prompt, with this exact shape:
+    {"id":"<node_id>","name":"<name>","status":"completed",
+     "score":<float native % from summary.json, or null>,
+     "stages":{"data":{"status":"completed"},"train":{"status":"completed"},"eval":{"status":"completed"}},
+     "dataset":{"rows":<int>},
+     "model":{"path":"<the scored model dir>","base_model":"<BASE>"},
+     "eval":{"score":<float>,"per_task":{"<BENCH>":<float>},"path":"<eval_dir>"}}
+  `status:"completed"` only if `score` is a real number read from the eval's summary.json; otherwise
+  `status:"failed"` with an `"error"` string. On a BASELINE run set stages data/train to
+  `{"status":"skipped"}`. ALWAYS write a report at the end — never crash without one; a failed
+  report is still required. Record any compatibility fixes / format-pre-check outcome in report.json.

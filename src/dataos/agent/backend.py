@@ -1,9 +1,11 @@
 """Construct the agent for a role — the single place that knows about backend choice.
 
+Roles: ``leader`` (the persistent plan/review dialog), ``experimenter`` (realizes one
+experiment end to end), ``investigator`` (one-shot pre-training intel).
+
 - ``backend == "cli"`` → a code-agent CLI (claude / kimi / qwen ..., chosen by
   ``cfg.agent_provider``) via dataos_agent, using the CLI's own local login — NO API
-  key. Used for the persistent main-agent dialog and execution sub-agents. See
-  :mod:`dataos.agent.llm.cli_agent` and :func:`dataos.agent.llm.config.build_agent`.
+  key. See :mod:`dataos.agent.llm.cli_agent` and :func:`dataos.agent.llm.config.build_agent`.
 - ``backend == "stub"``  → a deterministic in-process fake (:class:`_StubMainAgent`)
   that returns fixed structured plans/reviews for tests; no network, no external package.
 """
@@ -21,10 +23,20 @@ from .llm._output import parse_output
 from .llm.config import build_agent
 
 
-def _system_prompt(role: str, cfg: AutoRunConfig) -> str:
-    """Render the role's system prompt from src/dataos/prompt, injecting the run's facts."""
-    if role == "subagent":
-        return _prompt.render("subagent")
+# Role -> system-prompt assembly: skeleton + its kb knowledge blocks, in order.
+# Each block is a YAML template in src/dataos/prompt/{system,kb}/; only the leader
+# skeleton takes render params (the run's facts).
+_BLOCKS = {
+    "leader": ("system/leader", "kb/operator_selection", "kb/pool_survey", "system/strategy"),
+    "experimenter": ("system/experimenter", "kb/operator_use", "kb/operator_custom",
+                     "kb/training", "kb/cluster_discipline", "kb/eval_format",
+                     "kb/report_contract", "kb/failure_diagnosis"),
+    "investigator": ("system/investigator", "kb/pool_survey", "kb/cluster_discipline",
+                     "kb/eval_format"),
+}
+
+
+def _run_facts(cfg: AutoRunConfig) -> dict:
     budget_h = (cfg.budget.max_wall_clock_s or 0) / 3600 or 10
     budget_hours = int(budget_h) if budget_h == int(budget_h) else round(budget_h, 1)
     gres = str((cfg.runtime_config.get("cluster") or {}).get("gres", "gpu:1"))
@@ -32,16 +44,24 @@ def _system_prompt(role: str, cfg: AutoRunConfig) -> str:
         gpus = int(gres.rsplit(":", 1)[-1])
     except ValueError:
         gpus = 1
-    # the main-agent system prompt = base role + the maintainable strategy playbook
-    return (
-        _prompt.render("main_agent", budget_hours=budget_hours, gpus=gpus)
-        + "\n\n"
-        + _prompt.render("strategy")
+    return {"budget_hours": budget_hours, "gpus": gpus}
+
+
+def system_prompt(role: str, cfg: AutoRunConfig) -> str:
+    """Compose the role's system prompt from src/dataos/prompt (skeleton + kb blocks)."""
+    if role not in _BLOCKS:
+        raise ValueError(f"unknown role {role!r}; expected one of {sorted(_BLOCKS)}")
+    # only the leader skeleton takes render params; experimenter/investigator blocks are
+    # all static, so sparse test doubles (no budget/runtime_config) work for them
+    facts = _run_facts(cfg) if role == "leader" else {}
+    return "\n\n".join(
+        _prompt.render(b, **facts) if b == "system/leader" else _prompt.render(b)
+        for b in _BLOCKS[role]
     )
 
 
 class _StubMainAgent:
-    """Tiny structured fake used by tests for the unified main-agent role."""
+    """Tiny structured fake used by tests for the unified leader role."""
 
     supports_dialog = False
 
@@ -89,7 +109,7 @@ class _StubMainAgent:
     def run(self, task: str, *, output=None, resume=None) -> SimpleNamespace:  # noqa: ARG002
         if output is None:
             text = self.replies.get("raw", "{}")
-            return SimpleNamespace(text=text, output=None, session_id="stub-main-agent")
+            return SimpleNamespace(text=text, output=None, session_id="stub-leader")
         name = getattr(output, "__name__", "")
         if name == "ReviewOut":
             text = self._reply(
@@ -106,14 +126,14 @@ class _StubMainAgent:
         return SimpleNamespace(
             text=text,
             output=parse_output(text, output),
-            session_id="stub-main-agent",
+            session_id="stub-leader",
         )
 
 
 def make_agent(role: str, cfg: AutoRunConfig):
-    """Build the agent for ``role`` ("main_agent" | legacy "planner"/"reviewer").
+    """Build the agent for ``role`` ("leader" | "experimenter" | "investigator").
 
-    The main-agent produces no files directly, so its workspace lives outside the
+    The leader produces no files directly, so its workspace lives outside the
     project dir; otherwise Project.studies would mis-count it as a study."""
     # kept OUTSIDE the project dir — Project.studies lists every subdir of the project
     # dir, so an "_agent" dir there would be mis-counted as a study.
@@ -121,13 +141,13 @@ def make_agent(role: str, cfg: AutoRunConfig):
     Path(ws).mkdir(parents=True, exist_ok=True)
 
     if cfg.backend == "stub":
-        # Only the unified main-agent role is ever built (loop.py / tests pass "main_agent").
-        if role == "main_agent":
+        # Only the leader role is ever built (loop.py / tests pass "leader").
+        if role == "leader":
             return _StubMainAgent(cfg.stub_replies)
-        raise ValueError(f"stub backend only supports role 'main_agent', got {role!r}")
+        raise ValueError(f"stub backend only supports role 'leader', got {role!r}")
 
     if cfg.backend == "cli":
         # A code-agent CLI with its own local login — no API key handled here.
-        return build_agent(cfg, instructions=_system_prompt(role, cfg), workspace=ws)
+        return build_agent(cfg, instructions=system_prompt(role, cfg), workspace=ws)
 
     raise ValueError(f"unknown backend {cfg.backend!r}; use 'cli' or 'stub'")

@@ -2,7 +2,7 @@
 
 This module is the user-facing config boundary for the agent-version PTB branch.
 The JSON file describes facts needed to start a run; search strategy stays in the
-main-agent plan.
+leader plan.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Regression: the CLI's max-turns boundary is a RESUMABLE boundary, not a failure.
 
 dataos_agent maps the CLI's ``error_max_turns`` result to ``status="max_steps"``
-(carrying the session_id). For a free-form executor sub-agent (``output is None``)
+(carrying the session_id). For a free-form executor experimenter (``output is None``)
 the adapter must return that result normally (with the session_id) so the caller
 can resume the same session and finish the experiment. Structured single-shot
 calls (planner/reviewer, ``output`` set) must still raise, since they need a

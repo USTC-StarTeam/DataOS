@@ -1,9 +1,9 @@
 """Full agentic loop, all-stub (no GPU / no LLM / no claude CLI).
 
-The loop's only executor is the sub-agent (``dataos.agent.subagent_executor``); here we
+The loop's only executor is the experimenter (``dataos.agent.subagent_executor``); here we
 replace its ``fan_out`` with a fake that just writes a completed ``report.json`` per spec, so
 the test exercises the loop's orchestration (plan → execute → review → tree → budget stop →
-resume) without a real sub-agent / H100.
+resume) without a real experimenter / H100.
 """
 
 import json
@@ -43,7 +43,7 @@ REVIEW = json.dumps(
 
 
 def _fake_fan_out(*, cfg, study_id, specs, deadline=None):
-    """Stand in for the sub-agent: write a completed report.json per spec at the path the loop
+    """Stand in for the experimenter: write a completed report.json per spec at the path the loop
     reads, with a stable id (so resume reuses it) and a model path (so the tree chains)."""
     from dataos.core.study import _slug
 
