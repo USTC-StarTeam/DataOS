@@ -289,7 +289,7 @@ class PtbRunConfig:
             budget=Budget(max_wall_clock_s=self.time_budget_hours * 3600.0),
             workspace=self.workspace_root,
             backend=os.environ.get("DATAOS_BACKEND", "cli"),
-            agent_provider=os.environ.get("DATAOS_AGENT_PROVIDER", "claude"),
+            agent_provider=os.environ.get("DATAOS_AGENT_PROVIDER", "kimi"),
             agent_model=os.environ.get("DATAOS_AGENT_MODEL") or None,  # None = CLI default
             runtime_config=self.runtime_config(),
             runtime_config_path=str(resolved_config_path),

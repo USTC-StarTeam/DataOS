@@ -78,7 +78,7 @@ class AutoRunConfig:
 
     # LLM backend
     backend: str = "cli"  # "cli" (a code-agent CLI via dataos_agent) | "stub"
-    agent_provider: str = "claude"  # dataos_agent registry name: claude | kimi | qwen | ...
+    agent_provider: str = "kimi"  # dataos_agent registry name: kimi | claude | qwen | ...
     agent_model: str | None = None  # main-agent and sub-agents; None = the CLI's own default model
     max_steps: int = 12
     # stub backend only: "plan"/"review" (or legacy role names) -> fixed JSON reply string(s)

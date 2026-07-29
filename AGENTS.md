@@ -30,9 +30,10 @@ There is exactly ONE execution path: the agentic sub-agent. The old in-process "
   Training/eval stacks (LLaMA-Factory, lm-eval, vLLM, torch) live in **H100 conda envs**, not the
   agent-host venv.
 - LLM backend: a **code-agent CLI** (`backend="cli"`) driven via the **dataos-agent** package
-  (`cli_agent.py` adapter); provider/model are config facts (`agent_provider` default `"claude"`,
-  `agent_model`), auth is the CLI's own login on the agent host. Transport self-healing
-  (endpoint drop → backoff → resume-reconnect) lives INSIDE dataos-agent.
+  (`cli_agent.py` adapter); provider/model are config facts (`agent_provider` default `"kimi"`,
+  `agent_model` default `None` = the CLI's own default model), auth is the CLI's own login on
+  the agent host. Transport self-healing (endpoint drop → backoff → resume-reconnect) lives
+  INSIDE dataos-agent.
 
 ## Repository map
 
