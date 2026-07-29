@@ -1,0 +1,6 @@
+# HF loader caches — the eval doesn't need them (reads local/ jsonl + the downloaded hf_datasets/* sets directly).
+# Kept out of git so a stray cache write never dirties the checkout.
+hf_datasets/json/
+hf_datasets/parquet/
+*.lock
+*.incomplete_info.lock

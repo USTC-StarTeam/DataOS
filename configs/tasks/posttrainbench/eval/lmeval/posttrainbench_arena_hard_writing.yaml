@@ -1,0 +1,10 @@
+tag:
+  - posttrainbench
+task: posttrainbench_arena_hard_writing
+class: !function task.PostTrainBenchArenaHardWriting
+generation_kwargs:
+  max_gen_toks: 16384
+  ptb_official_chat_payload: true
+metadata:
+  version: 1.0
+  source: PostTrainBench Arena-Hard Writing judge protocol

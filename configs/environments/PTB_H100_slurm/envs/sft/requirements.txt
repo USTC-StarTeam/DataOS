@@ -1,0 +1,6 @@
+transformers==4.52.3
+llamafactory==0.9.4
+deepspeed
+accelerate
+datasets>=2.20
+torchaudio==2.8.0  # pin to match torch 2.8.0 — unpinned resolves to 2.11.0 (ABI mismatch, breaks llamafactory import)

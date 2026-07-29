@@ -1,0 +1,10 @@
+# 冻结训练声明(此目录存在 = TRAIN 冻结,配方不可改;大脑据此把 train stage 归为 provided)。
+# curation-bench 的 finetune 配方由 harness 冻结(vendor/curation-train + defaults.py);
+# 本库不 vendor,命令指向执行机上的 harness(run.bench_root)。
+#
+# 输入:agent 在 DATA 阶段造好的子集(default_submission_path)。
+# 产出:模型 —— harness run_dir 的 finetune/(即 EVAL 的 {ctx.model_path})。
+frozen: true
+command: |-
+  cd {{ run.bench_root }} && uv run datacuration-bench audit --path {ctx.submission_path} && uv run datacuration-bench submit --path {ctx.submission_path} && uv run datacuration-bench finetune 2>&1
+produces: "{ctx.iter_run_dir}/finetune"   # 冻结配方的模型产物

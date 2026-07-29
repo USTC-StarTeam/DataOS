@@ -1,0 +1,43 @@
+# 任务契约:PostTrainBench (PTB)
+# 字段规范见 DataOS-Runtime/CONTRACT.md §2。scoring 命令用 jinja2:
+#   {{ env.* }}/{{ run.* }}/{{ task.* }} 解析时填;{{ ctx.* }} sub-agent 执行时填。
+# 只讲「问题是什么 + 怎么打分」;造数据/训练的解法是各 agent 私有,不在此。
+
+name: posttrainbench
+
+inputs:
+  base_model:   {from: run.base_model, kind: hf_model}          # 要改进的基座模型
+  data_pool:    {from: env.paths.fixed_pool, kind: fixed-pool}        # 唯一允许的数据来源(路径在 env.paths,因 env 任务绑定)
+  target_bench: {from: run.bench, kind: enum,
+                 one_of: [gsm8k, aime2025, humaneval, bfcl, gpqamain, healthbench, arenahardwriting]}
+
+objective: "只用 data_pool 里的数据,把 base_model 在 target_bench 上的分数做高。"
+
+constraints:
+  - "只允许用 data_pool(fixed pool)内的 source,不得引入池外数据。"
+  - "评测器冻结;base 模型与产出模型走同一套评测协议。"
+  - "评测器冻结、协议不可改;但评多少由你定——评测命令的 --limit 是 {ctx.eval_limit}(-1=全量,或填个数采样),评不评、评多少是你的选择。"
+
+produce:
+  kind: hf_model
+  hint: "一个完整 HF 模型目录(下游 eval 当普通模型加载,无 adapter);放在 ctx.run_root 下。"
+
+scoring:
+  evaluator: "eval/scripts/run_lmeval_eval.py"
+  # 确定性 bench(gsm8k/humaneval/bfcl/gpqamain/aime2025):in-job 直接出分。
+  command: |-
+    POSTTRAINBENCH_BENCHMARKS_DIR={{ task.assets_root }}/benchmarks HF_DATASETS_CACHE={{ task.assets_root }}/benchmarks/hf_datasets HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 {{ env.tools.eval_env.path }}/bin/python {{ task.assets_root }}/eval/scripts/run_lmeval_eval.py --task {{ run.bench }} --model-path {{ ctx.model_path }} --model-name {{ ctx.label }} --output-dir {{ ctx.eval_dir }} --limit {ctx.eval_limit}
+  # judge 类 bench(healthbench/arenahardwriting):上面先生成 predictions(compute 无网),
+  # 再在有网的 login 节点跑本命令补分(用 env 的 gateway 端点 + 本任务选的 judge 模型;key 内联不落盘)。
+  judge: {model: qwen3.5-plus, workers: 32}   # 本任务的 judge 选择(端点来自 env.gateway)
+  judge_command: |-
+    OPENAI_API_KEY=$(cat {{ env.gateway.key_file }}) OPENAI_BASE_URL={{ env.gateway.base_url }} POSTTRAINBENCH_JUDGE_MODEL={{ task.scoring.judge.model }} POSTTRAINBENCH_BENCHMARKS_DIR={{ task.assets_root }}/benchmarks {{ env.tools.eval_env.path }}/bin/python {{ task.assets_root }}/eval/scripts/run_lmeval_judge.py --bench {{ run.bench }} --predictions {{ ctx.eval_dir }}/predictions.jsonl --output {{ ctx.eval_dir }}/summary.json --workers {{ task.scoring.judge.workers }}
+  result:
+    file: "{{ ctx.eval_dir }}/summary.json"    # 原生结果契约:任何 agent 读它拿分
+    field: score                                # 原生百分比 0–100
+    range: [0, 100]
+  # 想拿高分必须理解评测器如何解析模型输出(prompt 模板 / answer 抽取):读源码,唯一真源。
+  format_contract: "eval/lmeval/utils.py"
+
+assets:
+  eval: "eval/"   # 冻结评测器(相对本 task 目录)

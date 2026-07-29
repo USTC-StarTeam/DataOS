@@ -1,0 +1,5 @@
+setuptools<81   # verl imports pkg_resources; setuptools>=81 removed it
+vllm==0.8.5
+ray==2.47.1
+verl==0.4.1
+transformers==4.51.3

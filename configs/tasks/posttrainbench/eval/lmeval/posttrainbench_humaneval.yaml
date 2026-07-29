@@ -1,0 +1,30 @@
+tag:
+  - posttrainbench
+task: posttrainbench_humaneval
+dataset_path: openai/openai_humaneval
+unsafe_code: true
+output_type: generate_until
+test_split: test
+doc_to_text: !function utils.humaneval_doc_to_text
+doc_to_target: "{{test}}\ncheck({{entry_point}})"
+metric_list:
+  - metric: !function utils.humaneval_pass_at_k
+    aggregation: mean
+    higher_is_better: true
+    k: [1]
+generation_kwargs:
+  until:
+    - "</s>"
+    - "<|im_end|>"
+    - "<|eot_id|>"
+  max_gen_toks: 4000
+repeats: 1
+num_fewshot: 0
+filter_list:
+  - name: "create_test"
+    filter:
+      - function: "custom"
+        filter_fn: !function utils.humaneval_build_predictions
+metadata:
+  version: 1.0
+  source: PostTrainBench HumanEval pass@1 protocol

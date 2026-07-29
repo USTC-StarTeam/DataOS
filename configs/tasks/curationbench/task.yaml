@@ -1,0 +1,49 @@
+# 任务契约:Curation-Bench(VLM 数据策展,github.com/feiyang-k/curation-bench)
+# 字段规范见 CONTRACT.md §2。与 posttrainbench 的差异只剩一处:训练是【冻结】的
+# —— 见 train/ 目录(存在即表示 train 冻结,配方不可动)。agent 唯一杠杆 = 选哪些行(DATA)。
+#
+# 三段:DATA(agent 造子集)→ TRAIN(冻结 finetune,见 train/train.yaml,产出模型)→
+#       EVAL(对那个模型跑 VLMEvalKit 8 基准,和 posttrainbench 同形:model → score)。
+#
+# 打分 harness(datacuration-bench CLI + vendored curation-train + VLMEvalKit,~1TB)不 vendor
+# 进本库,其 checkout 路径经 run-config 注入(run.bench_root)。
+
+name: curationbench
+
+inputs:
+  data_pool:     {from: run.dataset_path, kind: hf_dataset}   # 候选池(LLaVA-665K / VisionFlan)
+  target_rows:   {from: run.target_rows, kind: int}           # 子集预算(10k/20k/50k)
+  bench_task_id: {from: run.bench_task_id, kind: enum,
+                  one_of: [llava665k_llava_8bench_10k_unlimited, llava665k_llava_8bench_20k_unlimited,
+                           llava665k_llava_8bench_50k_unlimited, llava665k_qwen_8bench_10k_unlimited,
+                           llava665k_qwen2vl2b_8bench_10k_unlimited, llava665k_smolvlm_8bench_10k_unlimited,
+                           visionflan_llava_8bench_20k_unlimited, visionflan_smolvlm_8bench_10k_unlimited]}
+  bench_root:    {from: run.bench_root, kind: path}           # harness 在执行机上的 checkout
+
+objective: "从 data_pool 里选恰好 target_rows 行的子集;经冻结配方 finetune 后,使模型在该 bench 的 8 个 VLM 基准上归一化平均分(accuracy)最大化。"
+
+constraints:
+  - "只能选池内的行;提交前过污染审计(SHA-256 精确 + 8-gram 近重复 token 重叠≥0.8 会被拒)。"
+  - "子集行数必须 == target_rows;列为 images + texts;HF save_to_disk 格式。"
+  - "训练配方、基座模型、评测基准全部冻结:不得改 harness 的 vendor/src/configs/任务 YAML,不得改超参。"
+  - "只允许编辑 harness 的 curation/ 目录(策展代码);怎么选(过滤/去重/质量分/多样性/配比)完全自定。"
+
+produce:
+  kind: hf_model
+  hint: "最终被打分的产物是【模型】(冻结 finetune 的产出,位于 harness run_dir 的 finetune/);agent 的 DATA 杠杆产出的是子集(经 audit+submit 交付给 train)。"
+
+# EVAL 契约:只评一个模型(和 posttrainbench 同形)。TRAIN 见 train/。
+scoring:
+  evaluator: "external harness — datacuration-bench eval (VLMEvalKit) at run.bench_root(不 vendor)"
+  # 对 train 产出的模型跑 VLMEvalKit 8 基准 → results.json。{ctx.model_path} = 冻结 finetune 的产物。
+  command: |-
+    cd {{ run.bench_root }} && uv run datacuration-bench eval 2>&1
+  result:
+    file: "{ctx.eval_dir}/results/results.json"   # VLMEvalKit 聚合(按模型名分键;per-bench 明细在同目录)
+    field: accuracy
+    range: [0, 1]
+  aggregate:
+    rule: "accuracy = mean(score_b / max_b for b in target_evals)"
+    max: {MMVet: 100, LLaVABench: 100, OCRBench: 1000, HallusionBench: 100,
+          MMMU_DEV_VAL: 100, MathVista_MINI: 100, MMStar: 100, MMBench: 100}
+  format_contract: "the harness's BENCHMARK.md (Scoring section) at run.bench_root — normalization, HallusionBench/MMMU conventions, audit rules"
