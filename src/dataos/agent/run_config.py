@@ -52,14 +52,32 @@ def _tool_path(env: dict[str, Any], name: str) -> str:
 
 
 def train_env_path(env: dict[str, Any]) -> str:
-    """SFT runtime path from the env's train block: train.backends[train.backend] ->
-    tools.<key>.path (the backend↔env binding is declared exactly once, in env.yaml)."""
+    """Default SFT runtime path from the env's train block: train.backends[train.backend]
+    -> tools.<key>.path (the menu is declared exactly once, in env.yaml)."""
     train = env.get("train") or {}
     backend = train.get("backend", "llamafactory")
     tool_key = (train.get("backends") or {}).get(backend)
     if not tool_key:
         raise ValueError(f"env.yaml train.backends has no entry for backend {backend!r}")
     return _tool_path(env, tool_key)
+
+
+def env_menu(env: dict[str, Any]) -> dict[str, str]:
+    """The full training-env menu {domain: env path} from the env's train block — injected
+    into the TrainSpec's env.backends so dataos-train's env_for() resolves method→env."""
+    train = env.get("train") or {}
+    return {
+        domain: _tool_path(env, tool_key)
+        for domain, tool_key in (train.get("backends") or {}).items()
+    }
+
+
+def train_cli_path(env: dict[str, Any]) -> str:
+    """Where the dataos-train CLI lives: train.cli_env when declared (the thin
+    orchestrator env), else the default backend env."""
+    train = env.get("train") or {}
+    cli_key = train.get("cli_env")
+    return _tool_path(env, cli_key) if cli_key else train_env_path(env)
 
 
 def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
@@ -89,6 +107,10 @@ def _runtime_paths(env: dict[str, Any]) -> dict[str, str]:
         "fixed_pool": p.get("fixed_pool", ""),
         "train_env": train_env_path(env),
         "eval_env": _tool_path(env, "eval_env"),
+        # the env menu, visible to the experimenter for ad-hoc steps (data build / rl / eval)
+        "sft_env": _tool_path(env, "sft_env"),
+        "rl_env": _tool_path(env, "rl_env"),
+        "train_cli_env": train_cli_path(env),
     }
 
 

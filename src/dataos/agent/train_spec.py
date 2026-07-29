@@ -31,9 +31,11 @@ def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_mode
     tools = env.get("tools", {})
     train_cfg = env.get("train", {}) or {}
     backend = train_cfg.get("backend", "llamafactory")
-    tool_key = (train_cfg.get("backends") or {}).get(backend, "sft_env")
-    te = tools.get(tool_key, {})
-    train_env_path = te.get("path") if isinstance(te, dict) else te
+    # the full env menu {domain: path}; dataos-train's env_for() resolves method→env at build
+    env_backends = {
+        domain: (tools.get(key, {}).get("path") if isinstance(tools.get(key), dict) else tools.get(key))
+        for domain, key in (train_cfg.get("backends") or {}).items()
+    }
     resource = run.get("resource", {}) or {}
     gpus = int(resource.get("gpus") or 1)
     cpus = int(resource.get("cpus") or 8)
@@ -56,7 +58,7 @@ def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_mode
         "method": method,
         "resources": {"nodes": 1, "gpus": gpus, "cpus": cpus, "time_h": time_h},
         "env": {
-            "backends": {backend: train_env_path},
+            "backends": env_backends,
         },
         "cluster": {
             "partition": env.get("slurm", {}).get("partition"),

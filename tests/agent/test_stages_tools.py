@@ -23,8 +23,9 @@ def _resolved(*, frozen: bool = False) -> dict:
     return {
         "task": task,
         "environment": {
-            "train": {"backend": "llamafactory", "backends": {"llamafactory": "sft_env"}},
-            "tools": {"sft_env": {"path": "/envs/Llama"}},
+            "train": {"backend": "llamafactory",
+                      "backends": {"llamafactory": "sft_env", "verl": "rl_env"}},
+            "tools": {"sft_env": {"path": "/envs/Llama"}, "rl_env": {"path": "/envs/verl"}},
         },
     }
 
@@ -114,6 +115,18 @@ def test_rendered_blocks_parity():
 
 
 # --- the three templates render standalone (StrictUndefined — no empty holes) --
+
+def test_train_spec_injects_the_full_env_menu():
+    from dataos.agent.train_spec import build_train_spec
+
+    spec = build_train_spec(
+        _resolved(), name="e0", plan_train={"finetuning_type": "lora"},
+        parent_model="/m", run_root="/rb/e0", time_h=2.0,
+    )
+    assert spec["backend"] == "llamafactory"
+    # the FULL menu is injected; dataos-train's env_for() resolves method→env at build
+    assert spec["env"]["backends"] == {"llamafactory": "/envs/Llama", "verl": "/envs/verl"}
+
 
 def test_templates_render_with_declared_params():
     assert "o.guide()" in prompt.render("kb/stage_data", catalog="CATALOG")

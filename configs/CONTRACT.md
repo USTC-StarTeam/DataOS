@@ -27,6 +27,7 @@
 | `paths.fixed_pool` / `benchmarks` … | 否 | path | 本 env 绑定任务的数据/评测集位置(env 任务绑定,故落此) |
 | `resources` | 否 | map | 供大脑规划参考:`gpu_type` / `note` 等,自由字段 |
 | `gateway` | 否 | map | 从这台机可达的 **LLM 端点(仅连接事实)**:`{base_url, key_file}`。用哪个 model / 并发是**任务**的选择(→ `task.scoring.judge`) |
+| `train` | 否 | map | **训练环境菜单**(唯一声明处)。`backend`: 默认菜单项(plan 未指明训练方法时的兜底);`backends`: env domain → `tools` 键名的**全菜单**(如 `{llamafactory: sft_env, verl: rl_env}`,路径不重复写,解析自 `tools.<键>.path`);`cli_env`: 可选,dataos-train CLI 所在的薄编排环境键(未声明则回退 backend 环境)。**方法→env 的查表在 dataos-train `env_for()` 完成**,brain 只注入整张菜单 |
 | `operations` | 是 | map | **★ 操作契约**:动词 → 命令模板(见 §4) |
 | `discipline` | 是 | list[str] | **★ 硬约束**,一条一句(login 纪律、输出隔离、禁全盘扫描…) |
 

@@ -46,7 +46,9 @@ def _train_invoke(resolved: dict, registry: _tools.ToolRegistry) -> str:
     frozen = resolved.get("task", {}).get("train")
     env = resolved.get("environment", {})
     train_cfg = env.get("train", {}) or {}
-    tool_key = (train_cfg.get("backends") or {}).get(
+    # the dataos-train CLI lives in train.cli_env when declared (thin orchestrator env),
+    # else in the default backend env
+    tool_key = train_cfg.get("cli_env") or (train_cfg.get("backends") or {}).get(
         train_cfg.get("backend", "llamafactory"), "sft_env"
     )
     te = env.get("tools", {}).get(tool_key, {})

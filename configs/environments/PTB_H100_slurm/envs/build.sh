@@ -16,17 +16,23 @@ case "$E" in
   eval) PY=3.12; TORCH="torch==2.9.0+cu128"; IDX="https://download.pytorch.org/whl/cu128"; FA_CONDA="" ;;
   sft)  PY=3.12; TORCH="torch==2.8.0+cu129"; IDX="https://download.pytorch.org/whl/cu129"; FA_CONDA="/data/hcgu/.conda/envs/Llama-op020/lib/python3.12/site-packages" ;;
   rl)   PY=3.11; TORCH="torch==2.6.0+cu124"; IDX="https://download.pytorch.org/whl/cu124"; FA_CONDA="/data/hcgu/.conda/envs/dataos-verl/lib/python3.11/site-packages" ;;
+  train-cli) PY=3.12; TORCH=""; IDX=""; FA_CONDA="" ;;  # thin orchestrator env: pydantic + dataos-train only
   *) echo "unknown env $E"; exit 1 ;;
 esac
 V="$ROOT/$E/.venv"
 echo ">>> [$E] uv venv --python $PY"
 rm -rf "$V"
 "$UV" venv --python "$PY" "$V"
-echo ">>> [$E] install torch ($TORCH, pinned) + requirements in one resolution (extra-index $IDX)"
-"$UV" pip install --python "$V/bin/python" "$TORCH" -r "$ROOT/$E/requirements.txt" \
-  --extra-index-url "$IDX" --index-strategy unsafe-best-match
-echo ">>> [$E] torch check"
-"$V/bin/python" -c "import torch;print('torch',torch.__version__,'cuda',torch.version.cuda)"
+if [ -n "$TORCH" ]; then
+  echo ">>> [$E] install torch ($TORCH, pinned) + requirements in one resolution (extra-index $IDX)"
+  "$UV" pip install --python "$V/bin/python" "$TORCH" -r "$ROOT/$E/requirements.txt" \
+    --extra-index-url "$IDX" --index-strategy unsafe-best-match
+  echo ">>> [$E] torch check"
+  "$V/bin/python" -c "import torch;print('torch',torch.__version__,'cuda',torch.version.cuda)"
+else
+  echo ">>> [$E] install requirements (no torch — thin env)"
+  "$UV" pip install --python "$V/bin/python" -r "$ROOT/$E/requirements.txt"
+fi
 if [ -n "$FA_CONDA" ] && [ -d "$FA_CONDA" ]; then
   echo ">>> [$E] flash-attn: reuse exact-matching build from $FA_CONDA"
   SP="$V/lib/python$PY/site-packages"

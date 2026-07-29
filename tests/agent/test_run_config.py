@@ -47,6 +47,10 @@ def test_paths_resolve_from_the_environment(tmp_path):
     assert paths["fixed_pool"].endswith("posttrainbench_fixed_pool_v2")
     assert paths["train_env"].endswith("envs/sft/.venv")      # train.backends -> tools.sft_env
     assert paths["eval_env"].endswith("envs/eval/.venv")
+    # the env menu is visible to the experimenter (ad-hoc steps pick their env)
+    assert paths["sft_env"].endswith("envs/sft/.venv")
+    assert paths["rl_env"].endswith("envs/rl/.venv")
+    assert paths["train_cli_env"].endswith("envs/train-cli/.venv")
     assert paths["runtime_root"].endswith("dataos_agentver/configs")
     assert cfg.runtime_config()["gateway"]["base_url"].startswith("https://")
 
