@@ -43,7 +43,8 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   `schemas`,
   `stages` (the data→train→eval contract; each stage's `invoke` is assembled from registered
   tools), `tools` (the pluggable stage-tool registry: Operator/Trainer/Evaluator protocols —
-  the Trainer slot is RESERVED, unregistered until dataos-train lands),
+  the Trainer is `DataosTrainCli`: the deterministic dataos-train launcher lifecycle
+  validate/build/submit/status/collect; its CLI lives in the thin `train_cli_env`),
   `run_config` (the single-JSON config boundary), `backend`, `budget`, `config`, `logging`,
   `llm/` (`cli_agent.py` — the provider-neutral dataos-agent adapter — + structured-output
   helper), `posttrainbench.py`
