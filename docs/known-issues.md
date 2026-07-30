@@ -16,11 +16,13 @@ leader 在 round 12 正确判定收敛后，因 schema 禁止 stop decision，�
 85/86/85/86——导致 leader 花 3 轮做确认性复评。疑似 vLLM 温度非 0 或 batching 非确定。
 修法：lm_eval bridge 钉 temp=0 + 固定 seed；做不到就把"±1 噪声带"写进 strategy。
 
-## P3 recon 缓存不随池/bench 失效（未修，本次实证）
+## P3 recon 缓存不随池/bench 失效（✅ 由 fresh-instance 语义根治，2026-07-30）
 
 recon.json（07-19，v1 池 24 源画像）在池子已切到 v2（106 源）后仍被 resume 复用——
-**leader 全程对着过期 10 天的菜单规划**。修法：recon.json 记录
-`{fixed_pool, bench, task}` 指纹，`_load_recon` 不符即判 stale 重跑。
+**leader 全程对着过期 10 天的菜单规划**。根因是旧语义"同名 workspace = 静默续跑"。
+run JSON 重构后每次执行都是全新实例（被占顺延 (1)(2)），recon 必然现跑现画像，
+触发面消除。残留边缘（resume 时改了 config 的 fixed_pool）属误操作而非 bug，
+不加机制。
 
 ## P4 profiler 信号只有格式维度，主题相关源隐身（未修）
 
