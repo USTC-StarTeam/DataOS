@@ -23,12 +23,14 @@ run JSON 重构后每次执行都是全新实例（被占顺延 (1)(2)），reco
 触发面消除。残留边缘（resume 时改了 config 的 fixed_pool）属误操作而非 bug，
 不加机制。
 
-## P4 profiler 信号只有格式维度，主题相关源隐身（未修）
+## P4 profiler 信号只有格式维度，主题相关源隐身（部分修复 2026-07-30）
 
 `target_fit.target_ratio` 只量输出格式匹配：openmathinstruct2（真·数学源）被判 0.0，
-leader 的候选菜单里数学源只剩 numinamath 一个。修法：profiler 增加主题/域相关性维度
-（bench kind → domain 匹配），字段改名 `format_fit_ratio` 防误读；strategy 补一条
-"提前收敛且预算有余时，宣布关闭前试一次源多样性探针（混 top-2 主题相关源）"。
+leader 的候选菜单里数学源只剩 numinamath 一个。**已修的一半**：`quality`/`usage_hint`
+标签已删除——profiler 只给原始统计，判断完全归 leader（strategy 同步改为"读数字和
+样本自己判断，domain 相关但格式差的源可以配清洗步骤用，不是禁区"）。**未修的一半**：
+`target_ratio` 仍只有格式维度，建议增加主题/域相关性维度并改名 `format_fit_ratio`；
+strategy 补"提前收敛且预算有余时试一次源多样性探针"。
 
 ## P5 budget 语义跨 invocation 混乱（未修）
 

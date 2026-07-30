@@ -6,15 +6,15 @@ Given a fixed-pool source (or --all-sources), sample rows and produce a structur
 
     {source, n, schema[], domain, sample,
      output_format: {function_call_json, natural_language, code, other},   # fractions
-     target_fit: {target_ratio, negatives, format_matches_eval},           # vs the run target
-     quality: "HIGH" | "DIRTY-negatives" | "DIRTY-format" | "IRRELEVANT",
-     usage_hint}
+     target_fit: {target_ratio, negatives, format_matches_eval}}           # vs the run target
 
-This is PURE STATISTICS — no LLM, no judgment — so it is cheap and reliable and can
-profile the whole pool (~32 sources) in a few minutes. It exists because the operator
-box has no "is this a valid target-format sample?" filter, so a random_sample recipe
-silently trained on 68% non-tool-call garbage from glaive and scored 4 on BFCL while
-the clean xlam source reached 83. This profiler surfaces exactly that difference.
+This is PURE STATISTICS — no LLM, no judgment, and deliberately NO quality verdict or
+usage hint: the leader judges sources from the raw numbers + samples, a script's label
+would bias its planning. Cheap and reliable enough to profile the whole pool in a few
+minutes. It exists because the operator box has no "is this a valid target-format
+sample?" filter, so a random_sample recipe silently trained on 68% non-tool-call
+garbage from glaive and scored 4 on BFCL while the clean xlam source reached 83. This
+profiler surfaces exactly that difference — as numbers, not verdicts.
 
 Run inside the eval/train conda env (needs `datasets`):
     python profile_source.py --pool-root <pool> --source xlam_function_calling_60k --target function-calling
@@ -182,22 +182,9 @@ def profile_source(pool_root: str, source: str, target: str = "function-calling"
         target_ratio = round(1.0 - fmt_frac["other"], 3)
         format_matches_eval = None
 
-    # quality verdict — the single field the plan/闸门 reads.
-    if dom != target and target == "function-calling":
-        quality = "IRRELEVANT"
-        hint = f"domain={dom}, not {target}; unrelated to this benchmark"
-    elif target_ratio > 0.8:
-        quality = "HIGH"
-        hint = "clean, target-format samples — directly usable"
-    elif neg_ratio > 0.3:
-        quality = "DIRTY-negatives"
-        hint = (f"{int(neg_ratio*100)}% negatives/non-target rows; hand-write a validity filter "
-                f"to keep only the {int(valid_ratio*100)}% valid ones, or pick a HIGH source")
-    else:
-        quality = "DIRTY-format"
-        hint = ("has target content but in the wrong/mixed output format; normalize to the eval's "
-                "expected shape (hand-write a format-normalizer) before training")
-
+    # Raw statistics ONLY — no quality verdict, no usage hint. Judging which source is
+    # worth training on is the leader's job (it sees these numbers + the samples);
+    # a script's label would bias that judgment.
     return {
         "source": source,
         "n": n,
@@ -207,8 +194,6 @@ def profile_source(pool_root: str, source: str, target: str = "function-calling"
         "output_format": fmt_frac,
         "target_fit": {"target_ratio": target_ratio, "negatives": neg_ratio,
                        "format_matches_eval": format_matches_eval},
-        "quality": quality,
-        "usage_hint": hint,
     }
 
 

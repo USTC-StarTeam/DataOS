@@ -39,9 +39,11 @@ template: |
        --pool-root {{ fixed_pool }} --all-sources --target <function-calling|math|general>'
      ```
      Pick `--target` from the benchmark kind ({{ target_bench }}: bfcl→function-calling,
-     gsm8k/aime→math, else general). The script prints a JSON array of per-source profiles
-     (n, domain, output_format, target_fit.target_ratio, quality HIGH/DIRTY-*/IRRELEVANT,
-     usage_hint). Put that array in as `source_profiles`. Do NOT hand-edit its verdicts.
+     gsm8k/aime→math, else general). The script prints a JSON array of per-source RAW
+     STATISTICS (n, domain, output_format fractions, target_fit.target_ratio/negatives,
+     real samples — no quality verdicts by design). Put that array in as `source_profiles`
+     verbatim. Do NOT hand-edit it and do NOT add your own quality labels — the leader
+     judges sources from these numbers itself.
 
   Then write recon.json locally as:
   {

@@ -17,6 +17,7 @@ template: |
   1. eval_format_contract — what output shape the frozen scorer parses (follow the eval-format
      guidance in the kb block; this is the single most important part);
   2. baseline_diagnosis — whether the base model's low score is a FORMAT miss or a CAPABILITY gap;
-  3. source_profiles — the deterministic profiler's per-source verdicts over the whole pool.
+  3. source_profiles — the deterministic profiler's per-source raw statistics over the
+     whole pool (numbers + samples, no verdicts).
 
   Write the file, confirm it parses as JSON, then stop. That file is your entire deliverable.

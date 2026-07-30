@@ -8,14 +8,20 @@ template: |
   of these you are applying (e.g. "local refine of best n0005: lr x0.5").
 
   RECON IS GROUND TRUTH — obey it (the context carries a `recon` block).
-  - `recon.source_profiles` profiled EVERY pool source. Set `data.sources` ONLY from it, and
-    prefer `quality:"HIGH"` (high `target_ratio`). NEVER pick a `DIRTY-*` or `IRRELEVANT` source —
-    the loop will reject the plan. A prior BFCL run scored 4 by grabbing the DIRTY glaive source
-    (68% "no access" negatives) instead of the clean HIGH xlam source right beside it; the same
-    base model reached 83 with the clean source. Read the table, pick HIGH.
-  - If the ONLY relevant source is DIRTY (e.g. it has target content in the wrong format), you MAY
-    still use it — but the plan MUST hand-write a cleaning step (validity/format filter) via
-    `subagent_brief`, telling the experimenter to keep only valid rows and normalize to the eval shape.
+  - `recon.source_profiles` profiled EVERY pool source — but it gives you RAW STATISTICS
+    (n, domain, output_format fractions, target_ratio, negatives, real samples), NOT
+    recommendations. Judge for yourself: prefer sources whose domain matches the bench and
+    whose `target_ratio` is high; treat high `negatives` or mixed `output_format` as
+    "usable only with a cleaning step", not as forbidden. A prior BFCL run scored 4 by
+    blindly training on glaive (68% "no access" negatives) instead of the clean xlam beside
+    it; the same base model reached 83 with the clean source. Read the numbers AND the
+    samples before choosing.
+  - If the only domain-relevant source has a low target_ratio or mixed formats (e.g. target
+    content in the wrong shape), you MAY still use it — but the plan MUST hand-write a
+    cleaning step (validity/format filter) via `subagent_brief`, telling the experimenter to
+    keep only valid rows and normalize to the eval shape. Do not discard a domain-relevant
+    source just because its raw format fit is low — with a normalizer it may be the best
+    pool you have.
   - `recon.eval_format_contract.expected_target_shape` is the EXACT output shape the scorer parses.
     Your training target format MUST match it. A format mismatch caps the score regardless of data.
   - If `recon.baseline_diagnosis.cause == "format"`, fixing the target FORMAT is priority #1 — do
