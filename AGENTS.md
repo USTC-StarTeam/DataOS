@@ -68,12 +68,13 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   `workspace`, `io`, `ids`, `report`, `provenance`, `catalog`, `loading`. (Kept as the data model;
   the `Stage.run()` train/eval executors were removed — execution is the experimenter's.)
 - `configs/` — the unified, in-repo config (DataOS-Runtime was merged in and archived):
-  `environments/<env>/env.yaml` (MACHINE facts only: access/slurm/tools(provides)/paths/
-  gateway(connection)/ops), `tasks/<task>/` (task contract incl. `scoring.judge.model` + the
-  self-contained `eval/` lm-eval bridge + `benchmarks/` data, ~16M git-tracked), `runs/*.json`
-  (per-run facts ONLY + required `environment`/`task`/`fixed_pool` — anything derivable is
-  derived in code: the backend→env menu is scanned from `tools.*.provides`, benchmarks from
-  the task dir; unknown keys are rejected at load). `configs/CONTRACT.md` is the field spec.
+  `environments/<env>/env.yaml` (MACHINE facts only: access/slurm/tools(provides)/
+  gateway(connection)/ops — NO paths), `tasks/<task>/` (task contract incl.
+  `scoring.judge.model` + the self-contained `eval/` lm-eval bridge + `benchmarks/` data,
+  ~16M git-tracked), `runs/*.json` (per-run facts ONLY + required `environment`/`task`/
+  `fixed_pool`/`deploy_root`/`runs_base` — anything derivable is derived in code: the
+  backend→env menu is scanned from `tools.*.provides`, benchmarks from the task dir;
+  unknown keys are rejected at load). `configs/CONTRACT.md` is the field spec.
   The composer (`agent/runtime_compose.py`) resolves these into the experimenter's ENV
   OPS/TASK prompt sections.
 - `resources/` — `custom_operators/` (shared sedimented ops), `recon/` (source profiler),

@@ -9,7 +9,7 @@
 {% endif %}
 {% endfor %}
 
-关键路径:runs_base={{ env.paths.runs_base }}{% if env.paths.benchmarks %} · benchmarks={{ env.paths.benchmarks }}{% endif %}{% if env.paths.fixed_pool %} · fixed_pool={{ env.paths.fixed_pool }}{% endif %}
+关键路径:runs_base={{ run.runs_base }}{% if env.paths is defined and env.paths.benchmarks %} · benchmarks={{ env.paths.benchmarks }}{% endif %}{% if run.fixed_pool %} · fixed_pool={{ run.fixed_pool }}{% endif %}
 
 命令模板(env/run 已填好;`{ctx.*}` 由你在执行时替换 —— run_root/env_path/script/jobid/model_path/eval_dir/label/remote/local):
 - activate: `{{ env.operations.activate }}`
@@ -18,7 +18,7 @@
 - fetch:    `{{ env.operations.fetch }}`
 - cancel:   `{{ env.operations.cancel }}`
 
-`ctx.run_root` 你自己选,但**必须落在 {{ env.paths.runs_base }} 下**(否则 fetch/隔离失效)。
+`ctx.run_root` 你自己选,但**必须落在 {{ run.runs_base }} 下**(否则 fetch/隔离失效)。
 
 硬约束(必须遵守):
 {% for d in env.discipline %}

@@ -17,6 +17,8 @@ def _run_json(run_dir, **over):
         "environment": "PTB_H100_slurm",
         "task": "posttrainbench",
         "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2",
+        "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
+        "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
     }
     data.update(over)
     return data
@@ -55,6 +57,9 @@ def test_paths_resolve_from_the_environment(tmp_path):
     assert paths["train_cli_env"].endswith("envs/train-cli/.venv")
     # derived, not declared
     assert paths["benchmarks"].endswith("configs/tasks/posttrainbench/benchmarks")
+    # run-level: which deploy checkout, where artifacts land
+    assert paths["deploy_root"].endswith("dataos_agentver")
+    assert paths["runs_base"].endswith("dataos_agentver_runs")
     assert paths["runtime_root"].endswith("dataos_agentver/configs")
     gateway = cfg.runtime_config()["gateway"]
     assert gateway["base_url"].startswith("https://") and "model" not in gateway

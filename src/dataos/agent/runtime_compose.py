@@ -78,9 +78,6 @@ def resolve(run_config: dict, configs_root: str | Path = CONFIGS_DIR) -> dict:
     )
     task = yaml.safe_load((task_dir / "task.yaml").read_text(encoding="utf-8"))
     task["assets_root"] = str(task_dir)
-    # runs_base: per-run override wins, else the env's declared default (configs/environments).
-    if run_config.get("runs_base"):
-        env.setdefault("paths", {})["runs_base"] = run_config["runs_base"]
     _validate(env, task)
 
     ns = {"env": env, "run": run_config, "task": task, "ctx": _Ctx()}
@@ -125,7 +122,9 @@ def render(resolved: dict) -> tuple[str, str]:
     jenv = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)), trim_blocks=True, lstrip_blocks=True
     )
-    env_ops = jenv.get_template("environment.j2").render(env=resolved["environment"])
+    env_ops = jenv.get_template("environment.j2").render(
+        env=resolved["environment"], run=resolved["run"]
+    )
     task_def = jenv.get_template("task.j2").render(task=resolved["task"], run=resolved["run"])
     return env_ops, task_def
 

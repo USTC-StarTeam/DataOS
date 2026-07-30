@@ -104,16 +104,15 @@ def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
     }
 
 
-def _runtime_paths(env: dict[str, Any], *, task: str, fixed_pool: str) -> dict[str, str]:
-    p = env.get("paths") or {}
-    deploy_root = p.get("deploy_root", "")
+def _runtime_paths(env: dict[str, Any], *, task: str, fixed_pool: str,
+                   deploy_root: str, runs_base: str) -> dict[str, str]:
     runtime_root = f"{deploy_root}/configs"  # exec-host task assets = deploy configs
     return {
+        # run-level facts (from the run JSON): which deploy checkout, where artifacts land
         "deploy_root": deploy_root,
-        "runtime_root": runtime_root,
-        "runs_base": p.get("runs_base", ""),
-        # derived, not declared: benchmark data lives in the task dir
-        "benchmarks": f"{runtime_root}/tasks/{task}/benchmarks",
+        "runtime_root": runtime_root,  # derived
+        "runs_base": runs_base,
+        "benchmarks": f"{runtime_root}/tasks/{task}/benchmarks",  # derived
         # the run's input artifact (from the run JSON, like base_model_path)
         "fixed_pool": fixed_pool,
         "train_env": train_env_path(env),
@@ -158,12 +157,15 @@ class PtbRunConfig:
     environment: str  # REQUIRED pointer into configs/environments/<env>/env.yaml
     task: str         # REQUIRED pointer into configs/tasks/<task>/
     fixed_pool: str   # REQUIRED: this run's input pool (like base_model_path)
+    deploy_root: str  # REQUIRED: which DataOS deploy checkout the exec host uses ($AGENTVER)
+    runs_base: str    # REQUIRED: where this run's artifacts land on the exec host
     eval_samples: int = -1  # eval size per experiment; -1 = FULL benchmark (all samples)
     monitor_port: int = 8765  # live-monitor HTTP port (host-side fact; 0 disables the monitor)
 
     _ALLOWED_KEYS = frozenset({
         "run_id", "workspace", "goal", "bench", "base_model_path", "time_budget_hours",
-        "resource", "environment", "task", "fixed_pool", "eval_samples", "monitor_port",
+        "resource", "environment", "task", "fixed_pool", "deploy_root", "runs_base",
+        "eval_samples", "monitor_port",
     })
 
     @classmethod
@@ -186,6 +188,8 @@ class PtbRunConfig:
             "environment",
             "task",
             "fixed_pool",
+            "deploy_root",
+            "runs_base",
         ]
         _require(data, required, "run config")
         return cls(
@@ -199,6 +203,8 @@ class PtbRunConfig:
             environment=_nonempty_str(data["environment"], "environment"),
             task=_nonempty_str(data["task"], "task"),
             fixed_pool=_nonempty_str(data["fixed_pool"], "fixed_pool"),
+            deploy_root=_nonempty_str(data["deploy_root"], "deploy_root"),
+            runs_base=_nonempty_str(data["runs_base"], "runs_base"),
             eval_samples=_eval_samples(data["eval_samples"], "eval_samples")
             if "eval_samples" in data
             else -1,
@@ -237,6 +243,8 @@ class PtbRunConfig:
             "environment": self.environment,
             "task": self.task,
             "fixed_pool": self.fixed_pool,
+            "deploy_root": self.deploy_root,
+            "runs_base": self.runs_base,
         }
 
     def runtime_config(self) -> dict[str, Any]:
@@ -246,7 +254,10 @@ class PtbRunConfig:
             "task": self.task,
             "runtime_ref": DEFAULT_RUNTIME_REF,
             "cluster": _cluster(env, self.resource),
-            "paths": _runtime_paths(env, task=self.task, fixed_pool=self.fixed_pool),
+            "paths": _runtime_paths(
+                env, task=self.task, fixed_pool=self.fixed_pool,
+                deploy_root=self.deploy_root, runs_base=self.runs_base,
+            ),
             "gateway": dict(env.get("gateway") or {}),  # connection facts only
         }
 

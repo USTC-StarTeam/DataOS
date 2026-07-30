@@ -22,9 +22,7 @@
 | `tools` | 是 | map | 机器预装的**通用运行时**(uv venv / conda / bare venv 皆可);**只列通用框架/基础设施,不列任何单个 agent 的私有方法库**(如 dataos_operator) |
 | `tools.<名>` | — | map | 每个运行时:`{path: <venv 或 conda prefix,须有 bin/python>, provides: [通用框架名/能力...]}`;一律按 `{path}/bin/<tool>` 调用,与环境管理器无关 |
 | `paths` | 是 | map | 本部署的文件系统事实:机器运行时 + **本 (task,机器) 的任务数据位置** |
-| `paths.deploy_root` / `runs_base` | 是 | path | 机器布局事实:deploy checkout 根 / 实验 scratch 根 |
-| ~~`paths.fixed_pool`~~ | — | — | **移至 run JSON**:候选数据池是**本次 run 的输入工件**(与 `base_model_path` 同类,有版本之分),不是环境事实 |
-| ~~`paths.benchmarks`~~ | — | — | **不声明,推导**:评测数据住 task 目录,代码拼 `{deploy_root}/configs/tasks/<task>/benchmarks` |
+| ~~`paths.*`~~ | — | — | **env 已无 paths 段**:`fixed_pool`/`deploy_root`/`runs_base` 都是 **run 级事实**(本次 run 的输入与产物位置,在 run JSON);`benchmarks` 不声明,代码拼 `{deploy_root}/configs/tasks/<task>/benchmarks` |
 | `resources` | 否 | map | 供大脑规划参考:`gpu_type` / `note` 等,自由字段 |
 | `gateway` | 否 | map | 从这台机可达的 **LLM 端点(仅连接事实)**:`{base_url, key_file}`。**不含 model**——用哪个 model / 并发是**任务**的选择(→ `task.scoring.judge`) |
 | ~~`train`~~ | — | — | **不声明,推导**:backend→env 菜单从 `tools.*.provides` 扫描得出(sft_env provides llamafactory ⇒ llamafactory→sft_env);dataos-train CLI 的位置同理(provides 含 `dataos-train` 者)。默认 backend 是代码常量,方法→env 查表在 dataos-train `env_for()` |
