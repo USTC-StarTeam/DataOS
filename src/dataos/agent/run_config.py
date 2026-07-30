@@ -46,38 +46,46 @@ def _env(environment: str) -> dict[str, Any]:
     return data
 
 
+# Training backends the brain knows how to map to envs (mirrors dataos-train's backend
+# registry; method→env lookup itself happens in dataos-train's env_for).
+_BACKENDS = ("llamafactory", "verl")
+DEFAULT_BACKEND = "llamafactory"  # plan 未指明训练方法时的兜底(不是部署事实,是代码默认)
+
+
 def _tool_path(env: dict[str, Any], name: str) -> str:
     t = (env.get("tools") or {}).get(name, {})
     return t.get("path", "") if isinstance(t, dict) else str(t or "")
 
 
-def train_env_path(env: dict[str, Any]) -> str:
-    """Default SFT runtime path from the env's train block: train.backends[train.backend]
-    -> tools.<key>.path (the menu is declared exactly once, in env.yaml)."""
-    train = env.get("train") or {}
-    backend = train.get("backend", "llamafactory")
-    tool_key = (train.get("backends") or {}).get(backend)
-    if not tool_key:
-        raise ValueError(f"env.yaml train.backends has no entry for backend {backend!r}")
-    return _tool_path(env, tool_key)
+def _provides(env: dict[str, Any], name: str) -> list[str]:
+    t = (env.get("tools") or {}).get(name, {})
+    return list(t.get("provides") or []) if isinstance(t, dict) else []
 
 
 def env_menu(env: dict[str, Any]) -> dict[str, str]:
-    """The full training-env menu {domain: env path} from the env's train block — injected
-    into the TrainSpec's env.backends so dataos-train's env_for() resolves method→env."""
-    train = env.get("train") or {}
+    """The full training-env menu {backend: env path}, DERIVED from tools.*.provides (the
+    single source) — injected into the TrainSpec's env.backends for env_for() to resolve."""
     return {
-        domain: _tool_path(env, tool_key)
-        for domain, tool_key in (train.get("backends") or {}).items()
+        backend: _tool_path(env, name)
+        for name in (env.get("tools") or {})
+        for backend in _BACKENDS
+        if backend in _provides(env, name)
     }
 
 
+def train_env_path(env: dict[str, Any]) -> str:
+    """The default backend's env path (DEFAULT_BACKEND); per-method resolution is
+    dataos-train's env_for over the menu, not the brain's business."""
+    return env_menu(env).get(DEFAULT_BACKEND, "")
+
+
 def train_cli_path(env: dict[str, Any]) -> str:
-    """Where the dataos-train CLI lives: train.cli_env when declared (the thin
-    orchestrator env), else the default backend env."""
-    train = env.get("train") or {}
-    cli_key = train.get("cli_env")
-    return _tool_path(env, cli_key) if cli_key else train_env_path(env)
+    """Where the dataos-train CLI lives: the tools entry that provides it (the thin
+    orchestrator env); falls back to the default backend env."""
+    for name in (env.get("tools") or {}):
+        if "dataos-train" in _provides(env, name):
+            return _tool_path(env, name)
+    return train_env_path(env)
 
 
 def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
@@ -96,15 +104,18 @@ def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
     }
 
 
-def _runtime_paths(env: dict[str, Any]) -> dict[str, str]:
+def _runtime_paths(env: dict[str, Any], *, task: str, fixed_pool: str) -> dict[str, str]:
     p = env.get("paths") or {}
     deploy_root = p.get("deploy_root", "")
+    runtime_root = f"{deploy_root}/configs"  # exec-host task assets = deploy configs
     return {
         "deploy_root": deploy_root,
-        "runtime_root": f"{deploy_root}/configs",  # exec-host task assets = deploy configs
+        "runtime_root": runtime_root,
         "runs_base": p.get("runs_base", ""),
-        "benchmarks": p.get("benchmarks", ""),
-        "fixed_pool": p.get("fixed_pool", ""),
+        # derived, not declared: benchmark data lives in the task dir
+        "benchmarks": f"{runtime_root}/tasks/{task}/benchmarks",
+        # the run's input artifact (from the run JSON, like base_model_path)
+        "fixed_pool": fixed_pool,
         "train_env": train_env_path(env),
         "eval_env": _tool_path(env, "eval_env"),
         # the env menu, visible to the experimenter for ad-hoc steps (data build / rl / eval)
@@ -146,12 +157,13 @@ class PtbRunConfig:
     resource: ResourceConfig
     environment: str  # REQUIRED pointer into configs/environments/<env>/env.yaml
     task: str         # REQUIRED pointer into configs/tasks/<task>/
+    fixed_pool: str   # REQUIRED: this run's input pool (like base_model_path)
     eval_samples: int = -1  # eval size per experiment; -1 = FULL benchmark (all samples)
     monitor_port: int = 8765  # live-monitor HTTP port (host-side fact; 0 disables the monitor)
 
     _ALLOWED_KEYS = frozenset({
         "run_id", "workspace", "goal", "bench", "base_model_path", "time_budget_hours",
-        "resource", "environment", "task", "eval_samples", "monitor_port",
+        "resource", "environment", "task", "fixed_pool", "eval_samples", "monitor_port",
     })
 
     @classmethod
@@ -173,6 +185,7 @@ class PtbRunConfig:
             "resource",
             "environment",
             "task",
+            "fixed_pool",
         ]
         _require(data, required, "run config")
         return cls(
@@ -185,6 +198,7 @@ class PtbRunConfig:
             resource=ResourceConfig.from_dict(_object(data["resource"], "resource")),
             environment=_nonempty_str(data["environment"], "environment"),
             task=_nonempty_str(data["task"], "task"),
+            fixed_pool=_nonempty_str(data["fixed_pool"], "fixed_pool"),
             eval_samples=_eval_samples(data["eval_samples"], "eval_samples")
             if "eval_samples" in data
             else -1,
@@ -222,19 +236,18 @@ class PtbRunConfig:
             "resource": self.resource.to_record(),
             "environment": self.environment,
             "task": self.task,
+            "fixed_pool": self.fixed_pool,
         }
 
     def runtime_config(self) -> dict[str, Any]:
         env = _env(self.environment)
-        gateway = dict(env.get("gateway") or {})
         return {
             "environment": self.environment,
             "task": self.task,
             "runtime_ref": DEFAULT_RUNTIME_REF,
             "cluster": _cluster(env, self.resource),
-            "paths": _runtime_paths(env),
-            "gateway": gateway,
-            "judge": {**gateway, "workers": 32},
+            "paths": _runtime_paths(env, task=self.task, fixed_pool=self.fixed_pool),
+            "gateway": dict(env.get("gateway") or {}),  # connection facts only
         }
 
     def resolved_record(self, *, source_config: Path) -> dict[str, Any]:

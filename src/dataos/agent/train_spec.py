@@ -24,17 +24,19 @@ _STRIP = {"model_name_or_path", "stage", "do_train", "dataset", "dataset_dir",
 
 def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_model: str,
                      run_root: str, time_h: float) -> dict:
-    """TrainSpec dict for dataos-train. The backend and its env binding come from the
-    environment's ``train:`` block in env.yaml (declared exactly once, in configs/)."""
+    """TrainSpec dict for dataos-train. ``env.backends`` carries the FULL env menu derived
+    from the environment's ``tools.*.provides`` (the single source); dataos-train's
+    ``env_for()`` resolves method→env at build. The backend itself is the code default
+    until the plan can express a method choice."""
     env = resolved.get("environment", {})
     run = resolved.get("run", {})
     tools = env.get("tools", {})
-    train_cfg = env.get("train", {}) or {}
-    backend = train_cfg.get("backend", "llamafactory")
-    # the full env menu {domain: path}; dataos-train's env_for() resolves method→env at build
+    backend = "llamafactory"  # code default (plan-driven backend selection: verl work)
     env_backends = {
-        domain: (tools.get(key, {}).get("path") if isinstance(tools.get(key), dict) else tools.get(key))
-        for domain, key in (train_cfg.get("backends") or {}).items()
+        b: (tools.get(name, {}).get("path") if isinstance(tools.get(name), dict) else tools.get(name))
+        for name in tools
+        for b in ("llamafactory", "verl")
+        if b in ((tools.get(name) or {}).get("provides") or [])
     }
     resource = run.get("resource", {}) or {}
     gpus = int(resource.get("gpus") or 1)

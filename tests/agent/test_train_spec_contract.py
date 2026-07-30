@@ -27,9 +27,10 @@ except ImportError:  # pragma: no cover
 def _resolved() -> dict:
     return {
         "environment": {
-            "train": {"backend": "llamafactory",
-                      "backends": {"llamafactory": "sft_env", "verl": "rl_env"}},
-            "tools": {"sft_env": {"path": "/envs/Llama"}, "rl_env": {"path": "/envs/verl"}},
+            "tools": {
+                "sft_env": {"path": "/envs/Llama", "provides": ["llamafactory", "torch"]},
+                "rl_env": {"path": "/envs/verl", "provides": ["verl", "torch"]},
+            },
             "slurm": {"partition": "gpu", "qos": "gpu_priv"},
         },
         "run": {"resource": {"gpus": 1, "cpus": 8, "node": "gpu04"}},

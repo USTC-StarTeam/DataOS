@@ -16,6 +16,7 @@ def _run_json(run_dir, **over):
         "resource": {"node": "gpu04", "gpus": 1, "cpus": 8},
         "environment": "PTB_H100_slurm",
         "task": "posttrainbench",
+        "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2",
     }
     data.update(over)
     return data
@@ -41,18 +42,22 @@ def test_ptb_run_config_maps_to_auto_config(tmp_path):
 
 
 def test_paths_resolve_from_the_environment(tmp_path):
-    """Run-level facts only; fixed_pool/train_env/eval_env come from configs/environments."""
+    """fixed_pool is a run-level fact; env paths derive from tools/provides; benchmarks
+    derive from the task dir; gateway carries connection facts only."""
     cfg = PtbRunConfig.from_dict(_run_json(tmp_path / "ptb-h100-qwen-gsm8k"))
     paths = cfg.runtime_config()["paths"]
     assert paths["fixed_pool"].endswith("posttrainbench_fixed_pool_v2")
-    assert paths["train_env"].endswith("envs/sft/.venv")      # train.backends -> tools.sft_env
+    assert paths["train_env"].endswith("envs/sft/.venv")      # provides-derived default
     assert paths["eval_env"].endswith("envs/eval/.venv")
     # the env menu is visible to the experimenter (ad-hoc steps pick their env)
     assert paths["sft_env"].endswith("envs/sft/.venv")
     assert paths["rl_env"].endswith("envs/rl/.venv")
     assert paths["train_cli_env"].endswith("envs/train-cli/.venv")
+    # derived, not declared
+    assert paths["benchmarks"].endswith("configs/tasks/posttrainbench/benchmarks")
     assert paths["runtime_root"].endswith("dataos_agentver/configs")
-    assert cfg.runtime_config()["gateway"]["base_url"].startswith("https://")
+    gateway = cfg.runtime_config()["gateway"]
+    assert gateway["base_url"].startswith("https://") and "model" not in gateway
 
 
 def test_paths_block_is_rejected(tmp_path):

@@ -23,9 +23,11 @@ def _resolved(*, frozen: bool = False) -> dict:
     return {
         "task": task,
         "environment": {
-            "train": {"backend": "llamafactory",
-                      "backends": {"llamafactory": "sft_env", "verl": "rl_env"}},
-            "tools": {"sft_env": {"path": "/envs/Llama"}, "rl_env": {"path": "/envs/verl"}},
+            "tools": {
+                "sft_env": {"path": "/envs/Llama", "provides": ["llamafactory", "torch"]},
+                "rl_env": {"path": "/envs/verl", "provides": ["verl", "torch"]},
+                "train_cli_env": {"path": "/envs/train-cli", "provides": ["dataos-train"]},
+            },
         },
     }
 
@@ -63,8 +65,8 @@ def test_eval_invoke_from_the_resolved_contract():
 def test_train_invoke_is_the_registered_trainer():
     invoke = _stage(_resolved(), name="train").invoke
     assert invoke.startswith("DETERMINISTIC via dataos-train")
-    # the launcher lifecycle, NOT a hand-written sbatch wrapper
-    assert "`/envs/Llama/bin/dataos-train validate {ctx.run_root}/trainspec.json`" in invoke
+    # the launcher lifecycle, NOT a hand-written sbatch wrapper; cli from provides
+    assert "`/envs/train-cli/bin/dataos-train validate {ctx.run_root}/trainspec.json`" in invoke
     assert "submit {ctx.run_root}/spec.json --launcher slurm" in invoke
     assert "handle.json" in invoke
 

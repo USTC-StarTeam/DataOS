@@ -4,6 +4,7 @@
   "goal": "Use the fixed PTB data pool to improve the base model within a limited H100 budget.",
   "environment": "PTB_H100_slurm",
   "task": "posttrainbench",
+  "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2",
   "bench": "bfcl",
   "base_model_path": "/data/hcgu/archive/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
   "time_budget_hours": 10,
