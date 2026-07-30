@@ -23,14 +23,15 @@ run JSON 重构后每次执行都是全新实例（被占顺延 (1)(2)），reco
 触发面消除。残留边缘（resume 时改了 config 的 fixed_pool）属误操作而非 bug，
 不加机制。
 
-## P4 profiler 信号只有格式维度，主题相关源隐身（部分修复 2026-07-30）
+## P4 profiler 信号只有格式维度，主题相关源隐身（✅ 已修，2026-07-30）
 
 `target_fit.target_ratio` 只量输出格式匹配：openmathinstruct2（真·数学源）被判 0.0，
-leader 的候选菜单里数学源只剩 numinamath 一个。**已修的一半**：`quality`/`usage_hint`
-标签已删除——profiler 只给原始统计，判断完全归 leader（strategy 同步改为"读数字和
-样本自己判断，domain 相关但格式差的源可以配清洗步骤用，不是禁区"）。**未修的一半**：
-`target_ratio` 仍只有格式维度，建议增加主题/域相关性维度并改名 `format_fit_ratio`；
-strategy 补"提前收敛且预算有余时试一次源多样性探针"。
+leader 的候选菜单里数学源只剩 numinamath 一个。修复（两步）：
+① `quality`/`usage_hint` 标签删除（判断归 agent）；② **target_fit 整个删除**——格式契合
+本质是模糊判断，正则只会假装精确。新 schema：profiler 只出硬统计（n_rows/n_sampled/
+schema/domain{label,scores 全采样证据}/sample/output_format/negatives），**investigator
+拿着 eval 契约为每个源写 1-2 句文本 note**（内容是什么、本 bench 需转换什么），leader
+按 统计+note 规划。domain 也从"一行定标签"改为全采样证据占比。
 
 ## P5 budget 语义跨 invocation 混乱（未修）
 

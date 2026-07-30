@@ -4,17 +4,21 @@
 Given a fixed-pool source (or --all-sources), sample rows and produce a structured
 ``source_profile`` the main-agent uses to pick a data source WITHOUT guessing:
 
-    {source, n, schema[], domain, sample,
-     output_format: {function_call_json, natural_language, code, other},   # fractions
-     target_fit: {target_ratio, negatives, format_matches_eval}}           # vs the run target
+    {source, n_rows, n_sampled, schema[],
+     domain: {label, scores: {function-calling, math, medical, code}},  # full-sample evidence
+     sample,                                                            # one real row (truncated)
+     output_format: {function_call_json, natural_language, code, other}, # fractions
+     negatives}                                                          # refusal-rate
 
-This is PURE STATISTICS — no LLM, no judgment, and deliberately NO quality verdict or
-usage hint: the leader judges sources from the raw numbers + samples, a script's label
-would bias its planning. Cheap and reliable enough to profile the whole pool in a few
-minutes. It exists because the operator box has no "is this a valid target-format
-sample?" filter, so a random_sample recipe silently trained on 68% non-tool-call
-garbage from glaive and scored 4 on BFCL while the clean xlam source reached 83. This
-profiler surfaces exactly that difference — as numbers, not verdicts.
+This is PURE STATISTICS — no LLM, no judgment: NO quality verdict, NO usage hint, and
+NO target_fit/format-fit score (format fit is a fuzzy, bench-specific judgment a regex
+can only pretend to make — it once scored the genuinely-math openmathinstruct2 as 0.0).
+The INVESTIGATOR writes a per-source textual note over these stats + samples (it holds
+the eval format contract); the leader judges from stats + note. Cheap enough to profile
+the whole pool in a few minutes. It exists because the operator box has no "is this a
+valid target-format sample?" filter, so a random_sample recipe silently trained on 68%
+non-tool-call garbage from glaive and scored 4 on BFCL while the clean xlam source
+reached 83. This profiler surfaces exactly that difference — as numbers, not verdicts.
 
 Run inside the eval/train conda env (needs `datasets`):
     python profile_source.py --pool-root <pool> --source xlam_function_calling_60k --target function-calling
@@ -124,25 +128,45 @@ def _is_negative(ctx: str, out: str) -> bool:
             or "no external functions" in low)
 
 
-def _domain(fc_ratio: float, sample_out: str, sample_ctx: str) -> str:
-    if fc_ratio > 0.25 or "available tools" in sample_ctx.lower() or "<tool" in sample_out.lower():
-        return "function-calling"
-    if "#### " in sample_out or re.search(r"\\boxed\{", sample_out):
-        return "math"
-    if any(kw in (sample_ctx + sample_out).lower() for kw in _MEDICAL_KW):
-        return "medical"
-    if any(m in sample_out for m in _CODE_MARKERS):
-        return "code"
-    return "general"
+def _domain_scores(rows: list[dict]) -> dict[str, float]:
+    """Per-domain evidence fractions over the SAMPLED rows (not a one-row guess):
+    function-calling = function-call-format fraction; math = rows whose output carries
+    '#### ' or \\boxed{}; medical/code = keyword-hit fractions. The label is argmax
+    (>=0.3, else 'general') — scores stay visible so the leader sees borderline cases."""
+    denom = max(len(rows), 1)
+    fc = med = code = math = 0
+    for r in rows:
+        out = _extract_output(r)
+        ctx = _extract_context(r)
+        blob = (ctx + "\n" + out).lower()
+        if _classify_output(out) == "function_call_json" or "available tools" in blob or "<tool" in out.lower():
+            fc += 1
+        if "#### " in out or re.search(r"\\boxed\{", out):
+            math += 1
+        if any(kw in blob for kw in _MEDICAL_KW):
+            med += 1
+        if any(m in out for m in _CODE_MARKERS):
+            code += 1
+    return {
+        "function-calling": round(fc / denom, 3),
+        "math": round(math / denom, 3),
+        "medical": round(med / denom, 3),
+        "code": round(code / denom, 3),
+    }
 
 
-def profile_source(pool_root: str, source: str, target: str = "function-calling",
+def _domain_label(scores: dict[str, float]) -> str:
+    label, score = max(scores.items(), key=lambda kv: kv[1])
+    return label if score >= 0.3 else "general"
+
+
+def profile_source(pool_root: str, source: str,
                    n_sample: int = 200, seed: int = 42) -> dict[str, Any]:
     try:
         ds = _load_split(pool_root, source)
-    except Exception as e:  # noqa: BLE001 — a source we can't load is IRRELEVANT, not fatal
-        return {"source": source, "n": 0, "quality": "IRRELEVANT",
-                "usage_hint": f"could not load: {type(e).__name__}: {e}"}
+    except Exception as e:  # noqa: BLE001 — a source we can't load is noted, not fatal
+        return {"source": source, "n_rows": 0,
+                "error": f"could not load: {type(e).__name__}: {e}"}
     n = len(ds)
     take = min(n_sample, n)
     try:
@@ -153,7 +177,7 @@ def profile_source(pool_root: str, source: str, target: str = "function-calling"
     schema = sorted(rows[0].keys()) if rows else []
 
     fmt = {"function_call_json": 0, "natural_language": 0, "code": 0, "other": 0}
-    valid_fc = neg = 0
+    neg = 0
     first_out = first_ctx = ""
     for r in rows:
         out = _extract_output(r)
@@ -161,39 +185,26 @@ def profile_source(pool_root: str, source: str, target: str = "function-calling"
         if not first_out:
             first_out, first_ctx = out, ctx
         fmt[_classify_output(out)] += 1
-        if _is_valid_function_call(out):
-            valid_fc += 1
         if _is_negative(ctx, out):
             neg += 1
     denom = max(len(rows), 1)
     fmt_frac = {k: round(v / denom, 3) for k, v in fmt.items()}
-    valid_ratio = round(valid_fc / denom, 3)
     neg_ratio = round(neg / denom, 3)
-    dom = _domain(fmt_frac["function_call_json"], first_out, first_ctx)
+    dom_scores = _domain_scores(rows)
 
-    # target_fit: how well this source matches THIS run's target task/format.
-    if target == "function-calling":
-        target_ratio = valid_ratio
-        format_matches_eval = valid_ratio > 0.8
-    elif target == "math":
-        target_ratio = round(sum(1 for r in rows if "#### " in _extract_output(r)) / denom, 3)
-        format_matches_eval = target_ratio > 0.5
-    else:
-        target_ratio = round(1.0 - fmt_frac["other"], 3)
-        format_matches_eval = None
-
-    # Raw statistics ONLY — no quality verdict, no usage hint. Judging which source is
-    # worth training on is the leader's job (it sees these numbers + the samples);
-    # a script's label would bias that judgment.
+    # Raw statistics ONLY — no target_fit, no quality verdict, no usage hint. Format
+    # fit against the bench is a fuzzy judgment: the investigator writes a per-source
+    # textual note over these stats + samples (it holds the eval contract); the leader
+    # judges from stats + note. A regex's 0.0 would only pretend precision.
     return {
         "source": source,
-        "n": n,
+        "n_rows": n,
+        "n_sampled": len(rows),
         "schema": schema,
-        "domain": dom,
+        "domain": {"label": _domain_label(dom_scores), "scores": dom_scores},
         "sample": {"context": first_ctx[:200], "output": first_out[:200]},
         "output_format": fmt_frac,
-        "target_fit": {"target_ratio": target_ratio, "negatives": neg_ratio,
-                       "format_matches_eval": format_matches_eval},
+        "negatives": neg_ratio,
     }
 
 
@@ -211,18 +222,16 @@ def main() -> None:
     ap.add_argument("--pool-root", required=True)
     ap.add_argument("--source", default=None)
     ap.add_argument("--all-sources", action="store_true")
-    ap.add_argument("--target", default="function-calling",
-                    help="run target task kind for target_fit (function-calling|math|general)")
     ap.add_argument("--n-sample", type=int, default=200)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
     if args.all_sources:
-        profiles = [profile_source(args.pool_root, s, args.target, args.n_sample, args.seed)
+        profiles = [profile_source(args.pool_root, s, args.n_sample, args.seed)
                     for s in _iter_sources(args.pool_root)]
         json.dump(profiles, sys.stdout, ensure_ascii=False, indent=2)
     elif args.source:
-        json.dump(profile_source(args.pool_root, args.source, args.target, args.n_sample, args.seed),
+        json.dump(profile_source(args.pool_root, args.source, args.n_sample, args.seed),
                   sys.stdout, ensure_ascii=False, indent=2)
     else:
         ap.error("give --source <id> or --all-sources")

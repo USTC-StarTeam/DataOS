@@ -36,14 +36,17 @@ template: |
   3. source_profiles — run the deterministic profiler over the WHOLE pool (it's cheap, ~minutes):
      ```bash
      ssh <login> '{{ eval_env_python }} {{ profile_script }} \
-       --pool-root {{ fixed_pool }} --all-sources --target <function-calling|math|general>'
+       --pool-root {{ fixed_pool }} --all-sources'
      ```
-     Pick `--target` from the benchmark kind ({{ target_bench }}: bfcl→function-calling,
-     gsm8k/aime→math, else general). The script prints a JSON array of per-source RAW
-     STATISTICS (n, domain, output_format fractions, target_fit.target_ratio/negatives,
-     real samples — no quality verdicts by design). Put that array in as `source_profiles`
-     verbatim. Do NOT hand-edit it and do NOT add your own quality labels — the leader
-     judges sources from these numbers itself.
+     The script prints a JSON array of per-source RAW STATISTICS (n_rows, n_sampled,
+     domain {label, scores}, output_format fractions, negatives rate, one real sample —
+     no quality verdicts and no format-fit score by design: format fit is a judgment,
+     and THAT judgment is yours next). Then ANNOTATE it: for each source, add a `note`
+     field — 1-2 sentences saying what the content actually is and what (if anything)
+     must be converted for THIS bench, judged against the eval_format_contract you just
+     recorded (e.g. "math CoT with LaTeX \\boxed answers; needs re-rendering to the
+     `#### <number>` shape"). Keep every profile's stats verbatim — annotate, never
+     rewrite the numbers. Put the annotated array in as `source_profiles`.
 
   Then write recon.json locally as:
   {

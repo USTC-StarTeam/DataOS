@@ -257,9 +257,14 @@ def _recon_context(recon: dict | None, *, round_idx: int, recon_path: Path) -> d
     }
     if round_idx <= 1:
         out["source_profiles"] = [
-            {k: p.get(k) for k in ("source", "domain", "n") if k in p}
-            | {"target_ratio": (p.get("target_fit") or {}).get("target_ratio"),
-               "negatives": (p.get("target_fit") or {}).get("negatives")}
+            {
+                "source": p.get("source"),
+                "domain": (p.get("domain") or {}).get("label") if isinstance(p.get("domain"), dict)
+                          else p.get("domain"),
+                "n_rows": p.get("n_rows", p.get("n")),
+                "negatives": p.get("negatives"),
+                "note": p.get("note"),
+            }
             for p in (recon.get("source_profiles") or [])
         ]
     else:
@@ -293,6 +298,11 @@ def _plan_context(
         "budget": {
             "max_wall_clock_s": cfg.budget.max_wall_clock_s,
             "remaining_hours": _remaining_hours(started, cfg, now),
+            "note": (
+                "remaining_hours is THIS invocation's wall-clock balance — the run "
+                "continues across invocations (state persists in the workspace), so a low "
+                "number means this process may stop soon, NOT that the run is over"
+            ),
         },
         "round_idx": round_idx,
         # RECON intel (gathered once before training): eval contract + baseline diagnosis
@@ -354,8 +364,8 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
     # Gate ②: every planned source must be one RECON profiled, and domain-relevant. The
     # DIRTY-format rejection was removed (2026-07-14, per user): off-format data may still teach
     # the model useful signal, and blocking it hard-crashed runs when the pool had no HIGH source.
-    # RECON still profiles sources (incl. target_ratio) as INFO for the leader — it just no
-    # longer forbids a low-target_ratio source. Skipped when recon has no profiles.
+    # RECON still profiles sources (raw stats + investigator notes) as INFO for the
+    # leader — nothing here forbids any source. Skipped when recon has no profiles.
     profiles = {p.get("source"): p for p in (recon or {}).get("source_profiles", [])
                 if isinstance(p, dict) and p.get("source")}
     if profiles:

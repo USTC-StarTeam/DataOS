@@ -18,6 +18,8 @@ template: |
      guidance in the kb block; this is the single most important part);
   2. baseline_diagnosis — whether the base model's low score is a FORMAT miss or a CAPABILITY gap;
   3. source_profiles — the deterministic profiler's per-source raw statistics over the
-     whole pool (numbers + samples, no verdicts).
+     whole pool, PLUS your own 1-2 sentence `note` per source: what the content is and
+     what must be converted for this bench (you hold the eval contract, so you are the
+     right one to make that call — the leader then plans over stats + your notes).
 
   Write the file, confirm it parses as JSON, then stop. That file is your entire deliverable.

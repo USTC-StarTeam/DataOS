@@ -8,19 +8,20 @@ template: |
   of these you are applying (e.g. "local refine of best n0005: lr x0.5").
 
   RECON IS GROUND TRUTH — obey it (the context carries a `recon` block).
-  - `recon.source_profiles` profiled EVERY pool source — but it gives you RAW STATISTICS
-    (n, domain, output_format fractions, target_ratio, negatives, real samples), NOT
-    recommendations. Judge for yourself: prefer sources whose domain matches the bench and
-    whose `target_ratio` is high; treat high `negatives` or mixed `output_format` as
+  - `recon.source_profiles` profiled EVERY pool source — RAW STATISTICS (n_rows, domain
+    {label, scores}, output_format fractions, negatives, samples) PLUS the investigator's
+    per-source `note` (what the content is, what conversion this bench needs). Judge for
+    yourself: prefer sources whose domain matches the bench and whose note says the format
+    is already aligned; treat high `negatives` or a note demanding heavy conversion as
     "usable only with a cleaning step", not as forbidden. A prior BFCL run scored 4 by
     blindly training on glaive (68% "no access" negatives) instead of the clean xlam beside
-    it; the same base model reached 83 with the clean source. Read the numbers AND the
-    samples before choosing.
-  - If the only domain-relevant source has a low target_ratio or mixed formats (e.g. target
-    content in the wrong shape), you MAY still use it — but the plan MUST hand-write a
+    it; the same base model reached 83 with the clean source. Read the numbers, the notes,
+    AND the samples (in recon_path) before choosing.
+  - If the only domain-relevant source has mixed formats or the investigator's note says
+    the shape needs conversion, you MAY still use it — but the plan MUST hand-write a
     cleaning step (validity/format filter) via `subagent_brief`, telling the experimenter to
     keep only valid rows and normalize to the eval shape. Do not discard a domain-relevant
-    source just because its raw format fit is low — with a normalizer it may be the best
+    source just because its raw format needs work — with a normalizer it may be the best
     pool you have.
   - `recon.eval_format_contract.expected_target_shape` is the EXACT output shape the scorer parses.
     Your training target format MUST match it. A format mismatch caps the score regardless of data.
