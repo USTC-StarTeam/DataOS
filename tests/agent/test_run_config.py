@@ -101,3 +101,35 @@ def test_resume_requires_existing_workspace(tmp_path):
     (tmp_path / "myrun").mkdir()
     cfg = load_auto_run_config(config_path, resume=True)
     assert cfg.project_id == "myrun"  # same instance, no suffix
+
+
+def test_agent_block_configures_provider(tmp_path, monkeypatch):
+    """The optional `agent` block sets provider/model; precedence: JSON > env > default."""
+    monkeypatch.delenv("DATAOS_AGENT_PROVIDER", raising=False)
+    monkeypatch.delenv("DATAOS_AGENT_MODEL", raising=False)
+    base = _run_json(tmp_path / "myrun")
+
+    cfg = PtbRunConfig.from_dict(base).to_auto_config(resolved_config_path=tmp_path / "r.json")
+    assert cfg.agent_provider == "kimi" and cfg.agent_model is None  # defaults
+
+    cfg = PtbRunConfig.from_dict(
+        _run_json(tmp_path / "myrun", agent={"provider": "claude"})
+    ).to_auto_config(resolved_config_path=tmp_path / "r.json")
+    assert cfg.agent_provider == "claude" and cfg.agent_model is None  # CLI default model
+
+    cfg = PtbRunConfig.from_dict(
+        _run_json(tmp_path / "myrun", agent={"provider": "claude", "model": "claude-opus-4-8"})
+    ).to_auto_config(resolved_config_path=tmp_path / "r.json")
+    assert cfg.agent_model == "claude-opus-4-8"
+
+    # env var beats nothing but the JSON default; JSON beats env
+    monkeypatch.setenv("DATAOS_AGENT_PROVIDER", "qwen")
+    cfg = PtbRunConfig.from_dict(base).to_auto_config(resolved_config_path=tmp_path / "r.json")
+    assert cfg.agent_provider == "qwen"
+    cfg = PtbRunConfig.from_dict(
+        _run_json(tmp_path / "myrun", agent={"provider": "claude"})
+    ).to_auto_config(resolved_config_path=tmp_path / "r.json")
+    assert cfg.agent_provider == "claude"
+
+    with pytest.raises(ValueError, match="unknown keys"):
+        PtbRunConfig.from_dict(_run_json(tmp_path / "myrun", agent={"provder": "claude"}))

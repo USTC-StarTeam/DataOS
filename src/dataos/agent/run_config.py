@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -169,6 +169,14 @@ class BudgetConfig:
 
 
 @dataclass(slots=True)
+class AgentCliConfig:
+    """Which code-agent CLI drives the brain's agents (host-side fact)."""
+
+    provider: str | None = None  # dataos_agent registry name (kimi/claude/qwen/...)
+    model: str | None = None     # None = the CLI's own default model
+
+
+@dataclass(slots=True)
 class PtbRunConfig:
     """The layered run config: identity (goal/workspace) -> pointers (environment/task/
     bench) -> inputs -> exec -> budget -> host (monitor_port). The workspace path IS the
@@ -182,11 +190,12 @@ class PtbRunConfig:
     inputs: InputsConfig
     exec: ExecConfig
     budget: BudgetConfig
+    agent: AgentCliConfig = field(default_factory=AgentCliConfig)  # host-side agent CLI
     monitor_port: int = 8765  # live-monitor HTTP port (host-side fact; 0 disables the monitor)
 
     _ALLOWED_KEYS = frozenset({
         "goal", "workspace", "environment", "task", "bench",
-        "inputs", "exec", "budget", "monitor_port",
+        "inputs", "exec", "budget", "agent", "monitor_port",
     })
 
     @classmethod
@@ -206,6 +215,11 @@ class PtbRunConfig:
         _require(exec_, ["deploy_root", "runs_base", "resource"], "exec")
         budget = _object(data["budget"], "budget")
         _require(budget, ["time_hours"], "budget")
+        agent = _object(data["agent"], "agent") if "agent" in data else {}
+        unknown_agent = sorted(set(agent) - {"provider", "model"})
+        if unknown_agent:
+            raise ValueError(f"agent has unknown keys: {', '.join(unknown_agent)} "
+                             "(allowed: provider, model)")
         return cls(
             goal=_nonempty_str(data["goal"], "goal"),
             workspace=_nonempty_str(data["workspace"], "workspace"),
@@ -226,6 +240,14 @@ class PtbRunConfig:
                 eval_samples=_eval_samples(budget["eval_samples"], "budget.eval_samples")
                 if "eval_samples" in budget
                 else -1,
+            ),
+            agent=AgentCliConfig(
+                provider=_nonempty_str(agent["provider"], "agent.provider")
+                if agent.get("provider")
+                else None,
+                model=_nonempty_str(agent["model"], "agent.model")
+                if agent.get("model")
+                else None,
             ),
             monitor_port=_nonneg_int(data["monitor_port"], "monitor_port")
             if "monitor_port" in data
@@ -266,6 +288,9 @@ class PtbRunConfig:
                      "resource": self.exec.resource.to_record()},
             "budget": {"time_hours": self.budget.time_hours,
                        "eval_samples": self.budget.eval_samples},
+            "agent": {k: v for k, v in
+                      {"provider": self.agent.provider, "model": self.agent.model}.items()
+                      if v is not None},
             "monitor_port": self.monitor_port,
         }
 
@@ -308,8 +333,17 @@ class PtbRunConfig:
             budget=Budget(max_wall_clock_s=self.budget.time_hours * 3600.0),
             workspace=self.workspace_root,
             backend=os.environ.get("DATAOS_BACKEND", "cli"),
-            agent_provider=os.environ.get("DATAOS_AGENT_PROVIDER", "kimi"),
-            agent_model=os.environ.get("DATAOS_AGENT_MODEL") or None,  # None = CLI default
+            # precedence: run JSON `agent` block > env var > default (kimi / CLI default model)
+            agent_provider=(
+                self.agent.provider
+                or os.environ.get("DATAOS_AGENT_PROVIDER")
+                or "kimi"
+            ),
+            agent_model=(
+                self.agent.model
+                or os.environ.get("DATAOS_AGENT_MODEL")
+                or None  # None = the CLI's own default model
+            ),
             runtime_config=self.runtime_config(),
             runtime_config_path=str(resolved_config_path),
             h100_base_model=self.inputs.base_model_path,
