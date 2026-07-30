@@ -77,8 +77,10 @@ def _cfg(ws):
         backend="stub",
         stub=True,
         poll_interval_s=0.05,
+        # round 0 is the code-fixed baseline (no leader call); the leader's first plan
+        # comes at round 1 and should parent on the baseline node n0001.
         stub_replies={
-            "plan": [_plan("n0000", "child-0"), _plan("n0001", "child-1")],
+            "plan": [_plan("n0001", "child-0"), _plan("n0002", "child-1")],
             "review": REVIEW,
         },
         budget=Budget(max_wall_clock_s=1.0),
@@ -113,7 +115,7 @@ def test_stop_wall_clock_after_n_rounds(tmp_path):
     assert res["rounds_completed"] == 2
 
     pdir = Path(ws) / "p"
-    for r, exp in {"round-0000": "child-0", "round-0001": "child-1"}.items():
+    for r, exp in {"round-0000": "baseline", "round-0001": "child-0"}.items():
         assert (pdir / r / "plan.json").is_file()
         assert (pdir / r / "review.json").is_file()
         rep = json.loads((pdir / r / "experiments" / exp / "report.json").read_text())
@@ -123,8 +125,8 @@ def test_stop_wall_clock_after_n_rounds(tmp_path):
 
     tree = json.loads((pdir / "tree.json").read_text())
     assert len(tree["nodes"]) == 3
-    assert tree["nodes"][1]["parent"] == "n0000"
-    assert tree["nodes"][2]["parent"] == "n0001"
+    assert tree["nodes"][1]["parent"] == "n0000"  # baseline on the root
+    assert tree["nodes"][2]["parent"] == "n0001"  # child-0 continues from the baseline
     assert tree["nodes"][2]["init_model_path"] == tree["nodes"][1]["model_path"]
     scored = [n for n in tree["nodes"] if n["score"] is not None]
     assert len(scored) == 2 and all(n["score"] == 0.5 for n in scored)
@@ -148,7 +150,7 @@ def test_best_over_tree_final_model(tmp_path):
 def test_resume_skips_done_round(tmp_path):
     ws = str(tmp_path / "ws")
     run_auto(_cfg(ws), _clock=_clock_for_rounds(ws, 1))
-    rp = Path(ws) / "p" / "round-0000" / "experiments" / "child-0" / "report.json"
+    rp = Path(ws) / "p" / "round-0000" / "experiments" / "baseline" / "report.json"
     before = json.loads(rp.read_text())
 
     res = run_auto(_cfg(ws), _clock=_clock_for_rounds(ws, 1))

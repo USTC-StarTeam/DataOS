@@ -50,11 +50,10 @@ template: |
 
   Use the tree, reports, and prior reviews you are given.
 
-  FIRST experiment of the run — ALWAYS a BASELINE: evaluate the base model AS-IS, with NO
-  training. Return `parent_node_id` = the root node, empty `data: {}` and empty `train: {}`; the
-  experimenter evaluates the base model directly and records its reference score. Every later
-  experiment is judged against this baseline.
+  The FIRST experiment of every run is a code-fixed BASELINE (the base model evaluated
+  as-is, no plan from you) — its reference score is in your context. Every experiment you
+  plan is judged against this baseline.
 
-  Later experiments: choose a parent whose model is worth continuing (or a root child if
+  Experiments: choose a parent whose model is worth continuing (or a root child if
   exploration is more valuable), pick a proven training default, and vary one or a few dimensions.
   Ground every choice in the context; never invent results.

@@ -21,6 +21,7 @@ from dataos.agent.eval_freeze import freeze_eval
 
 from . import budget as _budget
 from .config import AutoRunConfig
+from .schemas import ExperimentPlan
 
 _MAIN_SESSION_FILE = "main_agent_session.json"
 _PLAN_RETRIES = 3
@@ -541,7 +542,26 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             )
             validation_errors: list[str] | None = None
             plan = None
+            if round_idx == 0:
+                # FIRST experiment is ALWAYS the baseline (evaluate the base model as-is,
+                # no data, no training) — a code-fixed plan, not a leader decision: saves
+                # a plan call and the leader can't open with a non-baseline experiment.
+                log.info("round 0: baseline (code-fixed, no leader call)")
+                plan = ExperimentPlan(
+                    parent_node_id=tree.root_id,
+                    name="baseline",
+                    hypothesis="baseline: evaluate the base model as-is to anchor scoring",
+                    estimated_hours=0.5,
+                    data={},
+                    train={},
+                    eval_plan="frozen sampled eval of the parent (base) model",
+                    expected_signal="reference score for every later experiment",
+                    subagent_brief="BASELINE: evaluate the parent model directly; skip data and train.",
+                    rationale="the baseline anchors all later comparisons",
+                )
             for attempt in range(1, _PLAN_RETRIES + 1):
+                if plan is not None:
+                    break
                 context = _plan_context(
                     cfg=cfg,
                     tree=tree,
