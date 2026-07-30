@@ -56,10 +56,12 @@ template: |
     noise), step back and try the other direction once — but default to scaling a confirmed-good
     small recipe up, not endlessly sweeping at small scale.
 
-  EVAL IS FULL — TRUST EXACT SCORES, AND CHANGE EXACTLY ONE KNOB.
-  - Eval now runs the FULL benchmark (every sample), not a 64-sample subset. For deterministic
-    benches (gsm8k, bfcl, humaneval, gpqa, aime) the score is EXACT — even a small real difference
-    is signal, so trust it. LLM-judge benches (healthbench, arena_hard_writing) still carry some
+  EVAL IS FULL — TRUST SCORES, AND CHANGE EXACTLY ONE KNOB.
+  - Eval now runs the FULL benchmark (every sample), not a 64-sample subset. Greedy-scored
+    deterministic benches (gsm8k — temperature is pinned to 0) are reproducible; benches the
+    protocol deliberately SAMPLES (bfcl/aime at 0.6, humaneval/gpqa at 1.0) still wobble a
+    little run-to-run even at a fixed seed (vLLM batching), so treat sub-2-point deltas there
+    as noise. LLM-judge benches (healthbench, arena_hard_writing) still carry some
     judge-model variance (much less than before); for a surprising judge result, re-run the eval
     once to confirm before building on it.
   - Change EXACTLY ONE knob per experiment (data size OR lr OR finetune type OR cutoff_len OR

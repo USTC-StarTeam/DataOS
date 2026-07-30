@@ -28,13 +28,15 @@ def build_agent(
     instructions: str,
     workspace: str,
     max_steps: int | None = None,
+    transcript: str | None = None,
 ) -> CliAgent:
     """Build the ``CliAgent`` for a role.
 
     ``provider``/``model`` always come from ``cfg.agent_provider`` /
     ``cfg.agent_model`` (``None`` model -> the CLI's default model). ``max_steps``
     defaults to ``cfg.max_steps``; callers that need a bigger turn budget
-    (execution experimenters) pass their own.
+    (execution experimenters) pass their own. ``transcript`` is the JSONL
+    run-record path (tee'd neutral events) when activity should be persisted.
     """
     return CliAgent(
         instructions=instructions,
@@ -42,4 +44,5 @@ def build_agent(
         provider=cfg.agent_provider,
         model=cfg.agent_model,
         max_steps=cfg.max_steps if max_steps is None else max_steps,
+        transcript=transcript,
     )

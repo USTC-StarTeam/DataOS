@@ -43,13 +43,14 @@ run 的预算（"RUN OVER — 0.009h"），新 invocation 给 3h 后又恢复真
 v1 池数学源仅 3 个且 2 个格式不匹配；+44 已接近该池上限。换源/混源空间取决于 v2
 （106 源）重画像后的构成。待 P3 修复后重评。
 
-## P7 monitor 的 agent console 在 kimi provider 下失明（未修）
+## P7 monitor 的 agent console 在 kimi provider 下失明（✅ 已修，2026-07-30）
 
-`monitor.py` 的 agent console 只读 Claude Code 的 transcript（`~/.claude/projects` 下的
-JSONL）。provider 切到 kimi 后，agent 会话落在 `~/.kimi/sessions/<id>/<session>/`
-（`context.jsonl`，结构不同）——**monitor 底部的 leader/experimenter console 现在是空的**。
-修法：monitor 按 provider 读对应 transcript（kimi 的 context.jsonl 格式不同于 claude，
-需要一个小适配层），或在 dataos_agent 层暴露统一的 transcript 路径。
+~~monitor 只读 Claude Code 的 transcript。~~ 改为 **tee 方案**：`dataos_agent` 新增
+`AgentConfig.transcript`——每个中立 Event（text/tool_use/tool_result/done）边流边追加到
+JSONL 文件（provider 中立，含断连重连全程）。接线：leader →
+`_agent/<run>/leader/transcript.jsonl`，experimenter → `<exp_dir>/agent.jsonl`，
+investigator → `<project>/investigator.jsonl`（全部落在运行目录，可归档）。
+monitor 优先读 tee 文件，旧 claude run 走原 transcript 兼容路径。
 
 ## 已解决（本 run 顺带验证/修复）
 

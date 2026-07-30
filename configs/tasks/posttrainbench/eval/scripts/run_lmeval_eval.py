@@ -157,7 +157,10 @@ def tool_call_parser_name(model_path: str, model_name: str) -> str:
 
 def generation_kwargs(task: str) -> dict[str, Any]:
     if task == "gsm8k":
-        return {"max_gen_toks": 4000}
+        # temperature MUST be pinned: unset falls through to the vLLM server default
+        # (1.0 sampling), which made the same weights score 85/86/85 and forced
+        # confirm-evals. gsm8k is a greedy-scored deterministic bench.
+        return {"max_gen_toks": 4000, "temperature": 0}
     if task == "humaneval":
         # pre-main protocol samples HumanEval at temperature 1.0 (greedy collapses
         # base-model code generations); matches gpqamain, the aligned control.

@@ -309,6 +309,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         instructions=system_prompt("experimenter", cfg),
         workspace=_REPO_ROOT,  # cwd at repo root so it can run .venv/ssh tooling
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
+        transcript=str(exp_dir / "agent.jsonl"),  # per-experiment run record (monitor + archive)
     )
     log.info("subagent[%s]: starting (bench=%s base=%s timeout=%ss)",
              name, cfg.target_bench, cfg.h100_base_model, int(timeout) if timeout else None)
@@ -425,6 +426,7 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         instructions=system_prompt("investigator", cfg),
         workspace=_REPO_ROOT,
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
+        transcript=str(Path(proj.project_dir) / "investigator.jsonl"),
     )
     cap = _RECON_TIMEOUT_S
     if deadline is not None:

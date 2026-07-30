@@ -91,9 +91,11 @@ monitor classifies a run live/done by heartbeat freshness (killed runs go stale;
 write `phase:"done"`). The host self-heals — any run re-binds the port if the host dies. The page
 follows the selected run: a pan/zoom experiment tree, a live status strip with a
 `data → train → eval` sub-stage stepper (ssh-probes the running node's H100 `run_root` markers),
-and a bottom agent console streaming each agent's reasoning + tool calls (read from Claude Code's
-JSONL transcripts under `~/.claude/projects`). Cluster ssh creds reach the monitor via
-`monitor.configure(cluster)` and are kept OUT of the served `LiveState` (no secret leak).
+and a bottom agent console streaming each agent's reasoning + tool calls (read from the
+**transcript tee**: `dataos_agent` appends every neutral Event to a per-role JSONL —
+`_agent/<run>/leader/transcript.jsonl`, `<exp_dir>/agent.jsonl`, `<project>/investigator.jsonl`;
+legacy claude-era runs fall back to the CLI's own transcripts). Cluster ssh creds reach the
+monitor via `monitor.configure(cluster)` and are kept OUT of the served `LiveState` (no secret leak).
 
 ## Local commands
 

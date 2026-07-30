@@ -161,7 +161,60 @@ def transcript_events(path: Path, *, limit: int = 200, clip: int = 700) -> list[
     return events[-limit:]
 
 
+def tee_events(path: Path, *, limit: int = 200, clip: int = 700) -> list[dict]:
+    """Reduce a dataos_agent transcript tee (neutral Events as JSONL) to the same flat
+    activity stream shape as transcript_events — provider-neutral."""
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    events: list[dict] = []
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        kind, ts = record.get("type"), record.get("ts")
+        if kind == "text" and (record.get("text") or "").strip():
+            events.append({"kind": "text", "text": record["text"].strip()[:clip], "ts": ts})
+        elif kind == "tool_use":
+            name = record.get("name") or "?"
+            events.append({"kind": "tool", "name": name,
+                           "text": _tool_summary(name, record.get("args"))[:clip], "ts": ts})
+        elif kind == "tool_result":
+            out = str(record.get("data") or "").strip()
+            if out:
+                events.append({"kind": "result", "text": out[:clip], "ts": ts})
+        elif kind == "done":
+            status = ((record.get("data") or {}).get("status"))
+            events.append({"kind": "result", "text": f"[done: {status}]", "ts": ts})
+    for seq, event in enumerate(events):
+        event["seq"] = seq
+    return events[-limit:]
+
+
+def _tee_file(workspace: Path, run_id: str, agent: str) -> Path | None:
+    """The dataos_agent transcript tee for this role, when the run records one."""
+    if agent == "main":
+        p = workspace / "_agent" / run_id / "leader" / "transcript.jsonl"
+        return p if p.is_file() else None
+    root = workspace / run_id
+    try:
+        cands = sorted(
+            root.glob("round-*/experiments/*/agent.jsonl"),
+            key=lambda p: p.stat().st_mtime,
+        )
+    except OSError:
+        return None
+    return cands[-1] if cands else None
+
+
 def activity(workspace: Path, run_id: str, agent: str) -> dict:
+    # Preferred: the provider-neutral tee written by dataos_agent (works for every CLI).
+    tee = _tee_file(workspace, run_id, agent)
+    if tee is not None:
+        return {"agent": agent, "session": tee.name, "events": tee_events(tee)}
+    # Legacy: the CLI's own session transcripts (claude-era runs).
     directory = _transcript_dir(workspace, run_id, agent)
     session = _latest_transcript(directory) if directory else None
     if session is None:

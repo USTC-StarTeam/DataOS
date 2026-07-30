@@ -148,6 +148,11 @@ def make_agent(role: str, cfg: AutoRunConfig):
 
     if cfg.backend == "cli":
         # A code-agent CLI with its own local login — no API key handled here.
-        return build_agent(cfg, instructions=system_prompt(role, cfg), workspace=ws)
+        return build_agent(
+            cfg,
+            instructions=system_prompt(role, cfg),
+            workspace=ws,
+            transcript=str(Path(ws) / "transcript.jsonl"),  # the leader's run record
+        )
 
     raise ValueError(f"unknown backend {cfg.backend!r}; use 'cli' or 'stub'")
