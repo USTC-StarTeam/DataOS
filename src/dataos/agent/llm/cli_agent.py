@@ -46,6 +46,7 @@ class CliAgent:
         model: str | None = None,
         max_steps: int = 12,
         transcript: str | None = None,
+        effort: str | None = None,
     ) -> None:
         self.instructions = instructions or ""
         self.workspace = str(workspace)
@@ -53,6 +54,7 @@ class CliAgent:
         self.model = model  # None -> the CLI's default model
         self.max_steps = max_steps
         self.transcript = transcript  # provider-neutral JSONL run record (see dataos_agent)
+        self.effort = effort  # thinking level, mapped by the provider's CLI
         Path(self.workspace).mkdir(parents=True, exist_ok=True)
 
     def run(self, task: str, *, output: Any = None, resume: Any = None,
@@ -82,6 +84,7 @@ class CliAgent:
                     permission="auto",
                     timeout=timeout,
                     transcript=self.transcript,
+                    effort=self.effort,
                     extra={"resume": str(resume)} if resume else {},
                 )
             )

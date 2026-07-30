@@ -174,6 +174,7 @@ class AgentCliConfig:
 
     provider: str | None = None  # dataos_agent registry name (kimi/claude/qwen/...)
     model: str | None = None     # None = the CLI's own default model
+    effort: str | None = None    # thinking level (claude: low/medium/high/xhigh/max)
 
 
 @dataclass(slots=True)
@@ -216,10 +217,10 @@ class PtbRunConfig:
         budget = _object(data["budget"], "budget")
         _require(budget, ["time_hours"], "budget")
         agent = _object(data["agent"], "agent") if "agent" in data else {}
-        unknown_agent = sorted(set(agent) - {"provider", "model"})
+        unknown_agent = sorted(set(agent) - {"provider", "model", "effort"})
         if unknown_agent:
             raise ValueError(f"agent has unknown keys: {', '.join(unknown_agent)} "
-                             "(allowed: provider, model)")
+                             "(allowed: provider, model, effort)")
         return cls(
             goal=_nonempty_str(data["goal"], "goal"),
             workspace=_nonempty_str(data["workspace"], "workspace"),
@@ -247,6 +248,9 @@ class PtbRunConfig:
                 else None,
                 model=_nonempty_str(agent["model"], "agent.model")
                 if agent.get("model")
+                else None,
+                effort=_nonempty_str(agent["effort"], "agent.effort")
+                if agent.get("effort")
                 else None,
             ),
             monitor_port=_nonneg_int(data["monitor_port"], "monitor_port")
@@ -289,7 +293,8 @@ class PtbRunConfig:
             "budget": {"time_hours": self.budget.time_hours,
                        "eval_samples": self.budget.eval_samples},
             "agent": {k: v for k, v in
-                      {"provider": self.agent.provider, "model": self.agent.model}.items()
+                      {"provider": self.agent.provider, "model": self.agent.model,
+                       "effort": self.agent.effort}.items()
                       if v is not None},
             "monitor_port": self.monitor_port,
         }
@@ -344,6 +349,7 @@ class PtbRunConfig:
                 or os.environ.get("DATAOS_AGENT_MODEL")
                 or None  # None = the CLI's own default model
             ),
+            agent_effort=self.agent.effort,
             runtime_config=self.runtime_config(),
             runtime_config_path=str(resolved_config_path),
             h100_base_model=self.inputs.base_model_path,

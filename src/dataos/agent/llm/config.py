@@ -45,4 +45,5 @@ def build_agent(
         model=cfg.agent_model,
         max_steps=cfg.max_steps if max_steps is None else max_steps,
         transcript=transcript,
+        effort=cfg.agent_effort,
     )

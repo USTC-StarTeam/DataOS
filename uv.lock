@@ -1069,7 +1069,7 @@ vllm = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'eval'", specifier = ">=0.34" },
-    { name = "dataos-agent", git = "https://github.com/USTC-StarTeam/DataOS-Agent.git?rev=9eaaab4d5d384e90fcde22340d42839c38a6edae" },
+    { name = "dataos-agent", git = "https://github.com/USTC-StarTeam/DataOS-Agent.git?rev=f11194a31c3affe30a7cf476cb0a2e8cdc024bf1" },
     { name = "dataos-operator", git = "https://github.com/USTC-StarTeam/DataOS-Operator.git?rev=v0.5.0" },
     { name = "datasets", specifier = ">=2.19.0" },
     { name = "evaluate", marker = "extra == 'eval'", specifier = ">=0.4.0" },
@@ -1096,7 +1096,7 @@ provides-extras = ["dev", "train", "eval", "vllm"]
 [[package]]
 name = "dataos-agent"
 version = "0.3.0"
-source = { git = "https://github.com/USTC-StarTeam/DataOS-Agent.git?rev=9eaaab4d5d384e90fcde22340d42839c38a6edae#9eaaab4d5d384e90fcde22340d42839c38a6edae" }
+source = { git = "https://github.com/USTC-StarTeam/DataOS-Agent.git?rev=f11194a31c3affe30a7cf476cb0a2e8cdc024bf1#f11194a31c3affe30a7cf476cb0a2e8cdc024bf1" }
 dependencies = [
     { name = "pydantic" },
 ]
