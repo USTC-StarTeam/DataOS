@@ -241,24 +241,32 @@ def _load_recon(project_dir: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def _recon_digest(recon: dict | None) -> dict | None:
-    """A compact recon view for later rounds — keeps the per-source stats + eval contract
-    (the parts the planner must keep obeying) but drops verbose per-source samples to save tokens.
-    The HARD guard is _validate_plan (code), so the digest is only a reminder, not the enforcement."""
+def _recon_context(recon: dict | None, *, round_idx: int, recon_path: Path) -> dict | None:
+    """The recon view for the leader's context bundle. The small, always-relevant parts
+    (eval contract + baseline diagnosis) stay INLINE every round; the large per-source
+    profiles are shown ONCE as a sample-free stats table (rounds 0-1) and afterwards the
+    leader just gets the file path — it has a shell and reads recon.json on demand. The
+    HARD guard is _validate_plan (code), so this is information, not enforcement."""
     if not recon:
         return recon
-    profiles = [
-        {k: p.get(k) for k in ("source", "domain", "n") if k in p}
-        | {"target_ratio": (p.get("target_fit") or {}).get("target_ratio"),
-           "negatives": (p.get("target_fit") or {}).get("negatives")}
-        for p in (recon.get("source_profiles") or [])
-    ]
-    return {
+    out = {
         "eval_format_contract": recon.get("eval_format_contract"),
         "baseline_diagnosis": recon.get("baseline_diagnosis"),
-        "source_profiles": profiles,
-        "note": "digest — full profiles were shown in round 0; judge sources by these stats + the eval contract",
+        "recon_path": str(recon_path),
     }
+    if round_idx <= 1:
+        out["source_profiles"] = [
+            {k: p.get(k) for k in ("source", "domain", "n") if k in p}
+            | {"target_ratio": (p.get("target_fit") or {}).get("target_ratio"),
+               "negatives": (p.get("target_fit") or {}).get("negatives")}
+            for p in (recon.get("source_profiles") or [])
+        ]
+    else:
+        out["note"] = (
+            "source_profiles (with real samples) live in recon_path — search/read it on "
+            "demand when choosing data sources"
+        )
+    return out
 
 
 def _plan_context(
@@ -286,10 +294,12 @@ def _plan_context(
             "remaining_hours": _remaining_hours(started, cfg, now),
         },
         "round_idx": round_idx,
-        # RECON intel (gathered once before training): eval format contract + baseline failure
-        # cause + per-source quality profiles. Full in round 0-1, digested after. data.sources
-        # MUST be picked from source_profiles (prefer HIGH, avoid DIRTY) — enforced in _validate_plan.
-        "recon": recon if round_idx <= 1 else _recon_digest(recon),
+        # RECON intel (gathered once before training): eval contract + baseline diagnosis
+        # inline every round; source stats table once (rounds 0-1), then a file pointer.
+        # data.sources MUST come from source_profiles — enforced in _validate_plan.
+        "recon": _recon_context(
+            recon, round_idx=round_idx, recon_path=Path(proj.project_dir) / _RECON_FILE
+        ),
         "tree": tree.to_context(),
         "best": _global_best(proj),
         "recent_reviews": _recent_reviews(proj),
