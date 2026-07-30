@@ -71,8 +71,12 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   `environments/<env>/env.yaml` (MACHINE facts only: access/slurm/tools(provides)/
   gateway(connection)/ops — NO paths), `tasks/<task>/` (task contract incl.
   `scoring.judge.model` + the self-contained `eval/` lm-eval bridge + `benchmarks/` data,
-  ~16M git-tracked), `runs/*.json` (per-run facts ONLY + required `environment`/`task`/
-  `fixed_pool`/`deploy_root`/`runs_base` — anything derivable is derived in code: the
+  ~16M git-tracked), `runs/*.json` (per-run facts ONLY, layered: identity `goal`/`workspace`
+  → pointers `environment`/`task`/`bench` → `inputs` → `exec` → `budget` → host (`agent`,
+  `monitor_port`); the workspace path IS the run identity (no run_id) — fresh instance per
+  invocation, `--resume` to continue. The optional `agent` block picks the brain's CLI per
+  run (`{"provider": "claude"|"kimi"|..., "model": ...}`; precedence: JSON > `DATAOS_AGENT_*`
+  env > default kimi/CLI-default-model). Anything derivable is derived in code: the
   backend→env menu is scanned from `tools.*.provides`, benchmarks from the task dir;
   unknown keys are rejected at load). `configs/CONTRACT.md` is the field spec.
   The composer (`agent/runtime_compose.py`) resolves these into the experimenter's ENV
