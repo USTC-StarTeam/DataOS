@@ -242,21 +242,22 @@ def _load_recon(project_dir: Path) -> dict | None:
 
 
 def _recon_digest(recon: dict | None) -> dict | None:
-    """A compact recon view for later rounds — keeps the source-quality table + eval contract
+    """A compact recon view for later rounds — keeps the per-source stats + eval contract
     (the parts the planner must keep obeying) but drops verbose per-source samples to save tokens.
     The HARD guard is _validate_plan (code), so the digest is only a reminder, not the enforcement."""
     if not recon:
         return recon
     profiles = [
-        {k: p.get(k) for k in ("source", "domain", "quality")
-         if k in p} | {"target_ratio": (p.get("target_fit") or {}).get("target_ratio")}
+        {k: p.get(k) for k in ("source", "domain", "n") if k in p}
+        | {"target_ratio": (p.get("target_fit") or {}).get("target_ratio"),
+           "negatives": (p.get("target_fit") or {}).get("negatives")}
         for p in (recon.get("source_profiles") or [])
     ]
     return {
         "eval_format_contract": recon.get("eval_format_contract"),
         "baseline_diagnosis": recon.get("baseline_diagnosis"),
         "source_profiles": profiles,
-        "note": "digest — full profiles were shown in round 0; obey source quality + eval contract",
+        "note": "digest — full profiles were shown in round 0; judge sources by these stats + the eval contract",
     }
 
 
@@ -347,17 +348,14 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
     profiles = {p.get("source"): p for p in (recon or {}).get("source_profiles", [])
                 if isinstance(p, dict) and p.get("source")}
     if profiles:
+        # Existence gate only: the source must be one recon profiled (no invented ids).
+        # Relevance is the leader's judgment from the raw stats — the profiler no longer
+        # emits quality labels, so there is nothing here to reject on.
         for src in (getattr(plan, "data", None) or {}).get("sources", []) or []:
-            prof = profiles.get(src)
-            if prof is None:
+            if src not in profiles:
                 errors.append(
                     f"source {src!r} is not in recon.source_profiles — only use profiled pool "
-                    f"sources; pick from the recon source-quality table"
-                )
-            elif prof.get("quality") == "IRRELEVANT":
-                errors.append(
-                    f"source {src!r} is IRRELEVANT to {cfg.target_bench} in recon "
-                    f"(domain={prof.get('domain')}) — pick a source whose domain matches the target"
+                    f"sources"
                 )
     return errors
 

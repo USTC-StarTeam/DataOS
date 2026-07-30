@@ -156,3 +156,32 @@ def test_resume_skips_done_round(tmp_path):
     assert after["id"] == before["id"]
     assert res["rounds_completed"] == 2
     assert (Path(ws) / "p" / "round-0001" / "review.json").is_file()
+
+
+def test_validate_plan_source_gate():
+    """The source gate checks EXISTENCE in recon profiles only (no quality labels)."""
+    from dataos.agent.loop import _validate_plan
+    from dataos.agent.schemas import ExperimentPlan
+    import types
+
+    recon = {"source_profiles": [
+        {"source": "good_math", "domain": "math", "n": 1000,
+         "target_fit": {"target_ratio": 0.0, "negatives": 0.9}},  # ugly stats, but allowed
+    ]}
+    plan = ExperimentPlan(
+        parent_node_id="n0000", name="x", hypothesis="h", estimated_hours=1.0,
+        data={"sources": ["good_math"], "recipe": []}, train={"finetuning_type": "lora"},
+        eval_plan="e", expected_signal="s", subagent_brief="b", rationale="r",
+    )
+    tree = types.SimpleNamespace(
+        has_node=lambda _id: True,
+        growable_nodes=lambda: [{"id": "n0000"}],
+        experiment_names=lambda: set(),
+    )
+    cfg = types.SimpleNamespace(target_bench="gsm8k")
+    # a profiled source passes even with ratio 0.0 / 90% negatives (leader's call, not code's)
+    assert _validate_plan(plan, tree, cfg, recon) == []
+    # an unprofiled (invented) source is rejected
+    plan.data["sources"] = ["invented_source"]
+    errors = _validate_plan(plan, tree, cfg, recon)
+    assert any("not in recon.source_profiles" in e for e in errors)

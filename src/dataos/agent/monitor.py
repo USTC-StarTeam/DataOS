@@ -83,7 +83,7 @@ def _transcript_dir(workspace: Path, run_id: str, agent: str) -> Path | None:
         return None
     if agent == "main":  # workspace abspath may differ — fall back to a run_id match
         hits = sorted(
-            (h for pat in (f"*{_munge(run_id)}*leader", f"*{_munge(run_id)}*leader")
+            (h for pat in (f"*{_munge(run_id)}*leader", f"*{_munge(run_id)}*main-agent")
              for h in _CLAUDE_PROJECTS.glob(pat)),
             key=lambda p: p.stat().st_mtime,
         )
