@@ -3,12 +3,11 @@
 来源：ptb-gsm8k-c6verify（29 轮，3h，baseline 41.0 → best 86.0，dataos-train 首验 run）
 的完整轨迹分析。按优先级排列，状态见每条末尾。
 
-## P1 收敛后 no-op 空转烧预算（未修）
+## P1 收敛后 no-op 空转烧预算（✅ 关闭：非缺陷，2026-07-30）
 
-leader 在 round 12 正确判定收敛后，因 schema 禁止 stop decision，只能每轮编
-"terminal-submit-marker" no-op plan——**29 轮中 17 轮（59%）是空转**（~1.5h 预算 +
-十几轮 agent 调用）。修法（择一）：(a) loop 检测连续 ≥2 个"data 空+train 空+parent==best"
-的 plan → 直接 best_over_tree 收官；(b) schema 允许 STOP 决策。
+leader 在 round 12 判定收敛后输出了 17 轮 no-op marker。复盘结论：**这不是要修的问题**——
+leader 就不该被代码叫停；那轮它判定"没的可做"只是因为 stale recon 让候选池看起来只有
+24 源（见 P3），v2 的 106 源下探索空间真实存在。保持 leader 持续探索的设计，不加收敛检测。
 
 ## P2 deterministic bench 的分数不 exact（未修）
 
