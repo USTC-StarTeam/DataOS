@@ -99,7 +99,8 @@ JSONL transcripts under `~/.claude/projects`). Cluster ssh creds reach the monit
 
 ```bash
 uv sync                          # agent-host env
-uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json   # start a run
+uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json   # start a run (fresh instance)
+uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json --resume   # continue the workspace
 uv run ruff check src tests
 uv run pytest -q
 ```

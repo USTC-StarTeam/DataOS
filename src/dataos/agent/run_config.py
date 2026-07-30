@@ -146,26 +146,47 @@ class ResourceConfig:
 
 
 @dataclass(slots=True)
-class PtbRunConfig:
-    run_id: str
-    workspace: str
-    goal: str
-    bench: str
+class InputsConfig:
+    """This run's input artifacts."""
+
     base_model_path: str
-    time_budget_hours: float
+    fixed_pool: str
+
+
+@dataclass(slots=True)
+class ExecConfig:
+    """Where/how the run executes on the cluster."""
+
+    deploy_root: str  # which DataOS deploy checkout the exec host uses ($AGENTVER)
+    runs_base: str    # where this run's artifacts land on the exec host
     resource: ResourceConfig
+
+
+@dataclass(slots=True)
+class BudgetConfig:
+    time_hours: float
+    eval_samples: int = -1  # eval size per experiment; -1 = FULL benchmark (all samples)
+
+
+@dataclass(slots=True)
+class PtbRunConfig:
+    """The layered run config: identity (goal/workspace) -> pointers (environment/task/
+    bench) -> inputs -> exec -> budget -> host (monitor_port). The workspace path IS the
+    run's identity (there is no separate run_id)."""
+
+    goal: str
+    workspace: str
     environment: str  # REQUIRED pointer into configs/environments/<env>/env.yaml
     task: str         # REQUIRED pointer into configs/tasks/<task>/
-    fixed_pool: str   # REQUIRED: this run's input pool (like base_model_path)
-    deploy_root: str  # REQUIRED: which DataOS deploy checkout the exec host uses ($AGENTVER)
-    runs_base: str    # REQUIRED: where this run's artifacts land on the exec host
-    eval_samples: int = -1  # eval size per experiment; -1 = FULL benchmark (all samples)
+    bench: str
+    inputs: InputsConfig
+    exec: ExecConfig
+    budget: BudgetConfig
     monitor_port: int = 8765  # live-monitor HTTP port (host-side fact; 0 disables the monitor)
 
     _ALLOWED_KEYS = frozenset({
-        "run_id", "workspace", "goal", "bench", "base_model_path", "time_budget_hours",
-        "resource", "environment", "task", "fixed_pool", "deploy_root", "runs_base",
-        "eval_samples", "monitor_port",
+        "goal", "workspace", "environment", "task", "bench",
+        "inputs", "exec", "budget", "monitor_port",
     })
 
     @classmethod
@@ -173,41 +194,39 @@ class PtbRunConfig:
         unknown = sorted(set(data) - cls._ALLOWED_KEYS)
         if unknown:
             raise ValueError(
-                f"run config has unknown/forbidden keys: {', '.join(unknown)} — a run JSON "
-                "carries only run-level facts + environment/task pointers (paths/train/env "
-                "facts resolve from configs/environments + configs/tasks)"
+                f"run config has unknown/forbidden keys: {', '.join(unknown)} — the layered "
+                "schema is goal/workspace, environment/task/bench, inputs, exec, budget, "
+                "monitor_port (everything else resolves from configs/environments + configs/tasks)"
             )
-        required = [
-            "run_id",
-            "workspace",
-            "goal",
-            "bench",
-            "base_model_path",
-            "time_budget_hours",
-            "resource",
-            "environment",
-            "task",
-            "fixed_pool",
-            "deploy_root",
-            "runs_base",
-        ]
-        _require(data, required, "run config")
+        _require(data, ["goal", "workspace", "environment", "task", "bench",
+                        "inputs", "exec", "budget"], "run config")
+        inputs = _object(data["inputs"], "inputs")
+        _require(inputs, ["base_model_path", "fixed_pool"], "inputs")
+        exec_ = _object(data["exec"], "exec")
+        _require(exec_, ["deploy_root", "runs_base", "resource"], "exec")
+        budget = _object(data["budget"], "budget")
+        _require(budget, ["time_hours"], "budget")
         return cls(
-            run_id=_nonempty_str(data["run_id"], "run_id"),
-            workspace=_nonempty_str(data["workspace"], "workspace"),
             goal=_nonempty_str(data["goal"], "goal"),
-            bench=_nonempty_str(data["bench"], "bench"),
-            base_model_path=_nonempty_str(data["base_model_path"], "base_model_path"),
-            time_budget_hours=_positive_float(data["time_budget_hours"], "time_budget_hours"),
-            resource=ResourceConfig.from_dict(_object(data["resource"], "resource")),
+            workspace=_nonempty_str(data["workspace"], "workspace"),
             environment=_nonempty_str(data["environment"], "environment"),
             task=_nonempty_str(data["task"], "task"),
-            fixed_pool=_nonempty_str(data["fixed_pool"], "fixed_pool"),
-            deploy_root=_nonempty_str(data["deploy_root"], "deploy_root"),
-            runs_base=_nonempty_str(data["runs_base"], "runs_base"),
-            eval_samples=_eval_samples(data["eval_samples"], "eval_samples")
-            if "eval_samples" in data
-            else -1,
+            bench=_nonempty_str(data["bench"], "bench"),
+            inputs=InputsConfig(
+                base_model_path=_nonempty_str(inputs["base_model_path"], "inputs.base_model_path"),
+                fixed_pool=_nonempty_str(inputs["fixed_pool"], "inputs.fixed_pool"),
+            ),
+            exec=ExecConfig(
+                deploy_root=_nonempty_str(exec_["deploy_root"], "exec.deploy_root"),
+                runs_base=_nonempty_str(exec_["runs_base"], "exec.runs_base"),
+                resource=ResourceConfig.from_dict(_object(exec_["resource"], "exec.resource")),
+            ),
+            budget=BudgetConfig(
+                time_hours=_positive_float(budget["time_hours"], "budget.time_hours"),
+                eval_samples=_eval_samples(budget["eval_samples"], "budget.eval_samples")
+                if "eval_samples" in budget
+                else -1,
+            ),
             monitor_port=_nonneg_int(data["monitor_port"], "monitor_port")
             if "monitor_port" in data
             else 8765,
@@ -225,26 +244,29 @@ class PtbRunConfig:
         return Path(self.workspace).expanduser()
 
     @property
+    def project_id(self) -> str:
+        """The run's identity = the workspace basename (suffix included, e.g. 'ptb-x(1)')."""
+        return self.workspace_path.name
+
+    @property
     def workspace_root(self) -> str:
-        path = self.workspace_path
-        if path.name != self.run_id:
-            raise ValueError("workspace must point to the run directory and end with run_id")
-        return str(path.parent if str(path.parent) else Path("."))
+        return str(self.workspace_path.parent)
 
     def to_record(self) -> dict[str, Any]:
         return {
-            "run_id": self.run_id,
-            "workspace": self.workspace,
             "goal": self.goal,
-            "bench": self.bench,
-            "base_model_path": self.base_model_path,
-            "time_budget_hours": self.time_budget_hours,
-            "resource": self.resource.to_record(),
+            "workspace": self.workspace,
             "environment": self.environment,
             "task": self.task,
-            "fixed_pool": self.fixed_pool,
-            "deploy_root": self.deploy_root,
-            "runs_base": self.runs_base,
+            "bench": self.bench,
+            "inputs": {"base_model_path": self.inputs.base_model_path,
+                       "fixed_pool": self.inputs.fixed_pool},
+            "exec": {"deploy_root": self.exec.deploy_root,
+                     "runs_base": self.exec.runs_base,
+                     "resource": self.exec.resource.to_record()},
+            "budget": {"time_hours": self.budget.time_hours,
+                       "eval_samples": self.budget.eval_samples},
+            "monitor_port": self.monitor_port,
         }
 
     def runtime_config(self) -> dict[str, Any]:
@@ -253,57 +275,74 @@ class PtbRunConfig:
             "environment": self.environment,
             "task": self.task,
             "runtime_ref": DEFAULT_RUNTIME_REF,
-            "cluster": _cluster(env, self.resource),
+            "cluster": _cluster(env, self.exec.resource),
             "paths": _runtime_paths(
-                env, task=self.task, fixed_pool=self.fixed_pool,
-                deploy_root=self.deploy_root, runs_base=self.runs_base,
+                env, task=self.task, fixed_pool=self.inputs.fixed_pool,
+                deploy_root=self.exec.deploy_root, runs_base=self.exec.runs_base,
             ),
             "gateway": dict(env.get("gateway") or {}),  # connection facts only
         }
 
     def resolved_record(self, *, source_config: Path) -> dict[str, Any]:
-        runtime = self.runtime_config()
         return {
             "run": {
-                "run_id": self.run_id,
+                "project_id": self.project_id,
                 "workspace": str(self.workspace_path),
                 "source_config": str(source_config),
                 "goal": self.goal,
-                "time_budget_hours": self.time_budget_hours,
+                "time_hours": self.budget.time_hours,
             },
             "posttrainbench": {"bench": self.bench, "profile": "formal"},
-            "model": {"base_model_path": self.base_model_path},
-            "resource": self.resource.to_record(),
-            "runtime": runtime,
+            "model": {"base_model_path": self.inputs.base_model_path},
+            "resource": self.exec.resource.to_record(),
+            "runtime": self.runtime_config(),
         }
 
     def to_auto_config(self, *, resolved_config_path: Path) -> AutoRunConfig:
         return AutoRunConfig(
-            project_id=self.run_id,
+            project_id=self.project_id,
             instruct=self.goal,
             goal=self.goal,
             scenario="posttrainbench",
             criterion=Criterion(metric="score", threshold=None, direction="max"),
-            budget=Budget(max_wall_clock_s=self.time_budget_hours * 3600.0),
+            budget=Budget(max_wall_clock_s=self.budget.time_hours * 3600.0),
             workspace=self.workspace_root,
             backend=os.environ.get("DATAOS_BACKEND", "cli"),
             agent_provider=os.environ.get("DATAOS_AGENT_PROVIDER", "kimi"),
             agent_model=os.environ.get("DATAOS_AGENT_MODEL") or None,  # None = CLI default
             runtime_config=self.runtime_config(),
             runtime_config_path=str(resolved_config_path),
-            h100_base_model=self.base_model_path,
-            base_model_id=_model_id_from_path(self.base_model_path),
+            h100_base_model=self.inputs.base_model_path,
+            base_model_id=_model_id_from_path(self.inputs.base_model_path),
             target_bench=self.bench,
             ptb_profile="formal",
-            eval_limit=self.eval_samples,
+            eval_limit=self.budget.eval_samples,
             monitor_port=self.monitor_port,
         )
 
 
-def load_auto_run_config(config_path: str | Path) -> AutoRunConfig:
+def _fresh_workspace(requested: Path) -> Path:
+    """First non-existing variant of the requested workspace dir: itself, then (1), (2), …"""
+    if not requested.exists():
+        return requested
+    for i in range(1, 100):
+        cand = requested.with_name(f"{requested.name}({i})")
+        if not cand.exists():
+            return cand
+    raise ValueError(f"no free workspace name after {requested.name}(99)")
+
+
+def load_auto_run_config(config_path: str | Path, *, resume: bool = False) -> AutoRunConfig:
     source = Path(config_path).expanduser().resolve()
     spec = PtbRunConfig.from_json(source)
-    run_dir = spec.workspace_path
+    if resume:
+        run_dir = spec.workspace_path
+        if not run_dir.is_dir():
+            raise ValueError(f"--resume given but workspace does not exist: {run_dir}")
+    else:
+        run_dir = _fresh_workspace(spec.workspace_path)
+        if run_dir != spec.workspace_path:
+            spec.workspace = str(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     normalized_path = run_dir / "run_config.json"
     resolved_path = run_dir / "resolved_config.json"

@@ -1,20 +1,25 @@
 {
-  "run_id": "ptb-h100-qwen-healthbench",
-  "workspace": "workspace/ptb-h100-qwen-healthbench",
   "goal": "Use the fixed PTB data pool to improve the base model within a limited H100 budget.",
+  "workspace": "workspace/ptb-h100-qwen-healthbench",
   "environment": "PTB_H100_slurm",
   "task": "posttrainbench",
-  "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2",
-  "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
-  "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
   "bench": "healthbench",
-  "base_model_path": "/data/hcgu/archive/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
-  "time_budget_hours": 10,
-  "eval_samples": -1,
-  "resource": {
-    "node": "gpu04",
-    "gpus": 1,
-    "cpus": 8
+  "inputs": {
+    "base_model_path": "/data/hcgu/archive/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
+    "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2"
+  },
+  "exec": {
+    "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
+    "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
+    "resource": {
+      "node": "gpu04",
+      "gpus": 1,
+      "cpus": 8
+    }
+  },
+  "budget": {
+    "time_hours": 10,
+    "eval_samples": -1
   },
   "monitor_port": 8772
 }
