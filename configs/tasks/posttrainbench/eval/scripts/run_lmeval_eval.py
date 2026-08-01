@@ -418,12 +418,20 @@ def write_predictions(task: str, samples: list[dict[str, Any]], output_dir: Path
                     "rubrics": doc.get("rubrics"),
                     "answer": answer,
                 }
-            else:  # arenahardwriting
+            elif task == "arenahardwriting":
                 payload = {
                     "uid": doc.get("uid"),
                     "category": doc.get("category"),
                     "prompt": doc.get("prompt"),
                     "answer": answer,
+                }
+            else:  # deterministic benches (gsm8k/bfcl/humaneval/gpqa/aime): generic rollout record
+                payload = {
+                    "doc_id": doc.get("id", doc.get("idx", record.get("doc_id"))),
+                    "question": doc.get("question") or doc.get("problem") or doc.get("prompt"),
+                    "target": record.get("target"),
+                    "answer": answer,
+                    "correct": record.get("exact_match", record.get("acc")),
                 }
             handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
             count += 1
@@ -508,8 +516,10 @@ def main() -> None:
 
     task_results = results.get(alias, {})
 
+    # rollouts are written for EVERY bench — the REVIEW stage reads predictions.jsonl
+    # to analyze model behavior (it must exist for deterministic benches too, not just judges)
+    records = write_predictions(task, samples.get(alias, []), output_dir)
     if is_judge:
-        records = write_predictions(task, samples.get(alias, []), output_dir)
         summary = {
             "task": task,
             "model_name": args.model_name,
