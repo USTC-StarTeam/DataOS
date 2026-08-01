@@ -2,4 +2,4 @@ pydantic>=2
 datasets>=2.20
 pyyaml>=6.0
 jinja2>=3.1
-dataos-train @ git+ssh://git@github.com/USTC-StarTeam/DataOS-train.git@d577cd4
+dataos-train @ git+ssh://git@github.com/USTC-StarTeam/DataOS-train.git@017a067e6657563a31ac7d3adaca53879339d409
