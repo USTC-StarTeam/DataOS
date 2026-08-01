@@ -11,9 +11,8 @@ template: |
      "dataset":{"rows":<int>},
      "model":{"path":"<the scored model dir>","base_model":"<BASE>"},
      "eval":{"score":<float>,"per_task":{"<BENCH>":<float>},"path":"<eval_dir>"},
-     "analysis":{"rollout_summary":"<N correct/N wrong sampled>",
-                "failure_classes":{"wrong_reasoning":<int>,"format_deviation":<int>,
-                                   "truncation":<int>,"parse_failure":<int>},
+     "analysis":{"rollout_summary":"<total correct/wrong from summary.json; SAMPLED k correct + k wrong outputs read>",
+                "failure_classes":{"<free-form class name>":<count>, ...},
                 "examples":[{"q":"...","model_output":"<clipped>","verdict":"...","cause":"..."}],
                 "anomalies":"<repetition/length/format drift, or 'none'>",
                 "conclusion":"<the model's dominant failure mode in one sentence>"}}
