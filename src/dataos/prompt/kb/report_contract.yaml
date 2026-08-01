@@ -10,8 +10,16 @@ template: |
      "stages":{"data":{"status":"completed"},"train":{"status":"completed"},"eval":{"status":"completed"}},
      "dataset":{"rows":<int>},
      "model":{"path":"<the scored model dir>","base_model":"<BASE>"},
-     "eval":{"score":<float>,"per_task":{"<BENCH>":<float>},"path":"<eval_dir>"}}
+     "eval":{"score":<float>,"per_task":{"<BENCH>":<float>},"path":"<eval_dir>"},
+     "analysis":{"rollout_summary":"<N correct/N wrong sampled>",
+                "failure_classes":{"wrong_reasoning":<int>,"format_deviation":<int>,
+                                   "truncation":<int>,"parse_failure":<int>},
+                "examples":[{"q":"...","model_output":"<clipped>","verdict":"...","cause":"..."}],
+                "anomalies":"<repetition/length/format drift, or 'none'>",
+                "conclusion":"<the model's dominant failure mode in one sentence>"}}
   `status:"completed"` only if `score` is a real number read from the eval's summary.json; otherwise
   `status:"failed"` with an `"error"` string. On a BASELINE run set stages data/train to
   `{"status":"skipped"}`. ALWAYS write a report at the end — never crash without one; a failed
-  report is still required. Record any compatibility fixes / format-pre-check outcome in report.json.
+  report is still required. The `analysis` block (written by the REVIEW stage from the model's
+  raw rollouts) is MANDATORY on completed runs — the leader grounds its next plan in it.
+  Record any compatibility fixes / format-pre-check outcome in report.json.

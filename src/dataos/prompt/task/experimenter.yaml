@@ -37,7 +37,7 @@ template: |
 
   {{ task_def }}
 
-  Your pipeline is the three STAGES below — same shape, different owners: `data` and `train` are OUR method (improvable; details in your system prompt), `eval` is PROVIDED (the frozen scorer — never modify it):
+  Your pipeline is the four STAGES below — same shape, different owners: `data`/`train`/`review` are OUR method (improvable; details in your system prompt), `eval` is PROVIDED (the frozen scorer — never modify it):
 
   {{ stage_blocks }}
 

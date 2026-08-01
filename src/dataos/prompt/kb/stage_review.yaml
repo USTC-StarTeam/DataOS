@@ -1,0 +1,6 @@
+description: >
+  REVIEW stage invoke — analyze the trained model's rollouts from the eval and write
+  the analysis block in report.json. Interpretation only: the score comes from the
+  frozen eval and is never touched here. No render params.
+template: |
+  analyze the model's rollouts at {ctx.eval_dir}/predictions.jsonl (read a few CORRECT and a few WRONG raw outputs — never judge from the score alone), classify every sampled error (wrong_reasoning / format_deviation / truncation / parse_failure), note anomalies (repetition, length, format drift), and write the `analysis` block in report.json (its shape is in the report contract kb block). One-sentence conclusion naming the model's dominant failure mode. This stage INTERPRETS — it never re-scores.

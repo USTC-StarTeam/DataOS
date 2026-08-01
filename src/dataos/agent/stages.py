@@ -1,5 +1,5 @@
 """Declarative Stage abstraction — the single source of truth for the experimenter's
-three-phase pipeline (data → train → eval).
+four-phase pipeline (data → train → eval → review).
 
 A Stage is a CONTRACT-AND-PRESENTATION structure, not a scheduling one: execution
 stays a single self-healing experimenter session (data+train deliberately share one
@@ -101,6 +101,15 @@ def build_stages(resolved: dict, registry: _tools.ToolRegistry | None = None) ->
             ),
             where="scoring command in the GPU job (vLLM); judge step on the login node",
             owner=OWNER_PROVIDED,
+        ),
+        Stage(
+            name="review",
+            role="model rollouts -> failure analysis",
+            input="{ctx.eval_dir}/predictions.jsonl (the model's raw answers from EVAL)",
+            output="the `analysis` block in report.json (failure classes + examples + conclusion)",
+            invoke=_prompt.render("kb/stage_review"),
+            where="login node (reading jsonl is light)",
+            owner=OWNER_OURS,
         ),
     ]
 

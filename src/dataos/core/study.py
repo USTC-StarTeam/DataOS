@@ -182,6 +182,11 @@ class Study:
                     "data_fingerprint": dataset.get("fingerprint"),
                     "eval_protocol": _eval_protocol_fingerprint(report),
                     "per_task": evaluation.get("per_task") or {},
+                    # the REVIEW stage's rollout-level findings + the experimenter's own
+                    # narrative — the leader grounds interpretation in these, not just numbers
+                    "analysis": report.get("analysis") or {},
+                    "compat_fixes": report.get("compat_fixes") or [],
+                    "error": report.get("error"),
                 }
             )
         rows.sort(key=lambda row: str(row["name"]))
@@ -205,6 +210,10 @@ class Study:
                 "status": row["status"],
                 "score": row["score"],
                 "metrics": row["metrics"],
+                "analysis_conclusion": (row["analysis"] or {}).get("conclusion"),
+                "failure_classes": (row["analysis"] or {}).get("failure_classes"),
+                "compat_fixes": row["compat_fixes"],
+                "error": row["error"],
             }
             for key in varied:
                 if key == "data.rows":
