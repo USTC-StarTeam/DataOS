@@ -1,9 +1,9 @@
 {
-  "goal": "Use the fixed PTB data pool to improve the base model within a limited H100 budget.",
-  "workspace": "workspace/ptb-h100-qwen-healthbench",
-  "environment": "PTB_H100_slurm",
+  "goal": "Use the fixed PTB data pool (v2) to improve Qwen3-1.7B-Base on arenahardwriting within the 10h H100 budget.",
+  "workspace": "workspace/ptb-arenahardwriting-opus5med",
+  "environment": "PTB_H100_slurm_normal",
   "task": "posttrainbench",
-  "bench": "healthbench",
+  "bench": "arenahardwriting",
   "inputs": {
     "base_model_path": "/data/hcgu/archive/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
     "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2"
@@ -12,7 +12,7 @@
     "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
     "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
     "resource": {
-      "node": "gpu04",
+      "node": "gpu01",
       "gpus": 1,
       "cpus": 8
     }
@@ -21,5 +21,10 @@
     "time_hours": 10,
     "eval_samples": -1
   },
-  "monitor_port": 8772
+  "agent": {
+    "provider": "claude",
+    "model": "claude-opus-5",
+    "effort": "medium"
+  },
+  "monitor_port": 8776
 }
