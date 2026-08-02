@@ -7,7 +7,7 @@ name: posttrainbench
 
 inputs:
   base_model:   {from: run.base_model, kind: hf_model}          # 要改进的基座模型
-  data_pool:    {from: env.paths.fixed_pool, kind: fixed-pool}        # 唯一允许的数据来源(路径在 env.paths,因 env 任务绑定)
+  data_pool:    {from: run.fixed_pool, kind: fixed-pool}              # 唯一允许的数据来源(路径在 run JSON,每次 run 指定)
   target_bench: {from: run.bench, kind: enum,
                  one_of: [gsm8k, aime2025, humaneval, bfcl, gpqamain, healthbench, arenahardwriting]}
 
@@ -17,6 +17,7 @@ constraints:
   - "只允许用 data_pool(fixed pool)内的 source,不得引入池外数据。"
   - "评测器冻结;base 模型与产出模型走同一套评测协议。"
   - "评测器冻结、协议不可改;但评多少由你定——评测命令的 --limit 是 {ctx.eval_limit}(-1=全量,或填个数采样),评不评、评多少是你的选择。"
+  - "运行隔离:只在 {ctx.run_root} 与本 run 的目录树(runs_base/<本 run 的 project>)内读写;禁止读取或复用 runs_base 下其他 run 的产物目录——它们可能建立在已过时的环境/契约上。共享输入(fixed_pool、deploy 仓库、模型缓存、conda/venv 环境)不受此限。任何关于工具/环境状态的结论(如某工具坏了)都必须亲手重新验证,不得沿用旧 run 笔记。"
 
 produce:
   kind: hf_model
