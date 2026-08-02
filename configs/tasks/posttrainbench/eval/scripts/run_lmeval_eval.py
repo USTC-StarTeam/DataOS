@@ -157,10 +157,11 @@ def tool_call_parser_name(model_path: str, model_name: str) -> str:
 
 def generation_kwargs(task: str) -> dict[str, Any]:
     if task == "gsm8k":
-        # pinned sampling (seeded via the backend's default seed): reproducible like
-        # greedy, but temp>0 breaks the greedy repetition degeneracy seen in chat-prior
-        # base models (Qwen3-4B-Base looped "assistant" to the token cap at temp=0).
-        return {"max_gen_toks": 4000, "temperature": 0.6, "top_p": 0.95}
+        # pinned sampling WITHOUT a shared seed: one fixed seed across all requests
+        # correlates failure modes in base models (1234 wiped 1.7B-Base 40->5.5);
+        # omitting it keeps runs within the ±1-2 batching noise band.
+        return {"max_gen_toks": 4000, "temperature": 0.6, "top_p": 0.95,
+                "ptb_omit_seed": True}
     if task == "humaneval":
         # pre-main protocol samples HumanEval at temperature 1.0 (greedy collapses
         # base-model code generations); matches gpqamain, the aligned control.
