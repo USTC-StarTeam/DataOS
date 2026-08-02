@@ -10,7 +10,7 @@
   },
   "exec": {
     "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
-    "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
+    "runs_base": "/data2/hcgu/dataos_agentver_runs",
     "resource": {
       "node": "gpu02",
       "gpus": 1,
