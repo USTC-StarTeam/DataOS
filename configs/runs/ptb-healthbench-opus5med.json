@@ -1,6 +1,6 @@
 {
   "goal": "Use the fixed PTB data pool (v2) to improve Qwen3-1.7B-Base on healthbench within the 10h H100 budget.",
-  "workspace": "workspace/ptb-healthbench-opus5med",
+  "workspace": "workspace/ptb-healthbench-sol56med",
   "environment": "PTB_H100_slurm",
   "task": "posttrainbench",
   "bench": "healthbench",
@@ -22,8 +22,8 @@
     "eval_samples": -1
   },
   "agent": {
-    "provider": "claude",
-    "model": "claude-opus-5",
+    "provider": "codex",
+    "model": "gpt-5.6-sol",
     "effort": "medium"
   },
   "monitor_port": 8773

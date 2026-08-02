@@ -18,7 +18,7 @@ dependencies = [
   # --- autonomous layer (dataos.agent): main + sub agents drive code-agent CLIs
   #     (claude / kimi / qwen ...) via the dataos-agent package (transport self-healing
   #     lives there); the thin adapter is src/dataos/agent/llm/cli_agent.py ---
-  "dataos-agent @ git+https://github.com/USTC-StarTeam/DataOS-Agent.git@f11194a31c3affe30a7cf476cb0a2e8cdc024bf1",
+  "dataos-agent @ git+https://github.com/USTC-StarTeam/DataOS-Agent.git@4578ef18669a3dd8686705da47d6e55dd7db5cdc",
   "pydantic>=2.6",
   "tenacity>=8.0",
   "pyyaml>=6.0",
