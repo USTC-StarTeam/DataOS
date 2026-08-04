@@ -1,6 +1,6 @@
 {
   "goal": "Use the fixed PTB data pool (v2) to improve Qwen3-1.7B-Base on gsm8k within the 10h H100 budget.",
-  "workspace": "workspace/ptb-gsm8k-sol56med",
+  "workspace": "workspace/ptb-gsm8k-sol56med(1)",
   "environment": "PTB_H100_slurm",
   "task": "posttrainbench",
   "bench": "gsm8k",
@@ -12,7 +12,6 @@
     "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
     "runs_base": "/data2/hcgu/dataos_agentver_runs",
     "resource": {
-      "node": "gpu02",
       "gpus": 1,
       "cpus": 8
     }

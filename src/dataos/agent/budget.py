@@ -36,10 +36,13 @@ def criterion_met(best: dict | None, c: Criterion) -> bool:
     return score >= c.threshold if c.direction == "max" else score <= c.threshold
 
 
-def stop_reason(*, started_at: float, budget: Budget, now: float | None = None) -> str | None:
-    """The single PTB stop condition: return "budget:wall_clock" once the wall-clock budget
-    is spent, else None. ``now`` is injectable for testing (defaults to ``time.monotonic()``)."""
+def stop_reason(*, started_at: float, budget: Budget, now: float | None = None,
+                queue_credit_s: float = 0.0) -> str | None:
+    """The single PTB stop condition: return "budget:wall_clock" once the budget is spent,
+    else None. The budget tracks IDEAL run time: ``queue_credit_s`` (Slurm queue-wait
+    seconds) is excluded, since cluster contention is not experiment work. ``now`` is
+    injectable for testing (defaults to ``time.monotonic()``)."""
     if budget.max_wall_clock_s is None:
         return None
-    elapsed = (now if now is not None else time.monotonic()) - started_at
+    elapsed = (now if now is not None else time.monotonic()) - started_at - queue_credit_s
     return "budget:wall_clock" if elapsed >= budget.max_wall_clock_s else None

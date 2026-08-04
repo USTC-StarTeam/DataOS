@@ -20,6 +20,7 @@ from dataos.core.io import atomic_write_json
 from dataos.agent.eval_freeze import freeze_eval
 
 from . import budget as _budget
+from . import subagent_executor
 from .config import AutoRunConfig
 from .schemas import ExperimentPlan
 
@@ -221,7 +222,8 @@ def _remaining_hours(started: float, cfg: AutoRunConfig, now: float) -> float | 
     cap = cfg.budget.max_wall_clock_s
     if cap is None:
         return None
-    return max(0.0, (cap - (now - started)) / 3600.0)
+    credit = subagent_executor._queue_wait_s(cfg)
+    return max(0.0, (cap - (now - started - credit)) / 3600.0)
 
 
 def _effective_eval_limit(cfg: AutoRunConfig) -> int:
@@ -519,7 +521,10 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
 
     while True:
         now = _clock()
-        reason = _budget.stop_reason(started_at=started, budget=cfg.budget, now=now)
+        credit = 0.0 if cfg.backend == "stub" else subagent_executor._queue_wait_s(cfg)
+        reason = _budget.stop_reason(
+            started_at=started, budget=cfg.budget, now=now, queue_credit_s=credit
+        )
         if reason:
             log.info("STOP: %s (after %d completed node(s))", reason, round_idx)
             _publish_live(cfg, round_idx=round_idx, phase="done", started=started, now=now)

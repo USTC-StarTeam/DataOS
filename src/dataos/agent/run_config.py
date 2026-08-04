@@ -126,21 +126,21 @@ def _runtime_paths(env: dict[str, Any], *, task: str, fixed_pool: str,
 
 @dataclass(slots=True)
 class ResourceConfig:
-    node: str
     gpus: int
     cpus: int
+    node: str | None = None  # optional pin; None = let Slurm pick any free node
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ResourceConfig":
-        _require(data, ["node", "gpus", "cpus"], "resource")
+        _require(data, ["gpus", "cpus"], "resource")
         return cls(
-            node=_nonempty_str(data["node"], "resource.node"),
             gpus=_positive_int(data["gpus"], "resource.gpus"),
             cpus=_positive_int(data["cpus"], "resource.cpus"),
+            node=_nonempty_str(data["node"], "resource.node") if data.get("node") else None,
         )
 
     def to_record(self) -> dict[str, Any]:
-        return {"node": self.node, "gpus": self.gpus, "cpus": self.cpus}
+        return {"gpus": self.gpus, "cpus": self.cpus, "node": self.node}
 
 
 

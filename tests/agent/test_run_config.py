@@ -21,7 +21,7 @@ def _run_json(ws, **over):
         "exec": {
             "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
             "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
-            "resource": {"node": "gpu04", "gpus": 1, "cpus": 8},
+            "resource": {"gpus": 1, "cpus": 8},
         },
         "budget": {"time_hours": 10, "eval_samples": -1},
     }
@@ -40,7 +40,7 @@ def test_ptb_run_config_maps_to_auto_config(tmp_path):
     assert cfg.target_bench == "gsm8k"
     assert cfg.h100_base_model == "/data/hcgu/hf_cache/Qwen/Qwen2.5-0.5B-Instruct"
     assert cfg.budget.max_wall_clock_s == 36000
-    assert cfg.runtime_config["cluster"]["nodelist"] == "gpu04"
+    assert cfg.runtime_config["cluster"]["nodelist"] is None  # unpinned: Slurm picks
     run_dir = tmp_path / "myrun"
     assert (run_dir / "run_config.json").is_file()
     assert (run_dir / "resolved_config.json").is_file()
@@ -133,3 +133,27 @@ def test_agent_block_configures_provider(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="unknown keys"):
         PtbRunConfig.from_dict(_run_json(tmp_path / "myrun", agent={"provder": "claude"}))
+
+
+def test_node_is_optional():
+    """resource.node can be omitted — Slurm then picks any free node."""
+    data = _run_json("/tmp/x")
+    assert "node" not in data["exec"]["resource"]
+    cfg = PtbRunConfig.from_dict(data)
+    assert cfg.exec.resource.node is None
+    assert cfg.runtime_config()["cluster"]["nodelist"] is None
+    # explicit pin still works
+    data2 = _run_json("/tmp/x")
+    data2["exec"]["resource"]["node"] = "gpu01"
+    assert PtbRunConfig.from_dict(data2).exec.resource.node == "gpu01"
+
+
+def test_budget_ideal_time_excludes_queue_credit():
+    from dataos.agent.budget import stop_reason
+    from dataos.agent.config import Budget
+
+    b = Budget(max_wall_clock_s=100.0)
+    # 150s elapsed but 80s was queue wait -> ideal 70s < 100 -> no stop
+    assert stop_reason(started_at=0, budget=b, now=150.0, queue_credit_s=80.0) is None
+    # 150s elapsed with 40s queue -> ideal 110s >= 100 -> stop
+    assert stop_reason(started_at=0, budget=b, now=150.0, queue_credit_s=40.0) == "budget:wall_clock"

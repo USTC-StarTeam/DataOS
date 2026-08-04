@@ -97,6 +97,49 @@ def _run_root(cfg, study_id: str, name) -> str:
     return f"{runs_base}/{cfg.project_id}/{study_id}/{_slug(str(name))}"
 
 
+def _queue_wait_s(cfg) -> float:
+    """Total Slurm PENDING (queue-wait) time across this run's jobs, in seconds.
+
+    The run's budget tracks IDEAL run time — queue waiting is budget-free by design
+    (cluster contention is environment noise, not experiment work). Measured
+    deterministically from sacct over this run's job ids (found via slurm-<id>.out
+    logs and dataos-train handle.json files under runs_base/<project_id>)."""
+    import os
+    import subprocess
+
+    runtime = _runtime_config(cfg)
+    cluster = runtime.get("cluster") or {}
+    runs_base = (runtime.get("paths") or {}).get("runs_base")
+    if not cluster.get("host") or not runs_base:
+        return 0.0
+    base = f"{runs_base}/{cfg.project_id}"
+    remote = (
+        f"ids=$( (find {base} -maxdepth 4 -name 'slurm-*.out' 2>/dev/null | grep -oP 'slurm-\\K[0-9]+';"
+        f" find {base} -maxdepth 3 -name 'handle.json' 2>/dev/null | xargs -r grep -hoP '\"job_id\":\\s*\"?\\K[0-9]+') | sort -u | tr '\\n' ',' );"
+        " ids=${ids%,}; [ -z \"$ids\" ] && echo 0 && exit 0;"
+        " now=$(date +%s);"
+        " sacct -j \"$ids\" --format=Submit,Start -P -n 2>/dev/null | while IFS='|' read -r sub sta; do"
+        "   se=$(date -d \"$sub\" +%s 2>/dev/null || echo 0); [ \"$se\" = 0 ] && continue;"
+        "   if [ -z \"$sta\" ] || [ \"$sta\" = Unknown ]; then ee=$now; else ee=$(date -d \"$sta\" +%s 2>/dev/null || echo $now); fi;"
+        "   [ $ee -lt $se ] && ee=$se; echo $((ee - se));"
+        " done | awk '{s+=$1} END {print s+0}'"
+    )
+    try:
+        out = subprocess.run(
+            [
+                "ssh", "-i", os.path.expanduser(str(cluster.get("key", ""))),
+                "-p", str(cluster.get("port", 22)),
+                "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=8",
+                f"{cluster.get('user')}@{cluster['host']}", remote,
+            ],
+            capture_output=True, text=True, timeout=25,
+        ).stdout.strip()
+        return float(out) if out else 0.0
+    except Exception:  # noqa: BLE001 — measurement failure must never break the run
+        return 0.0
+
+
 def _artifacts(cfg, study_id: str, name, exp_dir: Path, eval_limit: int) -> dict:
     """The DETERMINISTIC artifact layout for one experiment (H100 RUN_ROOT + local report).
     Fixed by the runtime, recorded on the tree node — not left to the experimenter's whim."""
@@ -329,7 +372,9 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
                           remaining_minutes=int(timeout / 60) if timeout else None)
     last_text = ""
     while True:
-        remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+        remaining = None if deadline is None else max(
+            0.0, deadline + _queue_wait_s(cfg) - time.monotonic()
+        )
         if remaining is not None and remaining <= 0:
             break
         try:
@@ -359,7 +404,9 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
             _write_state(state_path, state)
             break
 
-        remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+        remaining = None if deadline is None else max(
+            0.0, deadline + _queue_wait_s(cfg) - time.monotonic()
+        )
         if remaining is not None and remaining <= 0:
             break
         log.info("subagent[%s]: no report.json yet; resuming same session", name)
