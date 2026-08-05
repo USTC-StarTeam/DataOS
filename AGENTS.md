@@ -73,9 +73,8 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   the folder-relative path (`prompt.render("kb/cluster_discipline")`). System prompts are composed
   in ONE place — `backend.system_prompt(role, cfg)` (`_BLOCKS`: skeleton + kb blocks, joined with
   blank lines); run facts (budget, GPUs) are render params of the leader skeleton only.
-  The leader skeleton ends with a TIPS block: empirical FACTS distilled from run trajectories
-  (evidence, not search rules — the leader chooses every plan itself); maintain it from each
-  run's postmortem.
+  The leader prompt carries NO strategy priors by design (bare leader: role + tools + facts);
+  empirical lessons live in `docs/known-issues.md` for maintainers, not in the prompt.
 - `web/` — the live monitor's single-page UI (`index.html`) and a standalone CLI wrapper
   (`server.py`, `python web/server.py` to browse run history). One monitor per workspace serves
   every run on one port; see "Live monitor" below.
@@ -174,8 +173,8 @@ GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
   model paths or changes the eval.
 - **Prompts live in `src/dataos/prompt/*.yaml`, never hardcoded in `.py`.** Add/edit a prompt by
   editing its YAML template; pass run-specific facts as `prompt.render()` params (no literals like
-  "10h" / "60000" baked into the text). The leader's TIPS block carries empirical facts only
-  (evidence from run postmortems) — do not turn it into search rules or hard config knobs.
+  "10h" / "60000" baked into the text). No strategy/prior blocks in prompts — keep the leader
+  bare; postmortem lessons go to `docs/known-issues.md`.
 
 ## Coding style
 

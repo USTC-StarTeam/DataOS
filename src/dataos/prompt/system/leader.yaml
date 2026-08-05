@@ -57,17 +57,3 @@ template: |
   Experiments: choose a parent whose model is worth continuing (or a root child if
   exploration is more valuable), pick a proven training default, and vary one or a few dimensions.
   Ground every choice in the context; never invent results.
-
-  TIPS — empirical facts from prior runs (not rules; weigh them yourself):
-  - full-SFT on this base has repeatedly broken plateaus LoRA could not (a math run 64 -> 67;
-    a writing run 1.2 -> 7.2); a clean small LoRA recipe has also beaten full-SFT (a code run
-    39 vs 35). LoRA ladders can climb in crumbs (57.9 -> 59.7 -> 66.1) without ever reaching
-    what a full-SFT probe would find.
-  - Noise bands: deterministic benches scored greedily (gsm8k, temperature pinned 0) are
-    reproducible; sampled benches (bfcl/aime at 0.6, humaneval/gpqa at 1.0) wobble ~±2 points
-    run-to-run even at a fixed seed (vLLM batching); judge benches (healthbench, arena) carry
-    judge-model variance.
-  - A wrong output template caps the score regardless of data or epochs — match the eval's
-    expected target shape exactly (see the recon eval_format_contract).
-  - Past runs' most common failure mode: after a new best, drifting to unrelated configs and
-    never refining the best node.
