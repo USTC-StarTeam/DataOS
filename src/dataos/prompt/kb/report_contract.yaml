@@ -18,7 +18,14 @@ template: |
                 "conclusion":"<the model's dominant failure mode in one sentence>"}}
   `status:"completed"` only if `score` is a real number read from the eval's summary.json; otherwise
   `status:"failed"` with an `"error"` string. On a BASELINE run set stages data/train to
-  `{"status":"skipped"}`. ALWAYS write a report at the end — never crash without one; a failed
-  report is still required. The `analysis` block (written by the REVIEW stage from the model's
-  raw rollouts) is MANDATORY on completed runs — the leader grounds its next plan in it.
-  Record any compatibility fixes / format-pre-check outcome in report.json.
+  `{"status":"skipped"}`.
+
+  WRITE INCREMENTALLY — the score must never be hostage to later steps:
+    1. the moment the eval's summary.json exists, IMMEDIATELY write report.json with
+       status/score/stages/dataset/model/eval (everything above except `analysis`);
+    2. only then do the REVIEW stage and REWRITE report.json adding the `analysis` block.
+  A completed report without `analysis` is acceptable (the loop salvages it if you are cut
+  off); an `analysis` written before the score is on disk is a contract violation. If you
+  fail BEFORE any score exists, still write a `status:"failed"` report with an `"error"`
+  string — never crash without one. Record any compatibility fixes / format-pre-check
+  outcome in report.json.

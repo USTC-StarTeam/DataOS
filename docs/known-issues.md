@@ -83,15 +83,22 @@ healing 层不重试）——三种挂死统一走已有传输自愈：backoff +
 monitor `/api/live` 对活 run 报 `stalled`（全部 transcript 静默 >15min），
 前端状态条亮黄牌。总预算 deadline 不变，兜底防无限续命。
 
-## P9 已完成的分没入账（未修）
+## P9 已完成的分没入账（✅ 已修，2026-08-05）
 
 report.json 写在流程最后一步；断流发生在"eval 出分（远端 summary.json 已落盘）"和
 "回写 report"之间时，本地记 failed/score=None，分白跑。loop 无 salvage 路径（从不
 回 run_root 查 summary.json）。实锤 ≥6 例：gpqa r1 18.08 / r4 28.125（=best 水平）/
 r3 训完的 12k 模型从未 eval；bfcl r1/r5/r7 三个 2.0；arena r10 生成 250 条只差
 judge。二次伤害：leader 把传输 bug 误判为"该方向操作不可行"（bfcl xLAM 三连断流后
-review 判死刑）。修法：失败时主动 ssh 捞 run_root 的 `eval/*/summary.json` 入账；
-或 report 改增量式（每 stage 完成即落盘）。
+review 判死刑）。
+**修复（双管）**：① 契约改**增量写**（kb/report_contract）——summary.json 一出现
+立即写 report.json（status+score，无 analysis），REVIEW 之后再重写补 analysis；
+"有分无 analysis"合法，"先有 analysis 盘上没有分"是违约。② loop 加
+`_salvage_report`——实验无 terminal report 时，先查本地 partial report 的分，再
+ssh 查确定性的 `{run_root}/eval/*/summary.json`；捞到即 `status=completed +
+salvaged:true + error 注明来源`，分入树（`_report_score` 不看 status）。
+注：gpqa r3 那种"模型训完没 eval"不在本修复范围（无分可捞，只能靠 P8 watchdog
+减少发生）。
 
 ## P10 环境坑重复交学费（方案已定，待实施）
 

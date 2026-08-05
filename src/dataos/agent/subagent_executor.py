@@ -97,6 +97,30 @@ def _run_root(cfg, study_id: str, name) -> str:
     return f"{runs_base}/{cfg.project_id}/{study_id}/{_slug(str(name))}"
 
 
+def _ssh_text(cfg, remote_cmd: str, *, timeout: int = 25) -> str:
+    """Run a read-only remote command over ssh; '' on any failure (best-effort probes —
+    a measurement failure must never break the run)."""
+    import os
+    import subprocess
+
+    cluster = _runtime_config(cfg).get("cluster") or {}
+    if not cluster.get("host"):
+        return ""
+    try:
+        return subprocess.run(
+            [
+                "ssh", "-i", os.path.expanduser(str(cluster.get("key", ""))),
+                "-p", str(cluster.get("port", 22)),
+                "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=8",
+                f"{cluster.get('user')}@{cluster['host']}", remote_cmd,
+            ],
+            capture_output=True, text=True, timeout=timeout,
+        ).stdout.strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _queue_wait_s(cfg) -> float:
     """Total Slurm PENDING (queue-wait) time across this run's jobs, in seconds.
 
@@ -104,14 +128,11 @@ def _queue_wait_s(cfg) -> float:
     (cluster contention is environment noise, not experiment work). Measured
     deterministically from sacct over this run's job ids (found via slurm-<id>.out
     logs and dataos-train handle.json files under runs_base/<project_id>)."""
-    import os
     import shlex
-    import subprocess
 
     runtime = _runtime_config(cfg)
-    cluster = runtime.get("cluster") or {}
     runs_base = (runtime.get("paths") or {}).get("runs_base")
-    if not cluster.get("host") or not runs_base:
+    if not (runtime.get("cluster") or {}).get("host") or not runs_base:
         return 0.0
     base = shlex.quote(f"{runs_base}/{cfg.project_id}")  # project ids can contain parens
     remote = (
@@ -125,19 +146,10 @@ def _queue_wait_s(cfg) -> float:
         "   [ $ee -lt $se ] && ee=$se; echo $((ee - se));"
         " done | awk '{s+=$1} END {print s+0}'"
     )
+    out = _ssh_text(cfg, remote)
     try:
-        out = subprocess.run(
-            [
-                "ssh", "-i", os.path.expanduser(str(cluster.get("key", ""))),
-                "-p", str(cluster.get("port", 22)),
-                "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=no",
-                "-o", "ConnectTimeout=8",
-                f"{cluster.get('user')}@{cluster['host']}", remote,
-            ],
-            capture_output=True, text=True, timeout=25,
-        ).stdout.strip()
         return float(out) if out else 0.0
-    except Exception:  # noqa: BLE001 — measurement failure must never break the run
+    except ValueError:
         return 0.0
 
 
@@ -212,6 +224,48 @@ def _failed_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit:
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
         eval_limit=eval_limit, report=report,
     )
+
+
+def _numeric_score(data: dict) -> float | None:
+    score = data.get("score")
+    return float(score) if isinstance(score, (int, float)) else None
+
+
+def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
+                    partial: dict | None, error: str) -> dict | None:
+    """Rescue a COMPLETED score when the experimenter died after the eval produced one
+    (CLI stall / budget cut mid-analysis) but before writing a terminal report.
+
+    Two sources, in order: the partial local report.json (the contract's incremental
+    score-first write), then the deterministic remote {run_root}/eval/.../summary.json.
+    Returns None when no real score exists anywhere (caller falls back to failed)."""
+    source = None
+    report = None
+    if partial is not None and _numeric_score(partial) is not None:
+        report, source = dict(partial), "partial report.json"
+    else:
+        eval_dir = (_artifacts(cfg, study_id, spec["name"], exp_dir, eval_limit))["eval"]
+        import shlex
+
+        out = _ssh_text(cfg, f"cat {shlex.quote(eval_dir)}/summary.json 2>/dev/null")
+        try:
+            summary = json.loads(out) if out else {}
+        except json.JSONDecodeError:
+            summary = {}
+        if isinstance(summary, dict) and _numeric_score(summary) is not None:
+            report, source = {
+                "score": _numeric_score(summary),
+                "stages": {"eval": {"status": "completed"}},
+                "eval": {"score": _numeric_score(summary), "path": eval_dir},
+            }, "remote summary.json"
+    if report is None:
+        return None
+    report["status"] = "completed"  # the score IS real; the cut was operational
+    report["salvaged"] = True
+    report["error"] = f"salvaged from {source}; the experimenter was cut off: {error}"
+    log.warning("subagent[%s]: salvaged score=%s from %s",
+                spec["name"], report.get("score"), source)
+    return report
 
 
 def _state_seed(*, cfg, study_id: str, spec: dict, exp_dir: Path, report_path: Path,
@@ -422,15 +476,19 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         err = "experimenter produced no terminal report.json before the PTB/experiment deadline"
         if state.get("last_error"):
             err = f"{err}: {state['last_error']}"
-        report = _failed_report(
+        # the eval may have finished before the cut — rescue a real score if one exists
+        salvaged = _salvage_report(
+            cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
+            eval_limit=eval_limit, partial=report, error=err,
+        )
+        report = salvaged if salvaged is not None else _failed_report(
             cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
             eval_limit=eval_limit, error=err,
         )
-    else:
-        report = _stamp_report(
-            cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
-            eval_limit=eval_limit, report=report,
-        )
+    report = _stamp_report(
+        cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
+        eval_limit=eval_limit, report=report,
+    )
     atomic_write_json(report_path, report)
     log.info("subagent[%s]: status=%s score=%s artifacts.run_root=%s",
              name, report.get("status"), report.get("score"), report["artifacts"]["run_root"])
