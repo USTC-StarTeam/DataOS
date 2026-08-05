@@ -1,0 +1,3 @@
+{"role":"assistant","content":[{"type":"think","think":"Create file probe.txt with exactly 'kimi probe'. Use WriteFile.","encrypted":null}],"tool_calls":[{"type":"function","id":"tool_hNHez47uWcz4eEIEfBvf7ukr","function":{"name":"WriteFile","arguments":"{\"path\":\"/tmp/kimi-raw-test/probe.txt\",\"content\":\"kimi probe\"}"}}]}
+{"role":"tool","content":"<system>File successfully overwritten. Current size: 10 bytes.</system>","tool_call_id":"tool_hNHez47uWcz4eEIEfBvf7ukr"}
+{"role":"assistant","content":[{"type":"think","think":"","encrypted":null},{"type":"text","text":"DONE"}]}
