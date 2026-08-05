@@ -100,7 +100,7 @@ salvaged:true + error 注明来源`，分入树（`_report_score` 不看 status�
 注：gpqa r3 那种"模型训完没 eval"不在本修复范围（无分可捞，只能靠 P8 watchdog
 减少发生）。
 
-## P10 环境坑重复交学费（方案已定，待实施）
+## P10 环境坑重复交学费（✅ 已修，2026-08-05）
 
 每个 experimenter 是全新 session，环境硬事实不沉淀，各轮 report 的
 `compatibility_fixes` 雷同。实锤：gpqa 被集群 GPU Guard（前 30min 显存峰值 <24GiB
@@ -108,12 +108,9 @@ salvaged:true + error 注明来源`，分入树（`_report_score` 不看 status�
 frozen sft_env 缺 `dataos_operator` 每轮重新 vendor；gsm8k r10 一轮踩 5 坑
 （PartitionTimeLimit / save_to_disk 格式 / libcuda 探测 set -e / eval label 必须含
 Qwen3）；/zssd 主机路径泄漏到集群。
-**已定方案（两个落点，不加新机制）**：
-① 机器事实 → `configs/environments/PTB_H100_slurm/env.yaml` 的 `discipline`
-（渲染进 ENV OPS 硬约束段）：GPU Guard + 16GiB 预留写法、/zssd 路径隔离、
-不显式请求超长 --time（PartitionTimeLimit）。
-② 工具契约事实 → kb 块：`kb/stage_data.yaml` 加 dataos_operator vendor 路径
-（设计内预期，附命令）+ dataos-train 要 save_to_disk 格式；`kb/stage_eval.yaml`
-加 eval label 须以模型家族名开头（Qwen3-…）。
-明确不做：跨轮 notes 机制；dataos_operator 装进 sft_env（CONTRACT 定性私有库）；
-改 eval bridge 模板选择逻辑（另开）。
+**修复（两个落点）**：① env.yaml `discipline` +3 条（GPU Guard + ≥16GiB 预留写法、
+/zssd 路径隔离、不显式 --time）——渲染进 ENV OPS 硬约束段；② kb 块：`stage_data`
+写明 sft_env（dataos_sft 派生 env）已预装 dataos_operator/dataos_train 禁止 vendor
++ converter 要 save_to_disk 格式；`stage_eval` 写明 label 须以模型家族名开头。
+vendor 坑由 monorepo 的 dataos_sft 预装顺带根治（见合并提交）。后续维护约定：每次
+run 复盘把 report.compatibility_fixes 里重复出现的条目按归属沉淀到这两处。

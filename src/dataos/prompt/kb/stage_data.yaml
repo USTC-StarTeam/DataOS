@@ -4,5 +4,13 @@ description: >
 template: |
   dataos_operator recipe (discover: `python -c "import dataos_operator as o; print(o.guide())"` / `o.usage('<op>')`) + hand-written prep scripts where the toolbox lacks a step; custom ops via DATAOS_OPERATOR_PLUGINS — full mechanics in your system prompt
 
+  sft_env (the train_env/sft_env paths in RUNTIME CONFIG — actually dataos_sft, the DataOS
+  derivative of the sft baseline) comes with `dataos_operator` AND `dataos_train` PREINSTALLED:
+  just import them inside the sbatch job. NEVER vendor, pip-install, or hunt for the packages.
+
+  dataos-train's data converter calls `load_from_disk` on `dataset.path`: alongside the Alpaca
+  `train.json` + `dataset_info.json`, also materialize the same rows as a Hugging Face dataset
+  (`dataset.save_to_disk(<run_root>/data/sft)`) or the train build will reject the input.
+
   The operator toolbox installed for this run (the brain's pinned dataos-operator; inside the Slurm job confirm with `o.catalog()` and prefer `o.usage('<name>')` for exact signatures):
   {{ catalog }}

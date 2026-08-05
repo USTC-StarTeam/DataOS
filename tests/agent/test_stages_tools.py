@@ -148,4 +148,7 @@ def test_templates_render_with_declared_params():
         "kb/stage_eval", command="cmd", result_field="score", result_file="<result>",
         result_range=[0, 100], judge_command="", format_contract_loc="",
     )
-    assert minimal == "run the task's evaluator: `cmd`\n  then read `score` from <result> (range [0, 100]) → report.json."
+    assert minimal.startswith(
+        "run the task's evaluator: `cmd`\n  then read `score` from <result> (range [0, 100]) → report.json."
+    )
+    assert "model family name" in minimal  # the label->template selection rule

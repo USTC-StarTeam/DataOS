@@ -11,3 +11,6 @@ template: |
   {% if format_contract_loc %}
     want a high score? read how the scorer parses output first: {{ format_contract_loc }}
   {% endif %}
+  the eval model label MUST start with the model family name (e.g. `Qwen3-...`): the frozen
+  runner picks the chat template by matching the label string — an unrecognized label scores
+  the model with the wrong template.
