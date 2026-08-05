@@ -57,6 +57,12 @@ to drive the runtime was deleted once this path existed.
    trainer feeds live per-sample losses to the hook every batch — no extra model is
    loaded. Hook contract (`reweight` / `select` / `step`): `tools/train/docs/online_ops.md`.
 
+   Bridged to dataos-train today: `loss_reweighter` (reweight), `loss_selector` and
+   `delta_loss_selector` (select). Selectors that need eval/query sets
+   (`less_selector` / `nice_selector` / `near_selector` / `tsds_selector`) and the
+   domain-based mixers (`odm_mixer` / `doremi_mixer`) are **offline /
+   PolicyRuntime-only** — the train hook payload does not carry those inputs yet.
+
 > The lower-level `PolicyRuntime` API (`prepare → after_forward → on_update_boundary
 > → finalize`, see `runtime/runner.py`) remains available directly for wiring online
 > operators into a *non*-dataos-train trainer.

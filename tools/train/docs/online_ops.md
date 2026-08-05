@@ -182,6 +182,15 @@ my_op = "dataos_operator.online:MyOp"
 `hook_point`, `setup`, `__call__`). Resolution loads the entry point lazily, only when the
 op is named in a spec.
 
+Shipped by `dataos_operator` today (see its `integrations/dataos_train.py`):
+
+| Op | Hook | Params | Effect |
+|----|------|--------|--------|
+| `loss_reweighter` | `reweight` | `strategy=linupper`, `delta=1.0` | softmax loss reweighting (LossReweighter port) |
+| `loss_selector` | `select` | `sample_size`, `focus=low/medium/high`, `focus_weight`, ... | epoch-boundary weighted subset by loss bucket |
+| `delta_loss_selector` | `select` | `sample_size`, `window_fraction`, `total_updates?` | sliding window over per-row loss improvement |
+
+
 ## Backend-neutral rules
 
 - Payloads contain **plain Python types only** — backends convert out of their own tensor

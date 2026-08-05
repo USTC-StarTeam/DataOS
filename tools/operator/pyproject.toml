@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dataos-operator"
-version = "0.7.0"
+version = "0.8.0"
 description = "A data-centric operator framework skeleton for evaluators, generators, mappers, mixers, clusterers, reweighters, refiners, and selectors."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,6 +39,8 @@ dependencies = [
 # (duck-typed factories; see dataos_operator/integrations/dataos_train.py)
 [project.entry-points."dataos_train.online_ops"]
 loss_reweighter = "dataos_operator.integrations.dataos_train:LossReweightTrainHook"
+loss_selector = "dataos_operator.integrations.dataos_train:LossSelectTrainHook"
+delta_loss_selector = "dataos_operator.integrations.dataos_train:DeltaLossSelectTrainHook"
 
 [project.optional-dependencies]
 dev = [
