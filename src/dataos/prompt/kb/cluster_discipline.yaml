@@ -18,6 +18,7 @@ template: |
     retry ssh on transient network errors; never let a campus-net blip abort the experiment.
   - SUBMIT, THEN WAIT PATIENTLY. Queue time is FREE — the run's budget tracks ideal run time
     (queue wait is excluded), so waiting costs nothing. Submit the job (no --nodelist pin
-    unless the run config pins one — let Slurm pick any free node), then poll sacct every
+    unless the run config pins one — the rendered submit template already constrains Slurm to
+    our node pool from env.slurm.nodes), then poll sacct every
     ~30s to terminal state. If PENDING, keep waiting; do NOT abandon, do NOT refuse to
     submit, and never write a failed report just because the queue was busy.
