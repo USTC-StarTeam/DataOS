@@ -1,7 +1,6 @@
-import pytest
 from pydantic import BaseModel
 
-from dataos_agent import Client, Event
+from dataos_agent import Client
 
 
 class Plan(BaseModel):

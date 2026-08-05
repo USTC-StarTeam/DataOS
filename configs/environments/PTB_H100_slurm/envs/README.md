@@ -18,5 +18,8 @@ flash-attn: no prebuilt wheel exists for these torch combos and the system nvcc 
 torch's CUDA — build.sh reuses the exact-matching flash_attn from the source conda env (same
 py/torch/cuda/abi). Without it the env still runs (sdpa attention), just slower.
 
-NOT here: `dataos_operator` — that's DataOS's private method library, brought at run time via
-PYTHONPATH from deploy_root; these envs only carry general frameworks.
+NOT here (in the three frozen baselines): `dataos_operator` / `dataos_train` — DataOS's private
+tools live in the **derived** `dataos_sft` env instead (sft baseline + `tools/train` +
+`tools/operator` installed from the local checkout). Their versions are pinned by the
+`dataos_tools` declaration in `env.yaml` (a test keeps declaration == `tools/*/pyproject`
+version); upgrade = bump the version, update the declaration, run `scripts/sync_envs.py`.

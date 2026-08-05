@@ -55,7 +55,7 @@ def test_paths_resolve_with_derivations(tmp_path):
     # derived, not declared
     assert paths["runtime_root"].endswith("dataos_agentver/configs")
     assert paths["benchmarks"].endswith("configs/tasks/posttrainbench/benchmarks")
-    assert paths["train_env"].endswith("envs/sft/.venv")
+    assert paths["train_env"].endswith("envs/dataos_sft/.venv")  # sft 基线的 DataOS 派生 env
     assert paths["train_cli_env"].endswith("envs/train-cli/.venv")
     gateway = cfg.runtime_config()["gateway"]
     assert gateway["base_url"].startswith("https://") and "model" not in gateway

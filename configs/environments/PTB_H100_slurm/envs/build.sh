@@ -15,10 +15,12 @@ UV="${UV:-$HOME/.local/bin/uv}"
 case "$E" in
   eval) PY=3.12; TORCH="torch==2.9.0+cu128"; IDX="https://download.pytorch.org/whl/cu128"; FA_CONDA="" ;;
   sft)  PY=3.12; TORCH="torch==2.8.0+cu129"; IDX="https://download.pytorch.org/whl/cu129"; FA_CONDA="/data/hcgu/.conda/envs/Llama-op020/lib/python3.12/site-packages" ;;
+  dataos_sft) PY=3.12; TORCH="torch==2.8.0+cu129"; IDX="https://download.pytorch.org/whl/cu129"; FA_CONDA="/data/hcgu/.conda/envs/Llama-op020/lib/python3.12/site-packages" ;;  # sft 基线 + repo 工具(tools/* 本地装,版本= env.yaml dataos_tools 声明)
   rl)   PY=3.11; TORCH="torch==2.6.0+cu124"; IDX="https://download.pytorch.org/whl/cu124"; FA_CONDA="/data/hcgu/.conda/envs/dataos-verl/lib/python3.11/site-packages" ;;
   train-cli) PY=3.12; TORCH=""; IDX=""; FA_CONDA="" ;;  # thin orchestrator env: pydantic + dataos-train only
   *) echo "unknown env $E"; exit 1 ;;
 esac
+REPO="$(cd "$ROOT/../../../.." && pwd)"   # deploy checkout root (tools/ lives there)
 V="$ROOT/$E/.venv"
 echo ">>> [$E] uv venv --python $PY"
 rm -rf "$V"
@@ -33,6 +35,18 @@ else
   echo ">>> [$E] install requirements (no torch — thin env)"
   "$UV" pip install --python "$V/bin/python" -r "$ROOT/$E/requirements.txt"
 fi
+# repo 自带工具(tools/*)从本地 checkout 安装——版本即 env.yaml 的 dataos_tools 声明
+# (两者一致性有测试兜底)。dataos_sft 装 train+operator;train-cli 只装 train。
+case "$E" in
+  dataos_sft)
+    echo ">>> [$E] install repo tools from $REPO/tools"
+    "$UV" pip install --python "$V/bin/python" "$REPO/tools/train" "$REPO/tools/operator"
+    ;;
+  train-cli)
+    echo ">>> [$E] install repo tool train from $REPO/tools"
+    "$UV" pip install --python "$V/bin/python" "$REPO/tools/train"
+    ;;
+esac
 if [ -n "$FA_CONDA" ] && [ -d "$FA_CONDA" ]; then
   echo ">>> [$E] flash-attn: reuse exact-matching build from $FA_CONDA"
   SP="$V/lib/python$PY/site-packages"

@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from dataos_agent.types import AgentConfig, Event, Result, Step, Usage
+from dataos_agent.types import AgentConfig, Event, Result, Usage
 
 
 def test_result_str_is_text():

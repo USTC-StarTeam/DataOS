@@ -80,8 +80,12 @@ def train_env_path(env: dict[str, Any]) -> str:
 
 
 def train_cli_path(env: dict[str, Any]) -> str:
-    """Where the dataos-train CLI lives: the tools entry that provides it (the thin
-    orchestrator env); falls back to the default backend env."""
+    """Where the dataos-train CLI lives: the thin orchestrator env — the entry NAMED
+    ``train_cli_env`` when it provides dataos-train (heavier envs like sft_env may also
+    carry the package for in-job imports; the CLI must stay thin); else the first
+    provider; else the default backend env."""
+    if "dataos-train" in _provides(env, "train_cli_env"):
+        return _tool_path(env, "train_cli_env")
     for name in (env.get("tools") or {}):
         if "dataos-train" in _provides(env, name):
             return _tool_path(env, name)

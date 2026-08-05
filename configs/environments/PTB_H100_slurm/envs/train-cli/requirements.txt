@@ -2,4 +2,4 @@ pydantic>=2
 datasets>=2.20
 pyyaml>=6.0
 jinja2>=3.1
-dataos-train @ git+ssh://git@github.com/USTC-StarTeam/DataOS-train.git@017a067e6657563a31ac7d3adaca53879339d409
+# dataos-train 由 build.sh 从本 repo 的 tools/train 本地安装(版本= env.yaml dataos_tools 声明)

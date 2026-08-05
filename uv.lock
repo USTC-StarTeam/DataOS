@@ -1149,22 +1149,38 @@ provides-extras = ["dev", "train", "eval", "vllm"]
 
 [[package]]
 name = "dataos-operator"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "tools/operator" }
 dependencies = [
     { name = "datasets" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
 
 [package.optional-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "pillow" },
     { name = "pytest" },
     { name = "ruff" },
 ]
 hf = [
     { name = "datasets" },
 ]
+image = [
+    { name = "pillow" },
+]
+llamafactory = [
+    { name = "pyyaml" },
+    { name = "torch" },
+    { name = "transformers" },
+]
 llm = [
+    { name = "torch" },
+    { name = "transformers" },
+]
+train = [
+    { name = "pyyaml" },
     { name = "torch" },
     { name = "transformers" },
 ]
@@ -1174,12 +1190,21 @@ requires-dist = [
     { name = "datasets", specifier = ">=2.20" },
     { name = "datasets", marker = "extra == 'hf'", specifier = ">=2.20" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pillow", marker = "extra == 'dev'", specifier = ">=10.4" },
+    { name = "pillow", marker = "extra == 'image'", specifier = ">=10.4" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2" },
+    { name = "pyyaml", marker = "extra == 'llamafactory'", specifier = ">=6.0" },
+    { name = "pyyaml", marker = "extra == 'train'", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+    { name = "torch", marker = "extra == 'llamafactory'", specifier = ">=2.1" },
     { name = "torch", marker = "extra == 'llm'", specifier = ">=2.1" },
+    { name = "torch", marker = "extra == 'train'", specifier = ">=2.1" },
+    { name = "transformers", marker = "extra == 'llamafactory'", specifier = ">=4.44" },
     { name = "transformers", marker = "extra == 'llm'", specifier = ">=4.44" },
+    { name = "transformers", marker = "extra == 'train'", specifier = ">=4.44" },
 ]
-provides-extras = ["dev", "hf", "llm"]
+provides-extras = ["dev", "image", "hf", "llm", "train", "llamafactory"]
 
 [[package]]
 name = "dataos-train"
