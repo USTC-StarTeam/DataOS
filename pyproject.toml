@@ -1,0 +1,95 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dataos-operator"
+version = "0.5.0"
+description = "A data-centric operator framework skeleton for evaluators, generators, mappers, mixers, clusterers, reweighters, refiners, and selectors."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "DataOS Operator Contributors" }
+]
+keywords = [
+  "data-centric-ai",
+  "dataset",
+  "operator",
+  "llm-evaluation",
+  "data-operator"
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Typing :: Typed"
+]
+# datasets is a core dependency: required by the Dataset container's on-demand
+# Arrow export path. numpy is used by the selector operators' scoring math.
+dependencies = [
+  "datasets>=2.20",
+  "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.10",
+  "Pillow>=10.4",
+  "pytest>=8.2",
+  "ruff>=0.6"
+]
+image = [
+  "Pillow>=10.4"
+]
+# Retained for backward compatibility / explicit intent; datasets is core now.
+hf = [
+  "datasets>=2.20"
+]
+llm = [
+  "torch>=2.1",
+  "transformers>=4.44"
+]
+train = [
+  "PyYAML>=6.0",
+  "torch>=2.1",
+  "transformers>=4.44"
+]
+llamafactory = [
+  "PyYAML>=6.0",
+  "torch>=2.1",
+  "transformers>=4.44"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["dataos_operator"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+packages = ["dataos_operator"]
+
+[[tool.mypy.overrides]]
+module = "datasets.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "dataos_operator.training.*",
+  "dataos_operator.integrations.*",
+]
+ignore_errors = true

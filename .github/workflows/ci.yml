@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Python 3.12
+    runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: "3.12"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install package
+        run: uv sync --extra dev --python ${{ env.PYTHON_VERSION }}
+
+      - name: Ruff lint
+        run: uv run --python ${{ env.PYTHON_VERSION }} --extra dev ruff check .
+
+      - name: Ruff format check
+        run: uv run --python ${{ env.PYTHON_VERSION }} --extra dev ruff format --check .
+
+      - name: Type check
+        run: uv run --python ${{ env.PYTHON_VERSION }} --extra dev mypy
+
+      - name: Unit tests
+        run: uv run --python ${{ env.PYTHON_VERSION }} --extra dev pytest
+
+      - name: Build package
+        run: uv build
+
+      - name: Package import smoke test
+        run: |
+          WHEEL="$(ls dist/*.whl)"
+          uv run --isolated --python ${{ env.PYTHON_VERSION }} --with "$WHEEL" python - <<'PY'
+          from dataos_operator import Dataset
+          from dataos_operator.operators.selector.length_filter import LengthFilter
+
+          dataset = Dataset.from_records([{"text": "abc"}, {"text": "welcome"}])
+          result = LengthFilter(text_key="text", min_length=3, max_length=5).run(dataset)
+
+          assert Dataset.__name__ == "Dataset"
+          assert result.to_records() == [{"text": "abc"}]
+          PY
+
+      - name: Hugging Face upload smoke test
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          RUN_HF_INTEGRATION: "1"
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "HF_TOKEN is not configured; skipping Hugging Face upload smoke test."
+            exit 0
+          fi
+          uv run --python ${{ env.PYTHON_VERSION }} --extra dev --extra hf pytest tests/integration/test_hf_dataset_upload.py
