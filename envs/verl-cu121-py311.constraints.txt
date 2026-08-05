@@ -1,0 +1,33 @@
+# Verified/diagnosed on yzc-3090-1 for the verl GRPO compatibility domain.
+#
+# Environment name:
+#   /home/hcgu/project/DataOS/.conda/envs/dataos-train-verl-cu121-py311
+#
+# Current status:
+#   GRPO data conversion, custom reward import, and flash_attn worker import pass in this env.
+#
+# flash-attn wheel installed on 2026-07-01:
+#   https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+#
+# Remote wheel cache:
+#   /home/hcgu/project/DataOS/.cache/wheels/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+#
+# Install log:
+#   /home/hcgu/project/DataOS/DataOS-train/runs/20260701-verl-rerun/flash_attn_install_from_local_wheel.log
+#
+# Captured from the GPU host after verl env bootstrap.
+verl[vllm]==0.4.1
+vllm==0.8.5
+torch==2.6.0+cu124
+torchvision==0.21.0
+torchaudio==2.6.0
+transformers==4.51.3
+tokenizers==0.21.2
+huggingface-hub==0.34.4
+datasets==3.6.0
+pyarrow==19.0.1
+numpy==1.26.4
+ray[default]==2.47.1
+xformers==0.0.29.post2
+flash-attn==2.7.4.post1
+setuptools==80.10.2
