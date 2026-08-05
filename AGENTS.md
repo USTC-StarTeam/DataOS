@@ -26,18 +26,32 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
 ## Stack
 
 - Python `>=3.11`; env/build via `uv` + `setuptools`; lint `ruff`; tests `pytest`.
-- Core deps: `datasets`, `pyarrow`, `pydantic`, `tenacity`, `dataos-operator` (operator catalog),
-  `dataos-agent` (code-agent CLI drivers: claude/kimi/qwen + transport self-healing; git-tag dep).
+- **One repo, one workspace** (2026-08-05 consolidation; the old DataOS-Agent / DataOS-train /
+  DataOS-Operator repos are archived): `dataos_agent` (code-agent CLI drivers:
+  claude/kimi/codex/qwen + transport self-healing) is a brain component at
+  `src/dataos_agent/` (ships inside the dataos distribution); the experimenter's tools are
+  uv-workspace members under `tools/` — `tools/train` (dataos-train), `tools/operator`
+  (dataos-operator). No git pins anywhere; `uv lock` resolves the workspace.
+- Core deps: `datasets`, `pyarrow`, `pydantic`, `tenacity`, + the in-repo tools.
   Training/eval stacks (LLaMA-Factory, lm-eval, vLLM, torch) live in **frozen uv venvs on H100**
   (`sft_env`/`rl_env`/`eval_env`, see configs/environments), not the agent-host venv.
-- LLM backend: a **code-agent CLI** (`backend="cli"`) driven via the **dataos-agent** package
+- LLM backend: a **code-agent CLI** (`backend="cli"`) driven via the **dataos_agent** package
   (`cli_agent.py` adapter); provider/model are config facts (`agent_provider` default `"kimi"`,
   `agent_model` default `None` = the CLI's own default model), auth is the CLI's own login on
-  the agent host. Transport self-healing (endpoint drop → backoff → resume-reconnect) lives
-  INSIDE dataos-agent.
+  the agent host. Transport self-healing (endpoint drop → backoff → resume-reconnect; stall
+  watchdog `idle_timeout` → disconnected → resume) lives INSIDE dataos_agent.
 
 ## Repository map
 
+- `src/dataos_agent` — the CLI driver layer (neutral Event/Result, healing stream, stall
+  watchdog; providers under `providers/`). Docs: `docs/dataos_agent/`; tests:
+  `tests/dataos_agent/`.
+- `tools/` — the agent's instruments, standalone distributions + uv workspace members:
+  `tools/train` (dataos-train: unified train launcher, validate/build/submit/status/collect),
+  `tools/operator` (dataos-operator: the operator catalog). Tool versions are pinned by the
+  `dataos_tools` declaration in `env.yaml` (== their pyproject versions; enforced by
+  `tests/agent/test_env_tools_versions.py`); upgrading a tool = bump its version, update the
+  declaration, run `scripts/sync_envs.py`.
 - `src/dataos/agent` — the loop: `loop.py` (`run_auto`), `state_tree`, `planner`, `reviewer`,
   `subagent_executor` (drives the per-experiment experimenter + the investigator), `eval_freeze`,
   `schemas`,
@@ -46,7 +60,7 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   the Trainer is `DataosTrainCli`: the deterministic dataos-train launcher lifecycle
   validate/build/submit/status/collect; its CLI lives in the thin `train_cli_env`),
   `run_config` (the single-JSON config boundary), `backend`, `budget`, `config`, `logging`,
-  `llm/` (`cli_agent.py` — the provider-neutral dataos-agent adapter — + structured-output
+  `llm/` (`cli_agent.py` — the provider-neutral dataos_agent adapter — + structured-output
   helper), `posttrainbench.py`
   (the eval protocol: bench list + sampled limits per profile), and `monitor.py`
   (the live HTTP monitor — pure stdlib, embedded by `run_auto`; serves the `web/` UI).
@@ -124,13 +138,19 @@ GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
 - SSH: `Host h100` → `HostName 114.214.215.159`, `User hcgu`, `IdentityFile ~/.ssh/ghc_miyao`.
 - Deploy (the repo on H100): `/data/hcgu/users/tjh/dataos_agentver` — a **git checkout of `origin/main`**.
   Deploy = `git push origin main` (host) then `ssh h100 'git -C <deploy_root> pull'`.
-- Run scratch (per experiment): `/data/hcgu/users/tjh/dataos_agentver_runs/...`.
+  If a tool version changed (see `dataos_tools` in env.yaml), also run
+  `python scripts/sync_envs.py` (host) to install the declared versions into the venvs —
+  nothing else ever mutates them.
+- Run scratch (per experiment): `/data2/hcgu/dataos_agentver_runs/...`.
 - Fixed pool: `/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2`
   (env.yaml `paths.fixed_pool`). Eval benchmark data ships IN the repo
   (`$AGENTVER/configs/tasks/posttrainbench/benchmarks` — comes down with `git pull`).
-- Frozen uv venvs (defined in `configs/environments/PTB_H100_slurm/envs/`): `sft_env`
-  (LLaMA-Factory + torch), `rl_env` (verl), `eval_env` (lm-eval + vLLM), under
+- Frozen uv venvs (defined in `configs/environments/PTB_H100_slurm/envs/`): `sft` / `rl` /
+  `eval` baselines plus the derived **`dataos_sft`** (sft baseline + repo tools
+  preinstalled — this is what `env.yaml`'s `sft_env` points at), under
   `/data/hcgu/users/tjh/dataos_runtime/environments/PTB_H100_slurm/envs/`.
+  Rebuild one on H100: `cd <deploy_root>/configs/environments/PTB_H100_slurm/envs &&
+  ./build.sh dataos_sft`.
 - Submit GPU work through Slurm (default `gpu04`); the login node is orchestration only.
 - **Compute nodes have no internet.** Datasets resolve offline from the benchmarks HF cache; the
   2 judge benches generate on the GPU node then score on the login node.
