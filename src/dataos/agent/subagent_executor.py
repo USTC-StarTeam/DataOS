@@ -105,6 +105,7 @@ def _queue_wait_s(cfg) -> float:
     deterministically from sacct over this run's job ids (found via slurm-<id>.out
     logs and dataos-train handle.json files under runs_base/<project_id>)."""
     import os
+    import shlex
     import subprocess
 
     runtime = _runtime_config(cfg)
@@ -112,7 +113,7 @@ def _queue_wait_s(cfg) -> float:
     runs_base = (runtime.get("paths") or {}).get("runs_base")
     if not cluster.get("host") or not runs_base:
         return 0.0
-    base = f"{runs_base}/{cfg.project_id}"
+    base = shlex.quote(f"{runs_base}/{cfg.project_id}")  # project ids can contain parens
     remote = (
         f"ids=$( (find {base} -maxdepth 4 -name 'slurm-*.out' 2>/dev/null | grep -oP 'slurm-\\K[0-9]+';"
         f" find {base} -maxdepth 3 -name 'handle.json' 2>/dev/null | xargs -r grep -hoP '\"job_id\":\\s*\"?\\K[0-9]+') | sort -u | tr '\\n' ',' );"
