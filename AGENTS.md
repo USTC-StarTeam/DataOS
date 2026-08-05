@@ -145,10 +145,11 @@ GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
 - Fixed pool: `/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2`
   (env.yaml `paths.fixed_pool`). Eval benchmark data ships IN the repo
   (`$AGENTVER/configs/tasks/posttrainbench/benchmarks` — comes down with `git pull`).
-- Frozen uv venvs (defined in `configs/environments/PTB_H100_slurm/envs/`): `sft` / `rl` /
-  `eval` baselines plus the derived **`dataos_sft`** (sft baseline + repo tools
-  preinstalled — this is what `env.yaml`'s `sft_env` points at), under
-  `/data/hcgu/users/tjh/dataos_runtime/environments/PTB_H100_slurm/envs/`.
+- Frozen uv venvs (defined in `configs/environments/PTB_H100_slurm/envs/`): the venvs DataOS
+  uses live **inside the deploy checkout** (`<deploy_root>/configs/environments/PTB_H100_slurm/
+  envs/<name>/.venv`, git-ignored): `dataos_sft` (sft baseline + repo tools preinstalled — what
+  `env.yaml`'s `sft_env` points at) and `train-cli`. The `rl`/`eval` baselines still live at
+  the legacy `/data/hcgu/users/tjh/dataos_runtime/...` location (absolute paths in env.yaml).
   Rebuild one on H100: `cd <deploy_root>/configs/environments/PTB_H100_slurm/envs &&
   ./build.sh dataos_sft`.
 - Submit GPU work through Slurm (default `gpu04`); the login node is orchestration only.
