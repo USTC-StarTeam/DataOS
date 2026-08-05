@@ -93,21 +93,20 @@ judge。二次伤害：leader 把传输 bug 误判为"该方向操作不可行"�
 review 判死刑）。修法：失败时主动 ssh 捞 run_root 的 `eval/*/summary.json` 入账；
 或 report 改增量式（每 stage 完成即落盘）。
 
-## P10 环境坑重复交学费（未修）
+## P10 环境坑重复交学费（方案已定，待实施）
 
 每个 experimenter 是全新 session，环境硬事实不沉淀，各轮 report 的
 `compatibility_fixes` 雷同。实锤：gpqa 被集群 GPU Guard（前 30min 显存峰值 <24GiB
 即杀，LoRA 峰值 ~15GiB 踩线）杀 4 个 job ~2h，16GiB 预留 workaround 隔轮失传重踩；
 frozen sft_env 缺 `dataos_operator` 每轮重新 vendor；gsm8k r10 一轮踩 5 坑
 （PartitionTimeLimit / save_to_disk 格式 / libcuda 探测 set -e / eval label 必须含
-Qwen3）；/zssd 主机路径泄漏到集群。修法：环境事实进 kb（cluster_discipline 加 GPU
-Guard 条款、venv 缺包清单、dataos-train 输入格式、eval label 规则），由
-runtime_compose 注入 ENV OPS；备选 experimenter run 级 notes 汇总注入。
-
-## P11 dataos-agent 不支持配置 proxy（未修）
-
-provider 的网络代理目前硬编码在 dataos-agent 内部（codex provider 的 `env()` 内置
-固定代理地址），用户无法按 run 配置。需求：dataos-agent 暴露 proxy 配置项（如
-`AgentConfig.proxy` 或 provider 级 env 覆盖），DataOS run config 可声明——例如给
-codex 设 `http://192.168.1.99:8401`。修法：dataos-agent 加可选 proxy 字段（透传
-HTTPS_PROXY/HTTP_PROXY 到 CLI 子进程环境），DataOS run_config 加 `agent.proxy` 透传。
+Qwen3）；/zssd 主机路径泄漏到集群。
+**已定方案（两个落点，不加新机制）**：
+① 机器事实 → `configs/environments/PTB_H100_slurm/env.yaml` 的 `discipline`
+（渲染进 ENV OPS 硬约束段）：GPU Guard + 16GiB 预留写法、/zssd 路径隔离、
+不显式请求超长 --time（PartitionTimeLimit）。
+② 工具契约事实 → kb 块：`kb/stage_data.yaml` 加 dataos_operator vendor 路径
+（设计内预期，附命令）+ dataos-train 要 save_to_disk 格式；`kb/stage_eval.yaml`
+加 eval label 须以模型家族名开头（Qwen3-…）。
+明确不做：跨轮 notes 机制；dataos_operator 装进 sft_env（CONTRACT 定性私有库）；
+改 eval bridge 模板选择逻辑（另开）。
