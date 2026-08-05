@@ -81,6 +81,8 @@ class AutoRunConfig:
     agent_provider: str = "kimi"  # dataos_agent registry name: kimi | claude | qwen | ...
     agent_model: str | None = None  # leader and experimenters; None = the CLI's own default model
     agent_effort: str | None = None  # thinking level (claude: low/medium/high/xhigh/max)
+    # stall watchdog: kill + resume a CLI agent after Ns of stdout silence (0/None disables)
+    agent_idle_timeout_s: float = 1800.0
     max_steps: int = 12
     # stub backend only: "plan"/"review" (or legacy role names) -> fixed JSON reply string(s)
     stub_replies: dict[str, Any] = field(default_factory=dict)

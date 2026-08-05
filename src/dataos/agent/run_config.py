@@ -175,6 +175,7 @@ class AgentCliConfig:
     provider: str | None = None  # dataos_agent registry name (kimi/claude/qwen/...)
     model: str | None = None     # None = the CLI's own default model
     effort: str | None = None    # thinking level (claude: low/medium/high/xhigh/max)
+    idle_timeout_s: float = 1800.0  # stall watchdog: kill+resume after Ns of silence (0 disables)
 
 
 @dataclass(slots=True)
@@ -217,10 +218,14 @@ class PtbRunConfig:
         budget = _object(data["budget"], "budget")
         _require(budget, ["time_hours"], "budget")
         agent = _object(data["agent"], "agent") if "agent" in data else {}
-        unknown_agent = sorted(set(agent) - {"provider", "model", "effort"})
+        unknown_agent = sorted(set(agent) - {"provider", "model", "effort", "idle_timeout_s"})
         if unknown_agent:
             raise ValueError(f"agent has unknown keys: {', '.join(unknown_agent)} "
-                             "(allowed: provider, model, effort)")
+                             "(allowed: provider, model, effort, idle_timeout_s)")
+        if "idle_timeout_s" in agent:
+            idle_timeout_s = _nonneg_float(agent["idle_timeout_s"], "agent.idle_timeout_s")
+        else:
+            idle_timeout_s = 1800.0
         return cls(
             goal=_nonempty_str(data["goal"], "goal"),
             workspace=_nonempty_str(data["workspace"], "workspace"),
@@ -252,6 +257,7 @@ class PtbRunConfig:
                 effort=_nonempty_str(agent["effort"], "agent.effort")
                 if agent.get("effort")
                 else None,
+                idle_timeout_s=idle_timeout_s,
             ),
             monitor_port=_nonneg_int(data["monitor_port"], "monitor_port")
             if "monitor_port" in data
@@ -294,7 +300,8 @@ class PtbRunConfig:
                        "eval_samples": self.budget.eval_samples},
             "agent": {k: v for k, v in
                       {"provider": self.agent.provider, "model": self.agent.model,
-                       "effort": self.agent.effort}.items()
+                       "effort": self.agent.effort,
+                       "idle_timeout_s": self.agent.idle_timeout_s}.items()
                       if v is not None},
             "monitor_port": self.monitor_port,
         }
@@ -350,6 +357,7 @@ class PtbRunConfig:
                 or None  # None = the CLI's own default model
             ),
             agent_effort=self.agent.effort,
+            agent_idle_timeout_s=self.agent.idle_timeout_s,
             runtime_config=self.runtime_config(),
             runtime_config_path=str(resolved_config_path),
             h100_base_model=self.inputs.base_model_path,
@@ -426,6 +434,12 @@ def _nonneg_int(value: Any, field_name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{field_name} must be a non-negative integer")
     return value
+
+
+def _nonneg_float(value: Any, field_name: str) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{field_name} must be a non-negative number")
+    return float(value)
 
 
 def _positive_float(value: Any, field_name: str) -> float:

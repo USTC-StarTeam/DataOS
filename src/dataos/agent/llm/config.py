@@ -46,4 +46,5 @@ def build_agent(
         max_steps=cfg.max_steps if max_steps is None else max_steps,
         transcript=transcript,
         effort=cfg.agent_effort,
+        idle_timeout=cfg.agent_idle_timeout_s or None,  # 0/None disables the watchdog
     )

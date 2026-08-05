@@ -135,6 +135,27 @@ def test_agent_block_configures_provider(tmp_path, monkeypatch):
         PtbRunConfig.from_dict(_run_json(tmp_path / "myrun", agent={"provder": "claude"}))
 
 
+def test_agent_idle_timeout_s(tmp_path):
+    """agent.idle_timeout_s: default 1800, overridable, 0 disables (None downstream)."""
+    cfg = PtbRunConfig.from_dict(
+        _run_json(tmp_path / "myrun")
+    ).to_auto_config(resolved_config_path=tmp_path / "r.json")
+    assert cfg.agent_idle_timeout_s == 1800.0  # default
+
+    cfg = PtbRunConfig.from_dict(
+        _run_json(tmp_path / "myrun", agent={"idle_timeout_s": 600})
+    ).to_auto_config(resolved_config_path=tmp_path / "r.json")
+    assert cfg.agent_idle_timeout_s == 600.0
+
+    cfg = PtbRunConfig.from_dict(
+        _run_json(tmp_path / "myrun", agent={"idle_timeout_s": 0})
+    ).to_auto_config(resolved_config_path=tmp_path / "r.json")
+    assert cfg.agent_idle_timeout_s == 0.0  # build_agent maps 0 -> None (disabled)
+
+    with pytest.raises(ValueError, match="idle_timeout_s"):
+        PtbRunConfig.from_dict(_run_json(tmp_path / "myrun", agent={"idle_timeout_s": -5}))
+
+
 def test_node_is_optional():
     """resource.node can be omitted — Slurm then picks any free node."""
     data = _run_json("/tmp/x")

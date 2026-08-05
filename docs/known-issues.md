@@ -65,17 +65,23 @@ monitor 优先读 tee 文件，旧 claude run 走原 transcript 兼容路径。
 `ptb-<bench>-sol56med(1)(1)`）。~52 实验 16 败，**失败 100% 在 codex CLI/传输层，
 0 次训练真失败、0 次 eval 真失败**。按用户指示登记，逐项修复。
 
-## P8 CLI 挂死/断流烧预算（部分修复，watchdog 未做）
+## P8 CLI 挂死/断流烧预算（✅ 已修，2026-08-05）
 
-三种形态：① 64KB 行限断流（`LimitOverrun`，~7 次）——**已修**，dataos-agent
+三种形态：① 64KB 行限断流（`LimitOverrun`，~7 次）——dataos-agent
 `d1eb7dd` 把 `create_subprocess_exec` limit 提到 16MiB（DataOS `575c05d` 接入）；
-② codex 内部卡死（`models_manager` 刷模型列表超时循环 / 卡在交互式 stdin，3 次）——
-**未修**；③ 静默挂死（ssh 抖动后模型流永久静默、零事件零报错，3 次）——**未修**。
+② codex 内部卡死（`models_manager` 刷模型列表超时循环 / 卡在交互式 stdin，3 次）；
+③ 静默挂死（ssh 抖动后模型流永久静默、零事件零报错，3 次）。
 放大器：`subagent_executor._run_one` 把剩余全部预算作为单次 `agent.run()` 的
 timeout，dataos-agent 无 inactivity 检测，monitor 心跳停滞无告警——一次挂死烧掉
 整场（healthbench 9.77h 整场报废、bfcl r7 5.6h、humaneval r12 3.3h；合计
-~23h/60h）。修法：experimenter 级 inactivity watchdog（transcript N 分钟无事件→杀
-+resume，session_id 可续）+ 单实验 timeout 与全局预算解耦 + monitor 停滞告警。
+~23h/60h）。
+**修复（stall watchdog，三路合一）**：dataos-agent `84211ee` 把 `idle_timeout`
+提升为 `AgentConfig` 一级字段，静默超时杀进程后标 `disconnected`（原为 `timeout`，
+healing 层不重试）——三种挂死统一走已有传输自愈：backoff + session_id resume，
+单次挂死损失从整场降到 ≤idle_timeout+backoff；DataOS 侧 `agent.idle_timeout_s`
+（run JSON 可选键，默认 1800s，0 关闭）经 `build_agent` 接到每个角色；
+monitor `/api/live` 对活 run 报 `stalled`（全部 transcript 静默 >15min），
+前端状态条亮黄牌。总预算 deadline 不变，兜底防无限续命。
 
 ## P9 已完成的分没入账（未修）
 

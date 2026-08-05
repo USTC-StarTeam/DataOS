@@ -75,8 +75,10 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   → pointers `environment`/`task`/`bench` → `inputs` → `exec` → `budget` → host (`agent`,
   `monitor_port`); the workspace path IS the run identity (no run_id) — fresh instance per
   invocation, `--resume` to continue. The optional `agent` block picks the brain's CLI per
-  run (`{"provider": "claude"|"kimi"|..., "model": ...}`; precedence: JSON > `DATAOS_AGENT_*`
-  env > default kimi/CLI-default-model). Anything derivable is derived in code: the
+  run (`{"provider": "claude"|"kimi"|..., "model": ..., "effort": ..., "idle_timeout_s": ...}`;
+  precedence: JSON > `DATAOS_AGENT_*` env > default kimi/CLI-default-model; `idle_timeout_s`
+  is the stall watchdog — a CLI silent for Ns is killed and resumed via the healing path,
+  default 1800, 0 disables). Anything derivable is derived in code: the
   backend→env menu is scanned from `tools.*.provides`, benchmarks from the task dir;
   unknown keys are rejected at load). `configs/CONTRACT.md` is the field spec.
   The composer (`agent/runtime_compose.py`) resolves these into the experimenter's ENV

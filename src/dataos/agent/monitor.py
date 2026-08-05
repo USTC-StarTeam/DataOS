@@ -318,6 +318,24 @@ def _is_live(live: dict) -> bool:
     return (time.time() - live.get("heartbeat", 0)) < _HEARTBEAT_WINDOW
 
 
+_STALL_WINDOW = 900.0  # 15 min of total transcript silence on a live run -> stalled
+
+
+def _stall_s(workspace: Path, run_id: str) -> float | None:
+    """Seconds since the freshest agent transcript write (any role: leader /
+    investigator / latest experimenter tee); None when the run records none.
+    A live run with every transcript silent is wedged (CLI stall, dead stream)."""
+    paths = [
+        workspace / "_agent" / run_id / "leader" / "transcript.jsonl",
+        workspace / run_id / "investigator.jsonl",
+        *(workspace / run_id).glob("round-*/experiments/*/agent.jsonl"),
+    ]
+    mtimes = [p.stat().st_mtime for p in paths if p.is_file()]
+    if not mtimes:
+        return None
+    return max(0.0, time.time() - max(mtimes))
+
+
 def _live_status(workspace: Path, run_id: str) -> dict:
     """{running, phase} from the heartbeat — process-independent, so one monitor can
     show every run's true state (a killed run goes stale; a finished one writes done)."""
@@ -411,6 +429,10 @@ def make_handler(workspace: Path):
                 if run:
                     live = _read_live(workspace, run)
                     live["live"] = _is_live(live)
+                    if live["live"]:
+                        stall = _stall_s(workspace, run)
+                        live["stall_s"] = stall
+                        live["stalled"] = stall is not None and stall > _STALL_WINDOW
                     return self._json(live)
                 return self._json(LIVE.snapshot())
             if path == "/api/activity":

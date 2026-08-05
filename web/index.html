@@ -45,6 +45,7 @@
   #live .obj{position:relative; color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   #live .spacer{flex:1}
   #live .rd{position:relative; color:var(--faint); letter-spacing:.6px; text-transform:uppercase; font-size:11px}
+  #live .stall{position:relative; color:#d9822b; font-size:11px; letter-spacing:.4px; white-space:nowrap; animation:pulse 1.8s infinite}
   #live .clock{position:relative; color:var(--gold); white-space:nowrap}
   #live .clock .of{color:var(--faint)}
   /* sub-stage stepper: data -> train -> eval */
@@ -165,6 +166,7 @@
     <span class="stage" id="lv-stage"></span>
     <span class="spacer"></span>
     <span class="rd" id="lv-round"></span>
+    <span class="stall" id="lv-stall" hidden></span>
     <span class="clock" id="lv-clock"></span>
   </div>
   <main>
@@ -426,6 +428,12 @@ function renderLive(live){
   const frac = (live.budget_hours && live.remaining_hours!=null)
     ? Math.max(0, Math.min(1, 1 - live.remaining_hours/live.budget_hours)) : 0;
   $("#burn").style.width = (frac*100).toFixed(1)+"%";
+  // stall watchdog: every agent transcript silent >15min on a live run
+  const stall = $("#lv-stall");
+  if(live.stalled){
+    stall.hidden = false;
+    stall.textContent = `stalled ${fmtLeft((live.stall_s||0)/3600)} — no agent output`;
+  } else stall.hidden = true;
 }
 
 // ---- agent console ----
