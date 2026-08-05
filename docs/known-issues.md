@@ -130,14 +130,20 @@ playbook 的升级条件是"LoRA 停滞 ~2 轮转 full-SFT"，但 LoRA 每轮 +2
 strategy.yaml 加先验——"碎末涨幅（≤ 噪声带的小涨）不算方向确认；第 ~3 轮前必须试
 一次 full-SFT，它是 1.7B base 上已反复验证的主杠杆"。
 
-## P13 在线算子文档与 train 实际桥接集不一致（未修）
+## P13 在线算子文档与 train 实际桥接集不一致（✅ 已修，2026-08-05）
 
 operator 的 usage 文档把 selector 系（loss_selector 等）写成可在线用（PolicyRuntime
 口吻），但 train 的 `dataos_train.online_ops` entry-point 组只桥接了
 `loss_reweighter`（+内建 loss_reweight/epoch_subset_select）。healthbench 的
 experimenter 想用在线 loss_selector 课程，`probe_online_op('loss_selector')=false`，
-如实报败（处理正确）。修法二选一或都做：把 selector 系桥接进 entry-point 组
-（select hook 点已存在）；或先校准 operator 文档的"可在线"措辞到实际桥接清单。
+如实报败（处理正确）。历史补注：c6verify 那次"能用"也是 experimenter 手工 port 的
+一次性 shim（算法副本 + sitecustomize 黑注册），不是正式通道。
+**修复**：`dataos_operator.integrations.dataos_train` 新增通用 `_SelectTrainHook`
+适配器（observe→after_forward、decide→on_update_boundary，candidates 按行索引占位
+即可），entry-point 注册 `loss_selector` + `delta_loss_selector`；
+less/nice/near/tsds 和 odm/doremi mixer（需要 eval/query 集或 domain 通道）在
+usage guide 和 train 的 online_ops.md 里明确标注"暂仅离线/PolicyRuntime 直驱"。
+operator 0.8.0，集群 dataos_sft 已同步，`known_online_op_names()` 实测 5 个可用。
 
 ## P14 humaneval 脆区反复探（观察）
 
