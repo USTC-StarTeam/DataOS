@@ -121,14 +121,18 @@ run 复盘把 report.compatibility_fixes 里重复出现的条目按归属沉淀
 （传输层事故 0、丢分 0、环境坑 0，对照上批 16 次事故烧 ~23h）；总分 169.75 vs 上批
 149.3。以下为策略/工具层新发现。
 
-## P12 full-SFT 升级触发器被 LoRA 碎末涨幅架空（未修）
+## P12 full-SFT 升级触发器被 LoRA 碎末涨幅架空（✅ 已修，2026-08-05）
 
 playbook 的升级条件是"LoRA 停滞 ~2 轮转 full-SFT"，但 LoRA 每轮 +2 的碎末涨幅不构成
 停滞——触发器永不触发。实锤：gsm8k 沿 20k→30k→45k LoRA 碎涨到 66.11 收官，整条树
 **从没试过 full-SFT**，而上批的 71.3 全靠 LoRA 卡 41 后转 full 跳出；arena 同理
-（LoRA 三连败后转 full 立即 1.2→7.23，但因触发晚只追到 9.94 < 上批 12.0）。修法：
-strategy.yaml 加先验——"碎末涨幅（≤ 噪声带的小涨）不算方向确认；第 ~3 轮前必须试
-一次 full-SFT，它是 1.7B base 上已反复验证的主杠杆"。
+（LoRA 三连败后转 full 立即 1.2→7.23，但因触发晚只追到 9.94 < 上批 12.0）。
+**修复（按用户决策：去指令化）**：strategy.yaml 整个删除——所有搜索指令（small-first /
+exploit-first / 升级触发器 / one-knob 排序）一并移除，不为难 planner；有价值的内容
+降级为**纯事实**并入 leader 骨架末尾的 TIPS 块（full-SFT 证据、eval 噪声带、格式
+封顶事实、漂移失败模式），leader 自己推导。kb/operator_selection 的 online 段同步
+校准（fork 措辞 → dataos-train online-ops + 已桥接清单）。顺带修了 leader 骨架里
+"eval is intentionally sampled" 的过时说法（现为全量）。
 
 ## P13 在线算子文档与 train 实际桥接集不一致（✅ 已修，2026-08-05）
 

@@ -27,7 +27,7 @@ from .llm.config import build_agent
 # Each block is a YAML template in src/dataos/prompt/{system,kb}/; only the leader
 # skeleton takes render params (the run's facts).
 _BLOCKS = {
-    "leader": ("system/leader", "kb/operator_selection", "kb/pool_survey", "system/strategy"),
+    "leader": ("system/leader", "kb/operator_selection", "kb/pool_survey"),
     "experimenter": ("system/experimenter", "kb/operator_use", "kb/operator_custom",
                      "kb/training", "kb/cluster_discipline", "kb/eval_format",
                      "kb/report_contract", "kb/failure_diagnosis"),

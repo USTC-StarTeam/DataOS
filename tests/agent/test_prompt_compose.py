@@ -51,9 +51,9 @@ def test_role_system_prompt_contains_its_blocks(role):
             assert sig in text, f"{role} missing {block}"
 
 
-def test_leader_carries_strategy_and_run_facts():
+def test_leader_carries_tips_and_run_facts():
     text = system_prompt("leader", _CFG)
-    assert "STRATEGY PLAYBOOK" in text          # system/strategy still appended
+    assert "TIPS — empirical facts" in text     # the leader skeleton's evidence block
     assert "10h budget" in text                 # budget_hours rendered into the skeleton
     assert "You are the LEADER" in text
 
