@@ -196,7 +196,7 @@ relevant smoke command when the change affects runtime behavior (e.g. an H100 ev
 - Run entry: `src/dataos/agent/cli.py` → `dataos.agent.loop.run_auto`.
 - Config boundary: `src/dataos/agent/run_config.py`.
 - Experimenter/investigator driver: `src/dataos/agent/subagent_executor.py`.
-- Eval: `resources/code/posttrainbench/lm_eval_bridge/`.
+- Eval: `configs/tasks/posttrainbench/eval/`.
 - Prompts: `src/dataos/prompt/*.yaml` (loader: `src/dataos/prompt/__init__.py`).
-- Strategy playbook: `src/dataos/prompt/strategy.yaml` (appended by `backend._system_prompt`).
+- Strategy playbook: `src/dataos/prompt/system/strategy.yaml` (appended by `backend._system_prompt`).
 - Live monitor: `src/dataos/agent/monitor.py` + `web/index.html` (standalone: `web/server.py`).

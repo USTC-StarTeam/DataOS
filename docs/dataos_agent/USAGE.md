@@ -4,8 +4,8 @@
 设计见 [`DESIGN.md`](DESIGN.md)。
 
 ## 前提
-- 目标 CLI 已装且**已登录**：`claude` / `kimi` / `qwen`（认证走各 CLI 自己的本地登录，本包不管 key）。
-- `pip install -e .`（依赖仅 `pydantic`；后端走 CLI 子进程，无需各家 SDK）。
+- 目标 CLI 已装且**已登录**：`claude` / `kimi` / `qwen` / `codex`（认证走各 CLI 自己的本地登录，本包不管 key）。
+- 随 DataOS 主仓 `uv sync` 获得——本包已并入主包（`src/dataos_agent/`，依赖仅 `pydantic`；后端走 CLI 子进程，无需各家 SDK）。
 
 ## 一次性：`query`
 ```python
@@ -56,5 +56,5 @@ asyncio.run(main())
 新增 `src/dataos_agent/providers/<name>.py`：一个 `CliSpec` 子类（`bin` + `build_argv` + `parse_line`，可选 `finalize`）并 `register()`；在 `providers/__init__.py` 的列表里加名字。核心零改动。
 
 ## 已知
-- **claude / qwen** 共用同一套 Claude-Code stream-json mapper；三家真机 smoke 均通过（含结构化输出）。
+- **claude / qwen** 共用同一套 Claude-Code stream-json mapper；四家（claude/kimi/qwen/codex）真机 smoke 均通过（含结构化输出）。
 - **kimi** 的 stream-json 不报 token usage（`usage` 为 0），session_id 从 stderr 提取。

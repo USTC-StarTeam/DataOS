@@ -22,14 +22,12 @@ print(query("Reply with exactly: OK", provider="kimi"))     # 'OK'  —— 同�
 - **扛断连**：端点中途断流默认自愈——退避后带断连前的 `session_id` 重连续跑（`net_retries`/`timeout` 可调，长跑 agent 的命根子）。
 - **勿增实体**：只暴露每家 CLI 都能对应上的公共核心；各家私货走 `extra` 透传或不做。
 
-设计与取舍：见 [`docs/DESIGN.md`](docs/DESIGN.md)。
+设计与取舍：见 [DESIGN.md](./DESIGN.md)。
 
 ## 安装
 
-```bash
-pip install -e .          # 依赖仅 pydantic
-```
-前提：目标 CLI 已装且**已登录**（`claude` / `kimi` / `qwen`）——认证走各 CLI 自己的本地登录，本包不碰 key。
+随 DataOS 主仓 `uv sync` 获得——本包已并入主包（`src/dataos_agent/`，依赖仅 pydantic），不单独安装。
+前提：目标 CLI 已装且**已登录**（`claude` / `kimi` / `qwen` / `codex`）——认证走各 CLI 自己的本地登录，本包不碰 key。
 
 ## 两个入口
 
@@ -66,7 +64,7 @@ r.data          # Plan(name='exp', steps=3)   —— 不合规抛 OutputParseErr
 
 ## 配置（`AgentConfig`）
 
-> 完整入参（类型 / 默认 / 各 provider 映射与降级）见 **[docs/API.md](docs/API.md)**。
+> 完整入参（类型 / 默认 / 各 provider 映射与降级）见 **[API.md](./API.md)**。
 
 | 字段 | 说明 |
 |---|---|
@@ -82,7 +80,7 @@ r.data          # Plan(name='exp', steps=3)   —— 不合规抛 OutputParseErr
 
 `text` · `data`(结构化) · `files` · `status`(`done`\|`max_steps`\|`timeout`\|`disconnected`\|`error`\|`refused`) · `error` · `usage`(input/output/total + cost) · `steps` · `session_id`。`str(result)` = 最终文本。
 
-> 每个返回字段 + `Event` / `Usage` / `Step` / 异常的完整说明见 **[docs/API.md](docs/API.md)**。
+> 每个返回字段 + `Event` / `Usage` / `Step` / 异常的完整说明见 **[API.md](./API.md)**。
 
 ## Provider
 
@@ -101,10 +99,9 @@ r.data          # Plan(name='exp', steps=3)   —— 不合规抛 OutputParseErr
 ```
 src/dataos_agent/
   types.py errors.py _output.py _cli.py agent.py
-  providers/  base.py fake.py claude.py qwen.py kimi.py
+  providers/  base.py fake.py claude.py qwen.py kimi.py codex.py
 tests/        单元(离线) + integration(真机 smoke)
-docs/         DESIGN.md USAGE.md
-PLAN.md
+docs/         DESIGN.md USAGE.md API.md
 ```
 
 ## 开发 / 测试
@@ -117,4 +114,4 @@ pytest -m integration -s            # 真机 smoke（需登录 claude/kimi/qwen�
 
 ## 状态
 
-v1：两入口 + 三 provider + 结构化输出 + 统一 Result，均有测试。详见 [`docs/USAGE.md`](docs/USAGE.md)。
+v1：两入口 + 三 provider + 结构化输出 + 统一 Result，均有测试。详见 [USAGE.md](./USAGE.md)。

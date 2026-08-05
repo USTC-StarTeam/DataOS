@@ -2,171 +2,155 @@
 
 [English README](README.md)
 
-DataOS 在**固定数据池**和**固定 GPU 时间预算**下，把**一个** base 模型 post-train 到在
-**一个** PostTrainBench bench 上分数最高 —— 全程由 agent 驱动。
+DataOS 在固定数据池和固定 GPU 时间预算内，把**一个** base model 在**一个** PostTrainBench
+benchmark 上后训练到最优——全程由 agent 驱动。
 
-一个常驻的 **leader**（Claude Code 长对话）维护一棵实验**树**。每一轮它给出一个实验方案 ——
-一份*数据配方*（对固定池跑一条 [DataOS-Operator](https://github.com/USTC-StarTeam/DataOS-Operator)
-算子流水线）加一组*训练*超参 —— 由 **experimenter** 端到端实现：
+一个常驻的 **leader**（code-agent CLI 对话——kimi / claude / codex / qwen，可按 run 配置）
+维护一棵实验**树**。每一轮它提出一个实验——*数据配方*（用
+[dataos-operator](tools/operator) 的算子在固定池上组 pipeline）加*训练*超参——由
+**experimenter**（另一个 code-agent CLI，带 shell）端到端实现：
 
 ```
-构建 SFT 数据(算子)  →  在 H100 上用 LLaMA-Factory 训练(Slurm)
-        →  用 lm-eval 的 PostTrainBench 协议评测  →  写 report.json
+构建 SFT 数据（算子） → 训练（dataos-train / LLaMA-Factory，H100 Slurm）
+        → 评测（冻结的 lm-eval PostTrainBench 协议） → 写 report.json
 ```
 
-leader 复盘结果，树从最有潜力的节点继续生长，直到耗尽时间预算。树上最优的模型即为提交。
+leader 复盘报告，树从最有希望的节点继续生长，直到预算耗尽。全树最优模型即提交产物。
+第 0 轮之前还有一次性的 **investigator** 侦查（池画像 + 评测格式契约）。
 
 ## 架构
 
 ```
-            ┌──────────────────────── agent host(本机) ────────────────────────┐
-  第 N 轮:  │  leader(CC 对话) ──plan──▶ code: 校验 · 建节点 · 注入父模型     │
-            │        ▲                                       │                  │
-            │     复盘 ◀── report.json ◀───────────┐         ▼                  │
-            │                                       │   experimenter(CC + shell)   │
-            └───────────────────────────────────────┼──────────│────────────────┘
-                                                     │   ssh / slurm / rsync
-                                                     │          ▼
-                                           ┌─────────┴────────  H100 集群  ───────┐
-                                           │ 数据算子 · LLaMA-Factory 训练 · vLLM 评测 │
-                                           └────────────────────────────────────────┘
+            ┌──────────────────────── agent 主机 ────────────────────────┐
+  第 N 轮:  │  leader（CLI 对话） ──plan──▶ 代码：校验 · 加节点 · 注入父模型 │
+            │        ▲                                            │      │
+            │     review ◀── report.json ◀───────────────┐       ▼      │
+            │                                            │   experimenter（CLI + shell） │
+            └────────────────────────────────────────────┼──────────│──────────────────┘
+                                                          │    ssh / slurm
+                                                          │        ▼
+                                                ┌─────────┴───────  H100 集群  ───────┐
+                                                │ 数据算子 · 训练（冻结 venv） · vLLM 评测 │
+                                                └─────────────────────────────────────────────┘
 ```
 
-- **agent host** 在本地跑 *两个* agent。代码（`dataos.agent.loop`）负责树、plan 校验、父模型注入、
-  落盘；LLM 只负责出 plan 和复盘。
-- **H100 集群** 做全部 GPU 活。experimenter 通过 SSH 把训练（Slurm + LLaMA-Factory）和评测
-  （vLLM + lm-eval）丢到 H100；judge bench 在登录节点打分。
-- **实时监控**（`src/dataos/agent/monitor.py` + `web/`）由 `run_auto` 内嵌在一个端口上（默认
-  `8765`）：打开 `http://localhost:8765` 就能看实验树生长、运行中节点的 `data → train → eval`
-  子阶段、以及两个 agent 推理 + 工具调用的实时控制台。一个监控服务 workspace 下的所有 run。
-- 仓库以 git checkout 形式部署到 H100（`$AGENTVER`）；**部署 = `git pull`**。
+- **agent 主机**本地跑所有 agent。代码（`dataos.agent.loop.run_auto`）拥有实验树、计划
+  校验、父模型注入、预算记账和持久化；LLM 只提计划和写复盘。
+- **H100 集群**在冻结 uv venv 里做全部 GPU 工作（见
+  `configs/environments/PTB_H100_slurm/`）；experimenter 经 SSH + Slurm 投递作业。
+  judge 类 bench 在 GPU 节点生成、login 节点评分。
+- **实时监控**（`src/dataos/agent/monitor.py` + `web/`）由 `run_auto` 内嵌：实验树、
+  当前节点的 `data → train → eval` 子阶段进度条、各 agent 的推理+工具调用直播台，
+  以及所有 agent transcript 静默时的停滞告警。一个 monitor 服务 workspace 下所有 run。
+- 仓库以 git checkout 形式部署到 H100；**部署 = `git pull`**（工具版本变化时再跑
+  `scripts/sync_envs.py`——见下文 `dataos_tools`）。
+
+## 本仓库（monorepo）
+
+一个仓、一个 uv workspace——没有任何外部 git pin：
+
+- `src/dataos/`——大脑：循环、planner/reviewer、subagent 执行器、配置边界、prompt 模板
+  （`src/dataos/prompt/{system,kb,task}/*.yaml`）、监控，以及
+  `Project → Study → Experiment → Stage` 数据模型（`src/dataos/core/`）。
+- `src/dataos_agent/`——code-agent CLI 驱动层（provider：claude / kimi / codex / qwen）：
+  中立事件流、传输自愈（断连→退避→resume）、静默看门狗（`idle_timeout`→杀→续跑）。
+  文档：`docs/dataos_agent/`。
+- `tools/train/`——**dataos-train**：确定性训练启动器生命周期
+  （validate / build / submit / status / collect；LLaMA-Factory + verl 后端）。
+- `tools/operator/`——**dataos-operator**：数据配方算子目录
+  （52 个算子：evaluator / mapper / mixer / reweighter / selector）。
+
+集群上的工具版本由 env.yaml 的 `dataos_tools` 声明绑死（有测试保证与
+`tools/*/pyproject.toml` 一致），用 `scripts/sync_envs.py` 同步。
 
 ## 前置条件
 
-- [`uv`](https://docs.astral.sh/uv/)（Python 环境），Python ≥ 3.11。
-- 已登录的 Claude Code CLI —— 它是 leader 和 experimenter 的后端。
-- 从 agent host 到 H100 集群的免密 SSH（集群上有预建的 conda 环境、固定数据池、base 模型、benchmark 缓存）。
+- [`uv`](https://docs.astral.sh/uv/)，Python ≥ 3.11。
+- 一个在 agent 主机上已登录的 code-agent CLI（默认 `kimi`；也支持 `claude` / `codex` /
+  `qwen`——用 run JSON 的 `agent` 块选择）。
+- agent 主机到 GPU 集群（Slurm）的免密 SSH；冻结 venv、固定数据池、base model、
+  benchmark 缓存都在集群上。
 
 ```bash
-uv sync          # 构建 agent host 环境(只装 agent；训练/评测跑在 H100 的 conda 环境里)
+uv sync --extra dev     # 构建 agent 主机环境（只跑 agent；GPU 工作在 H100 上）
 ```
 
 ## 运行
 
-一次运行所需的一切就是一个 JSON（`configs/runs/<run>.json`）—— 只放**事实**，不放策略：
+一个 run 所需的全部是一个 JSON（`configs/runs/<run>.json`）——只有**事实**，没有策略：
 
 ```jsonc
 {
-  "run_id": "ptb-h100-qwen-gsm8k",
-  "workspace": "workspace/ptb-h100-qwen-gsm8k",
-  "goal": "在受限 H100 预算内用固定 PTB 数据池提升 base 模型。",
-  "bench": "gsm8k",                       // 唯一的 PostTrainBench 目标
-  "base_model_path": "/.../Qwen3-1.7B-Base",
-  "time_budget_hours": 10,
-  "resource": { "node": "gpu04", "gpus": 1, "cpus": 8 },
-  "paths": {
-    "fixed_pool":  "/data/.../posttrainbench_fixed_pool_v1_full",
-    "conda_sh":    "/.../miniconda3/etc/profile.d/conda.sh",
-    "train_env":   "/.../envs/Llama",     // LLaMA-Factory + torch
-    "eval_env":    "/.../envs/lm-eval"    // lm-eval + vLLM
-  }
+  "goal": "用固定 PTB 数据池（v2）在 10h 预算内提升 Qwen3-1.7B-Base 的 gsm8k。",
+  "workspace": "workspace/ptb-gsm8k",          // workspace 路径即 run 身份
+  "environment": "PTB_H100_slurm",             // configs/environments/<env>/env.yaml
+  "task": "posttrainbench",                    // configs/tasks/<task>/
+  "bench": "gsm8k",                            // 唯一的 PostTrainBench 目标
+  "inputs": {
+    "base_model_path": "/data/.../Qwen3-1.7B-Base",
+    "fixed_pool": "/data2/.../posttrainbench_fixed_pool_v2"
+  },
+  "exec": {
+    "deploy_root": "/data/.../dataos_agentver",  // 集群上的仓库 checkout
+    "runs_base": "/data2/.../runs",              // 集群上的实验产物区
+    "resource": { "gpus": 1, "cpus": 8 }         // 可选 "node" 钉节点；不钉则 Slurm 自选
+  },
+  "budget": { "time_hours": 10, "eval_samples": -1 },   // -1 = 全量评测
+  "agent": { "provider": "kimi", "model": null, "effort": null, "idle_timeout_s": 1800 },
+  "monitor_port": 8765
 }
 ```
 
 ```bash
-uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
+uv run dataos configs/runs/ptb-gsm8k.json            # 全新实例（同名被占自动顺延 (1)(2)…）
+uv run dataos configs/runs/ptb-gsm8k.json --resume   # 续跑同一 workspace
 ```
 
-config 只承载事实（路径、唯一 bench、预算、资源）。所有**策略** —— 数据配方、训练方式
-（LoRA / 全参、超参）、选树上哪个节点生长、eval 采样 —— 都由 leader 每轮自主决定，并写进
-运行 workspace 下的每轮 plan。
+逐字段规范见 `configs/CONTRACT.md`（run JSON 见 §9）。所有**策略**——数据配方、训练方法
+（LoRA vs 全量、超参）、从哪个节点生长——都是 leader 每轮的决策，持久化在 run
+workspace 里。
 
-## 一次运行是怎么跑的
+## 一次 run 的流程
 
-1. `freeze_eval` 一次性冻结评测协议（唯一 bench + 采样 limit）。
-2. 每轮代码把树、最近的复盘、算子目录发给 leader；它返回一个 `ExperimentPlan`（父节点 +
-   数据配方 + 训练配置）。代码校验、加子节点、注入父模型路径（子节点在父模型上续训）。
-3. experimenter 在 H100 上按
-   [`resources/code/posttrainbench/PLAYBOOK.md`](resources/code/posttrainbench/PLAYBOOK.md) 执行计划，
-   写出 `report.json`。
-4. leader 复盘 report；代码附上分数、生长树，循环直到预算耗尽。最优节点的模型写入
-   `final_model.json`。
+1. **investigator** 画像固定池、读取评测格式契约 → `recon.json`（每个 run 一次）。
+2. 第 0 轮评测 **base model** 作为 baseline 参照。
+3. 每轮代码把实验树 + 最近复盘发给 leader；它返回一个 `ExperimentPlan`（父节点 +
+   数据配方 + 训练配置）。代码校验、加子节点、注入父模型路径。
+4. **experimenter** 在 H100 上执行（data → train → eval → review），**增量式**写
+   `report.json`——eval 的 `summary.json` 一出现分数立即落盘；若 CLI 中途死亡，循环
+   会从盘上抢救已完成的分。
+5. leader 复盘报告；代码记账并长树，直到**理想时间**预算耗尽（Slurm 排队时间有测量、
+   不计入预算）。最优节点的模型写入 `final_model.json`。
 
-在 `http://localhost:8765` 实时观看（config 里设 `monitor_port` 改端口，或 `DATAOS_MONITOR_PORT=0`
-关闭）。在同一个 workspace 下跑多个实验，单个监控会全部展示,各自按心跳标为运行中或已结束。
+健壮性内建：传输自愈重连断流的 CLI；静默看门狗（`agent.idle_timeout_s`，默认 1800s）
+杀死并续跑静默的 CLI；监控对所有 agent 同时静默的 run 亮黄牌。
 
 ## 评测
 
-自包含的 **lm-evaluation-harness** PostTrainBench 协议，位于
-[`resources/code/posttrainbench/lm_eval_bridge`](resources/code/posttrainbench/lm_eval_bridge)：
-5 个确定性 bench（gsm8k、humaneval、bfcl、gpqamain、aime2025）在 GPU job 内打分，
-2 个 judge bench（healthbench、arenahardwriting）在 job 内生成、在登录节点用 OpenAI 兼容 judge 打分。
-数据集从 repo 内置的 benchmark 缓存（`resources/data/posttrainbench_benchmarks`，随代码部署）离线解析。
-评测请求按 `--num-concurrent`（默认 32）批量发给 vLLM 服务以提升吞吐 —— 不影响分数。
+冻结、自包含的 PostTrainBench 协议在 `configs/tasks/posttrainbench/eval/`（lm-eval
+bridge），benchmark 数据随仓库 vendored 在 `configs/tasks/posttrainbench/benchmarks/`。
+5 个确定性 bench（gsm8k、humaneval、bfcl、gpqamain、aime2025）在 GPU 作业内评分；2 个
+judge bench（healthbench、arenahardwriting）在作业内生成、login 节点上用
+OpenAI 兼容 judge 评分。协议决策与 baseline 快照见 `docs/eval/`。
 
-## 仓库结构
+## 文档地图
 
-```text
-DataOS/
-├── src/dataos/
-│   ├── cli.py                       # `dataos` 入口：读 run 配置 → run_auto
-│   ├── agent/                       # 自主循环 + 逐实验 experimenter
-│   │   ├── loop.py                  #   run_auto：每轮 = 出plan → 执行 → 复盘 → 生长树
-│   │   ├── state_tree.py            #   实验树（节点、可生长集合、最优节点）
-│   │   ├── run_config.py            #   单 JSON 配置边界（只放事实）
-│   │   ├── planner.py · reviewer.py #   向 leader 要 ExperimentPlan / ReviewOut
-│   │   ├── subagent_executor.py     #   驱动逐实验的 experimenter（Claude Code + shell）
-│   │   ├── eval_freeze.py           #   每次运行冻结一次评测协议
-│   │   ├── backend.py               #   构建角色 agent（渲染角色提示词）
-│   │   ├── llm/                     #   code-agent CLI 驱动（cli_agent，走 dataos-agent）+ 结构化输出 helper
-│   │   ├── posttrainbench.py        #   PTB 评测协议（bench 列表 + 各 profile 的采样 limit）
-│   │   ├── schemas.py               #   ExperimentPlan / ReviewOut（校验过的 JSON）
-│   │   ├── monitor.py               #   实时 HTTP 监控（一个端口服务所有 run；心跳）
-│   │   └── config.py · budget.py · logging.py
-│   ├── prompt/                      # 所有 prompt 作为 Jinja2 YAML 模板（用 config 事实渲染）
-│   │   ├── main_agent.yaml · subagent.yaml            #   系统提示
-│   │   ├── strategy.yaml                              #   策略 playbook（追加到 main_agent）
-│   │   ├── planner_task.yaml · reviewer_task.yaml     #   每轮任务消息
-│   │   ├── subagent_task.yaml · subagent_continue.yaml#   逐实验任务 / 续跑
-│   │   └── structured_*.yaml                          #   JSON 输出脚手架
-│   └── core/                        # Project → Study → Experiment → Stage 数据模型
-│       ├── project.py · study.py · experiment.py · stage.py
-│       ├── artifact.py              #   Data · Model · Eval 工件
-│       ├── workspace.py             #   落盘的运行目录布局
-│       ├── catalog.py · loading.py  #   算子目录 + 数据集加载（DataOS-Operator）
-│       └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
-├── configs/
-│   └── runs/ptb-h100-qwen-gsm8k.json #  面向用户的 run 配置（每次运行一个 JSON）
-├── resources/
-│   ├── code/posttrainbench/
-│   │   ├── PLAYBOOK.md              #   experimenter 手册（数据 → 训练 → 评测 → report）
-│   │   └── lm_eval_bridge/          #   自包含的 lm-eval PostTrainBench 评测
-│   │       ├── scripts/run_lmeval_eval.py   #  起服务 + 打分（judge bench = 只生成）
-│   │       ├── scripts/run_lmeval_judge.py  #  登录节点 judge（healthbench / arena）
-│   │       └── dataos/eval_tasks/posttrainbench/  # task.py · utils.py · 7 个 task yaml · templates/
-│   └── data/
-│       ├── posttrainbench_benchmarks/ # hf_datasets/（离线 HF 缓存）+ local/（judge 数据）
-│       └── datasets/                  # 少量 vendored 数据集
-├── web/                             # 实时监控 UI（index.html）+ 独立 server.py
-├── docs/                            # 架构说明（部分早于 agent-version 重构）
-├── tests/                           # agent / core
-├── scripts/                         # 开发辅助（doctor.py）
-├── pyproject.toml · uv.lock
-└── README.md · README.zh-CN.md · AGENTS.md
-```
+- `AGENTS.md`——AI coding agent 的操作指南（约定、不变量、H100 事实）
+- `configs/CONTRACT.md`——env / task / run JSON 逐字段规范
+- `docs/dataos_agent/`——CLI 驱动层（API、设计、用法）
+- `tools/train/README.md` + `tools/train/docs/`——dataos-train（TrainSpec、online ops、坑）
+- `tools/operator/README.md` + `tools/operator/docs/`——算子目录
+- `docs/eval/`——评测协议决策 + baseline 结果
+- `docs/troubleshooting.md`——真实运维坑（ssh、HF 下载、集群守护）
+- `docs/known-issues.md`——run 复盘与修复记录
 
-## 部署(H100)
-
-H100 上 `$AGENTVER` 是 `origin/main` 的 git checkout：
-
-```bash
-git push origin main                                   # 在 agent host
-ssh <h100> 'git -C /data/.../dataos_agentver pull'     # 在集群上
-```
-
-## 校验
+## 验证
 
 ```bash
 uv run ruff check src tests
 uv run pytest -q
 ```
+
+## 许可证
+
+MIT——见 `LICENSE`。

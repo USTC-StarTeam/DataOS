@@ -1,6 +1,7 @@
 # DataOS-train
 
-A unified, multi-backend **training layer** for [DataOS](../DataOS). An agent emits a
+A unified, multi-backend **training layer** for [DataOS](../..) (the main monorepo — this tool is
+its `tools/train` workspace member). An agent emits a
 declarative `TrainSpec` (facts only) and gets back a `TrainResult`; the consequential steps
 between — config materialization, data conversion, metric extraction, checkpoint
 normalization — are deterministic code, not LLM improvisation.
@@ -25,6 +26,10 @@ pip install -e ".[llamafactory]"         # to run the LLaMA-Factory backend loca
 ```
 
 Python ≥ 3.11.
+
+> Deployment note: despite the `conda` naming in this document, the cluster envs DataOS runs
+> against are frozen uv venvs (declared in env.yaml `tools`); the `TrainSpec.env.conda_sh` field
+> is kept for compatibility.
 
 ## The contract
 
@@ -170,9 +175,8 @@ Tests needing a scheduler/GPU are marked `needs_slurm` / `needs_gpu` and skipped
 
 - Backends + launchers are unit/render-verified end to end; real verl GPU runs are gated on
   provisioning a `verl` conda env on the cluster.
-- DataOS integration (rewriting the sub-agent PLAYBOOK to call this CLI, plus an optional pure
-  `validate()/capabilities()` pre-flight in `loop.py`) is designed for but not yet wired — the
-  CLI contract above is the integration boundary.
+- DataOS integration is wired and battle-tested: DataOS's Trainer registry entry `DataosTrainCli`
+  drives this CLI's validate/build/submit/status/collect lifecycle (see the main repo's AGENTS.md).
 - Deferred: a wider online-operator catalog (the three hook points are wired and validated;
   at 1.7B+LoRA+1k scale no shipped selection method beat random sampling — see
   `docs/online_ops_validation.md`), verl LoRA + multi-node, a TRL backend for CI.

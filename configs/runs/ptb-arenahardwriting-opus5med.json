@@ -1,6 +1,6 @@
 {
   "goal": "Use the fixed PTB data pool (v2) to improve Qwen3-1.7B-Base on arenahardwriting within the 10h H100 budget.",
-  "workspace": "workspace/ptb-arenahardwriting-sol56med(1)",
+  "workspace": "workspace/ptb-arenahardwriting-sol56med2",
   "environment": "PTB_H100_slurm_normal",
   "task": "posttrainbench",
   "bench": "arenahardwriting",

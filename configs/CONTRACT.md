@@ -1,7 +1,7 @@
-# DataOS-Runtime 契约字段规范
+# DataOS 配置契约
 
 本文件逐字段规定 `environments/<env>/env.yaml` 与 `tasks/<task>/task.yaml` **能写什么**。设计与时序见
-`DataOS/docs/runtime-contract.md`。任何 agent 通过 `compose/compose.py` 的 `resolve()+render()` 消费本契约。
+`docs/runtime-contract.md`。任何 agent 通过 `src/dataos/agent/runtime_compose.py` 的 `resolve()`+`render()` 消费本契约。
 
 约定:类型用 `str / int / float / bool / list / map / path`;`path` 是字符串路径;命令模板是含 `{占位符}` 的
 `str`(占位符见 §3)。**秘钥本身绝不入库**,只写 key 文件路径。
@@ -22,15 +22,16 @@
 | `tools` | 是 | map | 机器预装的**通用运行时**(uv venv / conda / bare venv 皆可);**共享冻结基线(sft/rl/eval)只列通用框架/基础设施**;repo 私有工具(dataos-train/dataos-operator)只能出现在 **DataOS 派生 env**(如 `dataos_sft` = sft 基线 + repo 工具),并须配 `dataos_tools` 版本声明 |
 | `tools.<名>` | — | map | 每个运行时:`{path: <venv 或 conda prefix,须有 bin/python>, provides: [通用框架名/能力...]}`;一律按 `{path}/bin/<tool>` 调用,与环境管理器无关 |
 | `tools.<名>.dataos_tools` | 否 | map | 该 venv 预装的 repo 工具及**绑死版本**:`{train: "0.1.0", operator: "0.6.0"}`——必须等于 `tools/<名>/pyproject.toml` 的 version(有测试兜底);升级 = bump 版本 + 改声明 + `scripts/sync_envs.py`,此外任何 push/pull 不动 venv |
-| `paths` | 是 | map | 本部署的文件系统事实:机器运行时 + **本 (task,机器) 的任务数据位置** |
-| ~~`paths.*`~~ | — | — | **env 已无 paths 段**:`fixed_pool`/`deploy_root`/`runs_base` 都是 **run 级事实**(本次 run 的输入与产物位置,在 run JSON);`benchmarks` 不声明,代码拼 `{deploy_root}/configs/tasks/<task>/benchmarks` |
+| ~~`paths`~~ | — | — | **env 已无 paths 段**:`fixed_pool`/`deploy_root`/`runs_base` 都是 **run 级事实**(本次 run 的输入与产物位置,在 run JSON);`benchmarks` 不声明,代码拼 `{deploy_root}/configs/tasks/<task>/benchmarks` |
 | `resources` | 否 | map | 供大脑规划参考:`gpu_type` / `note` 等,自由字段 |
 | `gateway` | 否 | map | 从这台机可达的 **LLM 端点(仅连接事实)**:`{base_url, key_file}`。**不含 model**——用哪个 model / 并发是**任务**的选择(→ `task.scoring.judge`) |
 | ~~`train`~~ | — | — | **不声明,推导**:backend→env 菜单从 `tools.*.provides` 扫描得出(sft_env provides llamafactory ⇒ llamafactory→sft_env);dataos-train CLI 的位置同理(provides 含 `dataos-train` 者)。默认 backend 是代码常量,方法→env 查表在 dataos-train `env_for()` |
 | `operations` | 是 | map | **★ 操作契约**:动词 → 命令模板(见 §4) |
 | `discipline` | 是 | list[str] | **★ 硬约束**,一条一句(login 纪律、输出隔离、禁全盘扫描…) |
 
-> **env 是 (task,机器) 部署单元**(名如 `PTB_H100_slurm`):它任务绑定,故该任务的数据路径(`fixed_pool` / `benchmarks`)就落在 **env.paths**(部署事实)。agent 自己的代码根(如 dataos src)仍是各 agent 的事,不进 env。
+> **env 是 (task,机器) 部署单元**(名如 `PTB_H100_slurm`):它任务绑定,但任务数据路径不是 env 事实——
+> `fixed_pool` 是 run 级输入(run JSON `inputs.fixed_pool`),`benchmarks` 由 task 目录推导
+> (`{deploy_root}/configs/tasks/<task>/benchmarks`)。agent 自己的代码根(如 dataos src)仍是各 agent 的事,不进 env。
 
 \* `access.host/user`:`kind: local` 时可省。
 
@@ -69,14 +70,14 @@
 
 | 命名空间 | 来源 | 何时填 | 例 |
 |---|---|---|---|
-| `{env.*}` | `env.yaml` 全字段 | **解析时**(compose.resolve) | `{env.access.host}` `{env.tools.eval_env.path}` `{env.paths.runs_base}` `{env.gateway.base_url}` |
-| `{run.*}` | run-config | **解析时** | `{run.base_model}` `{run.bench}` `{run.resource.node}` `{run.run_id}`;`runs_base`(产物根,可选,默认 `<runtime_root>/runs`,相对/绝对皆可 —— compose 解析后注入 `{env.paths.runs_base}` 供模板引用)。任务数据在 env.paths,不在 run |
+| `{env.*}` | `env.yaml` 全字段 | **解析时**(compose.resolve) | `{env.access.host}` `{env.tools.eval_env.path}` `{env.gateway.base_url}` |
+| `{run.*}` | run-config | **解析时** | `{run.base_model}` `{run.bench}` `{run.resource.node}` `{run.runs_base}`(产物根,来自 run JSON `exec.runs_base`)`{run.fixed_pool}`(来自 run JSON `inputs.fixed_pool`)`{run.benchmarks}`(由 task 目录推导)—— 任务数据经这些 run 级/派生字段进模板,env 无 paths 段 |
 | `{ctx.*}` | 每个 experiment 运行时才知道 | **执行时**(sub-agent 自己填) | `{ctx.run_root}` `{ctx.env_path}` `{ctx.model_path}` `{ctx.eval_dir}` `{ctx.jobid}` `{ctx.script}` `{ctx.label}` `{ctx.remote}` `{ctx.local}` |
 | `{task.*}` | `task.yaml` + 派生 | 解析时 | `{task.assets_root}`(= runtime 库里 task 目录的绝对根) |
 
 > 模板引擎为 **jinja2**;占位符按点号路径取值(`{env.access.host}` 等)。
 
-**规则**:`resolve()` 只填 `{env.*}/{run.*}/{task.*}`,保留 `{ctx.*}` 给 sub-agent。**`ctx.run_root` 由 agent 自选,唯一中立约束是必须落在 `{env.paths.runs_base}` 下**(其内部布局是各 agent 自己的事;DataOS 用 `{runs_base}/{run_id}/{study}/{exp}`,但不属本契约)。`ctx.*` 完整清单见 §6。
+**规则**:`resolve()` 只填 `{env.*}/{run.*}/{task.*}`,保留 `{ctx.*}` 给 sub-agent。**`ctx.run_root` 由 agent 自选,唯一中立约束是必须落在 `{run.runs_base}` 下**(其内部布局是各 agent 自己的事;DataOS 用 `{runs_base}/{run_id}/{study}/{exp}`,但不属本契约)。`ctx.*` 完整清单见 §6。
 
 ---
 
@@ -100,7 +101,7 @@
 
 ```json
 { "runtime_ref": "v0.1.0",
-  "environment": {"name","kind","access","tools","paths","gateway",
+  "environment": {"name","kind","access","tools","gateway",
                   "operations": {"submit":"<env/run 已填,ctx 保留>","poll":"...","fetch":"...","cancel":"...","activate":"..."},
                   "discipline": ["...","..."]},
   "task": {"name","objective","inputs","constraints","produce",
@@ -115,7 +116,7 @@
 
 | 变量 | 含义 |
 |---|---|
-| `ctx.run_root` | 本 experiment 的 scratch 根。**中立约束:必须落在 `env.paths.runs_base` 下**;内部布局由各 agent 自定(DataOS 用 `{runs_base}/{run_id}/{study}/{exp}`,但 study/exp 是 DataOS 概念,不属本契约) |
+| `ctx.run_root` | 本 experiment 的 scratch 根。**中立约束:必须落在 run JSON `exec.runs_base`(模板里的 `{run.runs_base}`)下**;内部布局由各 agent 自定(DataOS 用 `{runs_base}/{run_id}/{study}/{exp}`,但 study/exp 是 DataOS 概念,不属本契约) |
 | `ctx.env_path` | `activate` 要激活的 tool 环境路径(取自 `env.tools.*` 中某个的 `path`,由 agent 按训练/评测阶段选) |
 | `ctx.script` | sub-agent 写好的 sbatch 脚本路径 |
 | `ctx.jobid` | submit 返回、poll/cancel 用的作业 id |
@@ -131,7 +132,7 @@
 
 ## 7. 校验规则(compose.resolve 会检查)
 
-- env:`name/kind/access/tools/operations/discipline` 齐全;`operations` 含五动词。(`runs_base` 不再要求 —— 由 run-config 提供,默认 `<runtime_root>/runs`)
+- env:`name/kind/access/tools/operations/discipline` 齐全;`operations` 含五动词。(`runs_base` 不再要求 —— 由 run JSON `exec.runs_base` 提供)
 - task:`name/inputs/objective/constraints/produce/scoring` 齐全;`scoring` 含 `evaluator/command/result`;`result` 含 `file/field/range`。
 - 模板里出现的 `{env.*}/{run.*}` 必须能在 env.yaml/run-config 找到对应值,否则解析报错(契约不满足)。
 - 未知顶层字段 → 警告(向前兼容,不报错)。
@@ -156,8 +157,46 @@ tasks/<task>/
 - 多指标 bench 若需归一化(如把 8 个子分算成一个可比分),用 `scoring.aggregate` 声明规则,由消费方
   (大脑组装 report 时)按声明计算——不在 runtime 里常设 runner。
 
-## 9. 加一个新环境 / 新任务
+## 9. Run JSON 契约(configs/runs/*.json)
+
+run JSON 携带**单次 run 的全部 run 级事实**(schema/校验见 `src/dataos/agent/run_config.py`;未知顶层键直接报错)。
+**workspace 路径即 run 身份(无 run_id)**:每次调用都是 fresh instance —— 同名目录被占时自动顺延为
+`<name>(1)` `<name>(2)` …;`--resume` 续跑同一实例(workspace 必须已存在)。
+
+| 字段 | 必填 | 类型 | 说明 |
+|---|---|---|---|
+| `goal` | 是 | str | 一句话目标(进 leader prompt) |
+| `workspace` | 是 | path | run 的 workspace;其路径即 run 身份 |
+| `environment` | 是 | str | 指向 `configs/environments/<env>/env.yaml` |
+| `task` | 是 | str | 指向 `configs/tasks/<task>/` |
+| `bench` | 是 | str | 本 run 的单一 benchmark |
+| `inputs` | 是 | map | 本 run 的输入产物 |
+| `inputs.base_model_path` | 是 | path | 基座模型(exec host 上的路径) |
+| `inputs.fixed_pool` | 是 | path | 固定数据池(exec host 上的路径) |
+| `exec` | 是 | map | 本 run 在集群上的执行位置/资源 |
+| `exec.deploy_root` | 是 | path | exec host 使用的 deploy checkout($AGENTVER) |
+| `exec.runs_base` | 是 | path | 本 run 产物落盘根(exec host;`ctx.run_root` 落在其下) |
+| `exec.resource` | 是 | map | `{gpus: int>0, cpus: int>0, node?: str}`(node 缺省 = Slurm 自选空闲节点) |
+| `budget` | 是 | map | 预算 |
+| `budget.time_hours` | 是 | float | 墙钟预算(小时,>0) |
+| `budget.eval_samples` | 否 | int | 每个 experiment 的评测样本数;`-1` = 全量 benchmark(默认 `-1`) |
+| `agent` | 否 | map | host 侧 brain 的 code-agent CLI 选择(子字段见下;未知键报错) |
+| `monitor_port` | 否 | int | live monitor HTTP 端口(默认 `8765`;`0` = 关闭) |
+
+`agent` 子字段(全部可选):
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `provider` | str | CLI 名(`kimi`/`claude`/`codex`/`qwen`…);缺省 = `DATAOS_AGENT_PROVIDER` 环境变量,再缺省 = `kimi` |
+| `model` | str | 具体模型;缺省 = `DATAOS_AGENT_MODEL` 环境变量,再缺省 = 该 CLI 自己的默认模型 |
+| `effort` | str | 思考档位(能映射的 CLI 才生效,如 claude `--effort` / codex `-c model_reasoning_effort=`) |
+| `idle_timeout_s` | float | 静默看门狗:CLI 静默 N 秒即被杀、经自愈链路 resume 续跑;默认 `1800`,`0` = 关闭 |
+
+加载时归一化写回 `<workspace>/run_config.json`,并解析出 `<workspace>/resolved_config.json`(env/task
+指针在此展开)。策略(数据配方、训练方法、树生长、eval 采样)不进本文件 —— 那是 leader 的 plan。
+
+## 10. 加一个新环境 / 新任务
 
 - 新环境:`environments/<env>/env.yaml` 按 §1 填全(operations 五动词 + discipline)。零业务代码。
 - 新任务:建 `tasks/<task>/`,写 `task.yaml`(§2)+ `eval/`(评测器);训练冻结的话加 `train/`(§8)。
-- 不必写 `compose.py`(通用组合器已在 `compose/`,对所有 task 通用)。
+- 不必写 `compose.py`(通用组合器已在 `src/dataos/agent/runtime_compose.py`,对所有 task 通用)。

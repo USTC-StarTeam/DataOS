@@ -5,172 +5,154 @@
 DataOS post-trains **one** base model to maximize **one** PostTrainBench benchmark, within a
 fixed data pool and a fixed GPU-time budget — driven end to end by agents.
 
-A persistent **leader** (a Claude Code dialog) maintains an experiment **tree**. Each round
-it proposes a single experiment — a *data recipe* (a [DataOS-Operator](https://github.com/USTC-StarTeam/DataOS-Operator)
-pipeline over the fixed pool) plus *training* hyperparameters — and a **experimenter** realizes it
-end to end:
+A persistent **leader** (a code-agent CLI dialog — kimi / claude / codex / qwen, configurable
+per run) maintains an experiment **tree**. Each round it proposes a single experiment — a *data
+recipe* (a pipeline of [dataos-operator](tools/operator) operators over the fixed pool) plus
+*training* hyperparameters — and an **experimenter** (another code-agent CLI, with a shell)
+realizes it end to end:
 
 ```
-build SFT data (operators)  →  train with LLaMA-Factory on H100 (Slurm)
-        →  evaluate with the lm-eval PostTrainBench protocol  →  write report.json
+build SFT data (operators)  →  train (dataos-train / LLaMA-Factory, Slurm on H100)
+        →  evaluate (frozen lm-eval PostTrainBench protocol)  →  write report.json
 ```
 
-The leader then reviews the result and the tree grows from the most promising node, until
-the wall-clock budget is spent. The best model over the tree is the submission.
+The leader reviews the report and the tree grows from the most promising node, until the
+budget is spent. The best model over the tree is the submission. A one-shot **investigator**
+gathers pre-training intel (pool profiles + the eval's format contract) before round 0.
 
 ## Architecture
 
 ```
-            ┌──────────────────────── agent host (this machine) ────────────────────────┐
-  round N:  │  leader (CC dialog) ──plan──▶ code: validate · add node · inject parent │
-            │        ▲                                            │                       │
-            │     review ◀── report.json ◀───────────────┐       ▼                       │
-            │                                             │   experimenter (CC + shell)      │
-            └─────────────────────────────────────────────┼───────────│──────────────────┘
-                                                           │     ssh / slurm / rsync
-                                                           │           ▼
-                                                 ┌─────────┴────────  H100 cluster  ───────┐
-                                                 │ data ops · LLaMA-Factory train · vLLM eval │
-                                                 └────────────────────────────────────────────┘
+            ┌──────────────────────── agent host ────────────────────────┐
+  round N:  │  leader (CLI dialog) ──plan──▶ code: validate · add node · inject parent │
+            │        ▲                                            │      │
+            │     review ◀── report.json ◀───────────────┐       ▼      │
+            │                                            │   experimenter (CLI + shell)  │
+            └────────────────────────────────────────────┼──────────│──────────────────┘
+                                                          │    ssh / slurm
+                                                          │        ▼
+                                                ┌─────────┴───────  H100 cluster  ───────┐
+                                                │ data ops · train (frozen venvs) · vLLM eval │
+                                                └─────────────────────────────────────────────┘
 ```
 
-- The **agent host** runs *both* agents locally. Code (`dataos.agent.loop`) owns the tree, plan
-  validation, parent-model injection, and persistence; the LLM only proposes plans and reviews.
-- The **H100 cluster** does all GPU work. The experimenter ships training (Slurm + LLaMA-Factory) and
-  evaluation (vLLM + lm-eval) to H100 over SSH; judge benches score on the login node.
-- A **live monitor** (`src/dataos/agent/monitor.py` + `web/`) is embedded by `run_auto` on one port
-  (default `8765`): open `http://localhost:8765` to watch the experiment tree grow, the running
-  node's `data → train → eval` sub-stage, and a live console of both agents' reasoning + tool calls.
-  One monitor serves every run under the workspace.
-- The repo is deployed to H100 as a git checkout (`$AGENTVER`); **deploy = `git pull`**.
+- The **agent host** runs all agents locally. Code (`dataos.agent.loop.run_auto`) owns the
+  tree, plan validation, parent-model injection, budget accounting, and persistence; the LLM
+  only proposes plans and writes reviews.
+- The **H100 cluster** does all GPU work in frozen uv venvs (see
+  `configs/environments/PTB_H100_slurm/`); the experimenter ships jobs over SSH + Slurm.
+  Judge benches generate on the GPU node and score on the login node.
+- A **live monitor** (`src/dataos/agent/monitor.py` + `web/`) is embedded by `run_auto` on one
+  port per run: experiment tree, the running node's `data → train → eval` sub-stage stepper,
+  a live console of each agent's reasoning + tool calls, and a stall alert when every agent
+  transcript goes silent. One monitor serves every run under the workspace.
+- The repo is deployed to H100 as a git checkout; **deploy = `git pull`** (plus
+  `scripts/sync_envs.py` when a tool version changed — see `dataos_tools` below).
+
+## This repository (monorepo)
+
+One repo, one uv workspace — no external git pins:
+
+- `src/dataos/` — the brain: the loop, planner/reviewer, subagent executor, config boundary,
+  prompt templates (`src/dataos/prompt/{system,kb,task}/*.yaml`), the monitor, and the
+  `Project → Study → Experiment → Stage` data model (`src/dataos/core/`).
+- `src/dataos_agent/` — the code-agent CLI driver layer (providers: claude / kimi / codex /
+  qwen): neutral event stream, transport self-healing (endpoint drop → backoff → resume),
+  and a stall watchdog (`idle_timeout` → kill → resume). Docs: `docs/dataos_agent/`.
+- `tools/train/` — **dataos-train**: the deterministic training launcher lifecycle
+  (validate / build / submit / status / collect; LLaMA-Factory + verl backends).
+- `tools/operator/` — **dataos-operator**: the data-recipe operator catalog
+  (52 operators: evaluators, mappers, mixers, reweighters, selectors).
+
+Tool versions on the cluster are pinned by the `dataos_tools` declaration in `env.yaml`
+(kept equal to `tools/*/pyproject.toml` by a test) and synced with `scripts/sync_envs.py`.
 
 ## Prerequisites
 
-- [`uv`](https://docs.astral.sh/uv/) (Python env), Python ≥ 3.11.
-- Claude Code CLI, authenticated — it is the leader and experimenter backend.
-- Passwordless SSH from the agent host to the H100 cluster (the cluster holds the prebuilt conda
-  envs, the fixed data pool, the base models, and the benchmark cache).
+- [`uv`](https://docs.astral.sh/uv/), Python ≥ 3.11.
+- A code-agent CLI, authenticated on the agent host (`kimi` by default; `claude` / `codex` /
+  `qwen` also supported — pick per run via the `agent` block).
+- Passwordless SSH from the agent host to the GPU cluster (Slurm), where the frozen venvs,
+  the fixed data pool, the base models, and the benchmark cache live.
 
 ```bash
-uv sync          # build the agent-host env (the agent only; training/eval run in H100 conda envs)
+uv sync --extra dev     # build the agent-host env (agents only; GPU work runs on H100)
 ```
 
 ## Run
 
-Everything one run needs is a single JSON (`configs/runs/<run>.json`) — only **facts**, never strategy:
+Everything one run needs is a single JSON (`configs/runs/<run>.json`) — only **facts**, never
+strategy:
 
 ```jsonc
 {
-  "run_id": "ptb-h100-qwen-gsm8k",
-  "workspace": "workspace/ptb-h100-qwen-gsm8k",
-  "goal": "Use the fixed PTB data pool to improve the base model within a limited H100 budget.",
-  "bench": "gsm8k",                       // the single PostTrainBench target
-  "base_model_path": "/.../Qwen3-1.7B-Base",
-  "time_budget_hours": 10,
-  "resource": { "node": "gpu04", "gpus": 1, "cpus": 8 },
-  "paths": {
-    "fixed_pool":  "/data/.../posttrainbench_fixed_pool_v1_full",
-    "conda_sh":    "/.../miniconda3/etc/profile.d/conda.sh",
-    "train_env":   "/.../envs/Llama",     // LLaMA-Factory + torch
-    "eval_env":    "/.../envs/lm-eval"    // lm-eval + vLLM
-  }
+  "goal": "Use the fixed PTB data pool (v2) to improve Qwen3-1.7B-Base on gsm8k within 10h.",
+  "workspace": "workspace/ptb-gsm8k",          // the workspace path IS the run identity
+  "environment": "PTB_H100_slurm",             // configs/environments/<env>/env.yaml
+  "task": "posttrainbench",                    // configs/tasks/<task>/
+  "bench": "gsm8k",                            // the single PostTrainBench target
+  "inputs": {
+    "base_model_path": "/data/.../Qwen3-1.7B-Base",
+    "fixed_pool": "/data2/.../posttrainbench_fixed_pool_v2"
+  },
+  "exec": {
+    "deploy_root": "/data/.../dataos_agentver",  // the repo checkout on the cluster
+    "runs_base": "/data2/.../runs",              // per-experiment scratch on the cluster
+    "resource": { "gpus": 1, "cpus": 8 }         // optional "node" pin; else Slurm picks
+  },
+  "budget": { "time_hours": 10, "eval_samples": -1 },   // -1 = full benchmark
+  "agent": { "provider": "kimi", "model": null, "effort": null, "idle_timeout_s": 1800 },
+  "monitor_port": 8765
 }
 ```
 
 ```bash
-uv run dataos configs/runs/ptb-h100-qwen-gsm8k.json
+uv run dataos configs/runs/ptb-gsm8k.json            # fresh instance (occupied names get (1), (2)…)
+uv run dataos configs/runs/ptb-gsm8k.json --resume   # continue the same workspace
 ```
 
-The config carries only facts (paths, the single bench, budget, resources). All **strategy** — the
-data recipe, training method (LoRA vs full, hyperparameters), which tree node to grow, eval
-sampling — is decided by the leader each round and persisted in the per-round plans under the
-run workspace.
+The field-by-field spec is `configs/CONTRACT.md` (§9 for the run JSON). All **strategy** — the
+data recipe, training method (LoRA vs full, hyperparameters), which tree node to grow — is the
+leader's per-round decision, persisted in the run workspace.
 
 ## How a run works
 
-1. `freeze_eval` fixes the eval protocol once (the single bench + sampled limit).
-2. Each round, code sends the leader the tree, recent reviews, and the operator catalog; it
-   returns one `ExperimentPlan` (parent node + data recipe + train config). Code validates it, adds
-   a child node, and injects the parent's model path (children continue from the parent model).
-3. The experimenter executes the plan on H100. Its prompt carries two sections rendered from the
-   DataOS-Runtime typed contract (`env.yaml` + `task.yaml`, via the runtime's `compose`):
-   ENVIRONMENT OPS (filled submit/poll/fetch/activate commands + cluster discipline) and TASK
-   (goal + frozen-eval scoring). The data-building/training METHOD and the report.json shape
-   stay in the brain's own prompts. It writes `report.json`.
-4. The leader reviews the report; code attaches the score, grows the tree, and loops until the
-   budget is spent. The best node's model is written to `final_model.json`.
+1. The **investigator** profiles the fixed pool and reads the eval's format contract →
+   `recon.json` (once per run).
+2. Round 0 evaluates the **base model** as the baseline reference.
+3. Each round, code sends the leader the tree + recent reviews; it returns one
+   `ExperimentPlan` (parent node + data recipe + train config). Code validates it, adds a
+   child node, and injects the parent's model path.
+4. The **experimenter** executes the plan on H100 (data → train → eval → review), writing
+   `report.json` **incrementally** — the score hits disk the moment the eval's `summary.json`
+   exists; if the CLI dies mid-run, the loop salvages the completed score from disk.
+5. The leader reviews the report; code attaches the score and grows the tree, until the
+   **ideal-time** budget is spent (Slurm queue wait is measured and excluded). The best
+   node's model is written to `final_model.json`.
 
-Watch it live at `http://localhost:8765` (set `monitor_port` in the config to change it, or
-`DATAOS_MONITOR_PORT=0` to disable). Run several experiments under one workspace and the single
-monitor shows them all, each marked live or done by its heartbeat.
+Robustness is built in: transport self-healing reconnects dropped CLI streams; a stall
+watchdog (`agent.idle_timeout_s`, default 1800s) kills and resumes a silent CLI; the monitor
+flags runs whose agents have all gone quiet.
 
 ## Evaluation
 
-Self-contained **lm-evaluation-harness** PostTrainBench protocol, now living in the
-agent-agnostic runtime repo (`DataOS-Runtime/tasks/posttrainbench/lm_eval_bridge`, read from
-`runtime_root` on the exec host):
-5 deterministic benches (gsm8k, humaneval, bfcl, gpqamain, aime2025) scored in the GPU job, and
-2 judge benches (healthbench, arenahardwriting) generated in the job then scored by an
-OpenAI-compatible judge on the login node. Datasets resolve offline from the repo's vendored
-benchmark cache (`resources/data/posttrainbench_benchmarks`, deployed with the code). Eval requests
-are batched into the vLLM server at `--num-concurrent` (default 32) for throughput — not
-score-affecting.
+The frozen, self-contained PostTrainBench protocol lives in
+`configs/tasks/posttrainbench/eval/` (lm-eval bridge), with the benchmark data vendored at
+`configs/tasks/posttrainbench/benchmarks/` (deployed with the repo). 5 deterministic benches
+(gsm8k, humaneval, bfcl, gpqamain, aime2025) score inside the GPU job; 2 judge benches
+(healthbench, arenahardwriting) generate in the job then score by an OpenAI-compatible judge
+on the login node. Protocol decisions and baseline snapshots: `docs/eval/`.
 
-## Repository layout
+## Documentation map
 
-```text
-DataOS/
-├── src/dataos/
-│   ├── cli.py                       # `dataos` entrypoint: load the run config → run_auto
-│   ├── agent/                       # the autonomous loop + per-experiment experimenter
-│   │   ├── loop.py                  #   run_auto: each round = plan → execute → review → grow tree
-│   │   ├── state_tree.py            #   the experiment tree (nodes, growable set, best node)
-│   │   ├── run_config.py            #   the single-JSON config boundary (facts only)
-│   │   ├── planner.py · reviewer.py #   ask the leader for an ExperimentPlan / ReviewOut
-│   │   ├── subagent_executor.py     #   drives the per-experiment experimenter (Claude Code + shell)
-│   │   ├── eval_freeze.py           #   freeze the eval protocol once per run
-│   │   ├── backend.py               #   builds the role agent (renders the role prompt)
-│   │   ├── llm/                     #   code-agent CLI driver (cli_agent, via dataos-agent) + structured-output helper
-│   │   ├── posttrainbench.py        #   PTB eval protocol (bench list + sampled limits per profile)
-│   │   ├── schemas.py               #   ExperimentPlan / ReviewOut (validated JSON)
-│   │   ├── monitor.py               #   live HTTP monitor (one port serves every run; heartbeats)
-│   │   └── config.py · budget.py · logging.py
-│   ├── prompt/                      # every prompt as a Jinja2 YAML template (rendered with config facts)
-│   │   ├── main_agent.yaml · subagent.yaml            #   system prompts
-│   │   ├── strategy.yaml                              #   strategy playbook (appended to main_agent)
-│   │   ├── planner_task.yaml · reviewer_task.yaml     #   per-round task messages
-│   │   ├── subagent_task.yaml · subagent_continue.yaml#   per-experiment task / resume
-│   │   └── structured_*.yaml                          #   JSON-output scaffolding
-│   └── core/                        # the Project → Study → Experiment → Stage data model
-│       ├── project.py · study.py · experiment.py · stage.py
-│       ├── artifact.py              #   Data · Model · Eval artifacts
-│       ├── workspace.py             #   on-disk run layout
-│       ├── catalog.py · loading.py  #   operator catalog + dataset loading (DataOS-Operator)
-│       └── report.py · provenance.py · io.py · ids.py · redact.py · env.py
-├── configs/
-│   └── runs/ptb-h100-qwen-gsm8k.json #  the user-facing run config (one JSON per run)
-├── resources/
-│   ├── custom_operators/            #   DataOS-private sedimented operators (DATAOS_OPERATOR_PLUGINS)
-│   └── data/
-│       ├── posttrainbench_benchmarks/ # hf_datasets/ (offline HF cache) + local/ (judge data)
-│       └── datasets/                  # small vendored datasets
-│   # eval bridge + env/task contracts moved to the DataOS-Runtime repo (tasks/…/lm_eval_bridge)
-├── web/                             # live monitor UI (index.html) + standalone server.py
-├── docs/                            # architecture notes (some predate the agent-version refactor)
-├── tests/                           # agent / core
-├── scripts/                         # dev helpers (doctor.py)
-├── pyproject.toml · uv.lock
-└── README.md · README.zh-CN.md · AGENTS.md
-```
-
-## Deploy (H100)
-
-The H100 copy at `$AGENTVER` is a git checkout of `origin/main`:
-
-```bash
-git push origin main                                   # from the agent host
-ssh <h100> 'git -C /data/.../dataos_agentver pull'     # on the cluster
-```
+- `AGENTS.md` — the operating guide for AI coding agents (conventions, invariants, H100 facts)
+- `configs/CONTRACT.md` — env / task / run-JSON field-by-field spec
+- `docs/dataos_agent/` — the CLI driver layer (API, design, usage)
+- `tools/train/README.md` + `tools/train/docs/` — dataos-train (TrainSpec, online ops, pitfalls)
+- `tools/operator/README.md` + `tools/operator/docs/` — the operator catalog
+- `docs/eval/` — the eval protocol decisions + baseline results
+- `docs/troubleshooting.md` — real operational gotchas (ssh, HF downloads, cluster guards)
+- `docs/known-issues.md` — run postmortems and their fixes
 
 ## Validation
 
@@ -178,3 +160,7 @@ ssh <h100> 'git -C /data/.../dataos_agentver pull'     # on the cluster
 uv run ruff check src tests
 uv run pytest -q
 ```
+
+## License
+
+MIT — see `LICENSE`.

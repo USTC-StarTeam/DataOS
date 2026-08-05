@@ -1,6 +1,9 @@
 # 产品设计：多-Agent 统一封装（CLI 后端）
 
 > 分支 `feat/cli-backends`，从 0 实现。原则：**测试先行、不过度工程化、如无必要勿增实体**。
+>
+> **注（2026-08 修订）**：本文写于分支开发期——codex 已实现（`providers/codex.py`）；消费角色现称
+> **leader / experimenter / investigator**（文中的 main-agent / sub-agent）；模块已含 `_retry.py`（断连自愈）。
 
 ## 0. 一句话
 

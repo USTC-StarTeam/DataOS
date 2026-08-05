@@ -1,6 +1,6 @@
 # DataOS Operator
 
-这是 [DataOS](https://github.com/USTC-StarTeam/DataOS) 的算子实现仓库。
+这是 [DataOS](https://github.com/USTC-StarTeam/DataOS) 主仓的算子组件（`tools/operator/`，uv workspace 成员；旧的独立仓 DataOS-Operator 已废弃）。
 
 ## 仓库构成
 
@@ -13,40 +13,25 @@ dataos_operator/
 examples/        # DataOS 可参考的 few-shot 使用示例
 dataset/         # 仓库级原始或导出的数据文件，优先保存为 jsonl
 tests/           # 单测和算子贡献规范检查
-docs/            # 架构、贡献指南、TODO 和调研记录
+docs/            # 架构、贡献指南和调研记录
 configs/         # 后续放单算子配置示例
 scripts/         # 后续放仓库辅助脚本
+LLaMA-Factory/   # vendored 的 LLaMA-Factory 修改版 fork（见下方说明）
 ```
 
 当前仓库只保留轻量框架和少量示例算子，不包含 pipeline 层。
 
+`LLaMA-Factory/` 是为开发 dataos 数据中间件 / online-ops 钩子而 vendored 的 LLaMA-Factory **修改版 fork**（改了 data 处理器）：**运行时不会安装或 import 它**——运行时用的是 sft env 里的 llamafactory pip 包。上游许可证为 Apache-2.0（见其 `LICENSE`）。
+
 ## 安装与导入
 
-其他项目可以直接从 GitHub 安装：
+本包是 DataOS 主仓的 uv workspace 成员（`tools/operator/`），随主仓 `uv sync` 即可获得——主仓
+`pyproject.toml` 以 `{ workspace = true }` 声明依赖，无 git pin。在 H100 部署上它预装进 `dataos_sft`
+派生 env，版本与主仓 env.yaml 的 `dataos_tools` 声明绑死（升级 = bump 本仓 `pyproject.toml` 版本 +
+改声明 + 跑 `scripts/sync_envs.py`）。
 
-```bash
-uv add "dataos-operator @ git+https://github.com/USTC-StarTeam/DataOS-Operator.git"
-```
-
-如果需要 Hugging Face 数据集接入能力，安装 `hf` 可选依赖：
-
-```bash
-uv add "dataos-operator[hf] @ git+https://github.com/USTC-StarTeam/DataOS-Operator.git"
-```
-
-如果需要运行基于 Hugging Face 模型的 evaluator，例如 `PerplexityEvaluator`，还需要安装 `llm` 可选依赖：
-
-```bash
-uv add "dataos-operator[llm] @ git+https://github.com/USTC-StarTeam/DataOS-Operator.git"
-```
-
-图片元数据解析算子使用 Pillow，需要安装 `image` 可选依赖：
-
-```bash
-uv add "dataos-operator[image] @ git+https://github.com/USTC-StarTeam/DataOS-Operator.git"
-```
-
-如果你是在仓库内本地开发，推荐按需要同步：
+仓库内本地开发按需同步可选依赖（`hf` = Hugging Face 数据集接入，`llm` = 基于 Hugging Face 模型的
+evaluator 如 `PerplexityEvaluator`，`image` = Pillow 图片元数据解析）：
 
 ```bash
 uv sync --extra dev --extra hf --extra llm
@@ -205,5 +190,4 @@ CI 会执行 ruff、format check、mypy 和 pytest，其中 pytest 会检查算�
 - [架构设计](docs/architecture.md)
 - [算子贡献指南](docs/operator_contribution.md)
 - [图片多模态基础算子](docs/image_operators.md)
-- [TODO](docs/TODO.md)
 - [调研记录](docs/research/README.md)

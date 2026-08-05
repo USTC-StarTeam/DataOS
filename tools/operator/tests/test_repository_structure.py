@@ -45,7 +45,6 @@ def test_project_documents_exist() -> None:
         ROOT / "dataos_operator" / "dataset.py",
         ROOT / "dataset" / "README.md",
         ROOT / "docs" / "README.md",
-        ROOT / "docs" / "TODO.md",
         ROOT / "docs" / "architecture.md",
         ROOT / "docs" / "operator_contribution.md",
         ROOT / "docs" / "research" / "README.md",

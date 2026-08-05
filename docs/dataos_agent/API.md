@@ -37,7 +37,7 @@
 | `provider` | `str` | **必填** | 后端：`"claude"` / `"kimi"` / `"qwen"` / `"fake"` / 已注册的自定义名 |
 | `model` | `str \| None` | `None` | 具体模型名；`None` = 用该 CLI 的默认模型 |
 | `instructions` | `str \| None` | `None` | 系统提示 / 前置指令（见 §6 各家映射；无对应 flag 的家会前置进 prompt）|
-| `effort` | `str \| None` | `None` | 思考档位（**预留**：目前各家 CLI 未映射到 flag，可经 `extra.args` 手动传）|
+| `effort` | `str \| None` | `None` | 思考档位（claude `--effort`、codex `-c model_reasoning_effort=<>`；未映射的家可经 `extra.args` 手动传）|
 | `tools` | `bool \| list[str]` | `True` | 原生工具策略：`True` 全开自动批准 / `["Bash","Read"]` 白名单 / `False` 纯推理（不启用工具）|
 | `workspace` | `str \| None` | `None` | 子进程 `cwd`；agent 产物落这里（→ `Result.files`）|
 | `max_steps` | `int \| None` | `None` | 步数上限（映射 `--max-turns`；目前仅 claude 支持）|
@@ -163,20 +163,21 @@ N 秒无任何事件 → 杀子进程并标 `status="disconnected"`，healing �
 
 ## 8. config → 各 provider 的 CLI 映射（含降级）
 
-| config | claude | kimi | qwen |
-|---|---|---|---|
-| `prompt` | `-p <>` | `--print -p <>` | `-p <>` |
-| （流式）| `--output-format stream-json --verbose` | `--print --output-format stream-json` | `--output-format stream-json` |
-| `model` | `--model <>` | `-m <>` | `-m <>` |
-| `instructions` | `--append-system-prompt <>` | **前置进 prompt**（无 flag）| **前置进 prompt**（无 flag）|
-| `tools=list` | `--allowed-tools "<空格分隔>"` | —（前置约定）| —|
-| `tools` 真 + `permission=auto` | `--dangerously-skip-permissions` | `--print`（默认自动批准）| `--yolo` |
-| `tools=False` | 不加 skip → 工具跑不了（纯推理）| 降级（print 恒自动批准）| 不加 yolo |
-| `workspace` | `cwd`（+可 `--add-dir`）| `-w <>` | `cwd` |
-| `max_steps` | `--max-turns <>` | —（v1 未映射）| —（v1 未映射）|
-| `extra.resume` | `--resume <id>` | `-S <id>` | —（v1 未映射）|
-| `extra.args` | 原样附加 | 原样附加 | 原样附加 |
-| session 来源 | result 事件 | **stderr**（`kimi -r <id>`）| result 事件 |
-| usage 来源 | result 事件（含 cost）| **无**（全 0）| result 事件 |
+| config | claude | kimi | qwen | codex |
+|---|---|---|---|---|
+| `prompt` | `-p <>` | `--print -p <>` | `-p <>` | 位置参数（`exec` 末尾）|
+| （流式）| `--output-format stream-json --verbose` | `--print --output-format stream-json` | `--output-format stream-json` | `exec --json`（JSONL 事件流）|
+| `model` | `--model <>` | `-m <>` | `-m <>` | `-m <>` |
+| `effort` | `--effort <>` | —（v1 未映射）| —（v1 未映射）| `-c model_reasoning_effort=<>` |
+| `instructions` | `--append-system-prompt <>` | **前置进 prompt**（无 flag）| **前置进 prompt**（无 flag）| **前置进 prompt**（无 flag）|
+| `tools=list` | `--allowed-tools "<空格分隔>"` | —（前置约定）| —| —（v1 未映射）|
+| `tools` 真 + `permission=auto` | `--dangerously-skip-permissions` | `--print`（默认自动批准）| `--yolo` | `--dangerously-bypass-approvals-and-sandbox` |
+| `tools=False` | 不加 skip → 工具跑不了（纯推理）| 降级（print 恒自动批准）| 不加 yolo | `-s read-only` |
+| `workspace` | `cwd`（+可 `--add-dir`）| `-w <>` | `cwd` | `-C <>`（resume 子命令不接受 `-C`，续接沿用原 cwd）|
+| `max_steps` | `--max-turns <>` | —（v1 未映射）| —（v1 未映射）| —（v1 未映射）|
+| `extra.resume` | `--resume <id>` | `-S <id>` | —（v1 未映射）| 子命令 `exec resume <thread_id>` |
+| `extra.args` | 原样附加 | 原样附加 | 原样附加 | 原样附加 |
+| session 来源 | result 事件 | **stderr**（`kimi -r <id>`）| result 事件 | `thread.started` 的 `thread_id` |
+| usage 来源 | result 事件（含 cost）| **无**（全 0）| result 事件 | `turn.completed`（无 cost）|
 
 > 缺 flag 的能力**降级**（如 instructions 前置进 prompt），不硬造、不泄漏各家私有形状。需要某家独有 flag 时用 `extra.args` 透传。

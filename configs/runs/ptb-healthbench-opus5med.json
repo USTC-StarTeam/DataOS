@@ -1,6 +1,6 @@
 {
   "goal": "Use the fixed PTB data pool (v2) to improve Qwen3-1.7B-Base on healthbench within the 10h H100 budget.",
-  "workspace": "workspace/ptb-healthbench-sol56med(1)",
+  "workspace": "workspace/ptb-healthbench-sol56med2",
   "environment": "PTB_H100_slurm",
   "task": "posttrainbench",
   "bench": "healthbench",
