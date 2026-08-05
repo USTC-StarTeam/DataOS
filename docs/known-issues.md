@@ -114,3 +114,35 @@ Qwen3）；/zssd 主机路径泄漏到集群。
 + converter 要 save_to_disk 格式；`stage_eval` 写明 label 须以模型家族名开头。
 vendor 坑由 monorepo 的 dataos_sft 预装顺带根治（见合并提交）。后续维护约定：每次
 run 复盘把 report.compatibility_fixes 里重复出现的条目按归属沉淀到这两处。
+
+# Known issues — 2026-08-05 sol56med2 批次复盘
+
+来源：6 bench × 10h（codex/gpt-5.6-sol/medium，P8/P9/P10 修复后首批）。基建验证满分
+（传输层事故 0、丢分 0、环境坑 0，对照上批 16 次事故烧 ~23h）；总分 169.75 vs 上批
+149.3。以下为策略/工具层新发现。
+
+## P12 full-SFT 升级触发器被 LoRA 碎末涨幅架空（未修）
+
+playbook 的升级条件是"LoRA 停滞 ~2 轮转 full-SFT"，但 LoRA 每轮 +2 的碎末涨幅不构成
+停滞——触发器永不触发。实锤：gsm8k 沿 20k→30k→45k LoRA 碎涨到 66.11 收官，整条树
+**从没试过 full-SFT**，而上批的 71.3 全靠 LoRA 卡 41 后转 full 跳出；arena 同理
+（LoRA 三连败后转 full 立即 1.2→7.23，但因触发晚只追到 9.94 < 上批 12.0）。修法：
+strategy.yaml 加先验——"碎末涨幅（≤ 噪声带的小涨）不算方向确认；第 ~3 轮前必须试
+一次 full-SFT，它是 1.7B base 上已反复验证的主杠杆"。
+
+## P13 在线算子文档与 train 实际桥接集不一致（未修）
+
+operator 的 usage 文档把 selector 系（loss_selector 等）写成可在线用（PolicyRuntime
+口吻），但 train 的 `dataos_train.online_ops` entry-point 组只桥接了
+`loss_reweighter`（+内建 loss_reweight/epoch_subset_select）。healthbench 的
+experimenter 想用在线 loss_selector 课程，`probe_online_op('loss_selector')=false`，
+如实报败（处理正确）。修法二选一或都做：把 selector 系桥接进 entry-point 组
+（select hook 点已存在）；或先校准 operator 文档的"可在线"措辞到实际桥接清单。
+
+## P14 humaneval 脆区反复探（观察）
+
+humaneval 19 个出分节点 10 个 0.0：best（39.02，5k 严格清洗 LoRA）第 2 轮确立后，
+之后 16 轮无改进且大量变体成片坍缩到零——winning 配方周围超参空间对 1.7B base 极脆。
+leader 的纪律（读根因、换维度）让它没卡死，但脆区里反复探的性价比很低。观察项：
+是否要在 review/策略层引入"连续 N 个 0.0 即判定脆区、回到 best 做保守确认或换大
+维度（full-SFT/换源族）"的引导。
