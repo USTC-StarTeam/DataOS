@@ -16,12 +16,12 @@ tests/           # 单测和算子贡献规范检查
 docs/            # 架构、贡献指南和调研记录
 configs/         # 后续放单算子配置示例
 scripts/         # 后续放仓库辅助脚本
-LLaMA-Factory/   # vendored 的 LLaMA-Factory 修改版 fork（见下方说明）
 ```
 
 当前仓库只保留轻量框架和少量示例算子，不包含 pipeline 层。
-
-`LLaMA-Factory/` 是为开发 dataos 数据中间件 / online-ops 钩子而 vendored 的 LLaMA-Factory **修改版 fork**（改了 data 处理器）：**运行时不会安装或 import 它**——运行时用的是 sft env 里的 llamafactory pip 包。上游许可证为 Apache-2.0（见其 `LICENSE`）。
+（历史上的 vendored LLaMA-Factory 修改版 fork 已随 dataos-train 的成型于 2026-08 删除——
+训练侧钩子现由 `tools/train` 的 online-ops 协议承载，本包经
+`dataos_train.online_ops` entry point 向 train 暴露在线算子。）
 
 ## 安装与导入
 

@@ -39,47 +39,27 @@ ds = LengthFilter(text_key="text", min_length=3, max_length=2048).run(ds)
 The data-centric idiom: an **evaluator** writes a score, then a
 **score/ranking selector** keeps the best rows.
 
-### Online (policy) — driven inside LLaMA-Factory training
+### Online (policy) — run inside dataos-train training
 
-The vendored LLaMA-Factory fork drives the runtime for you. Three steps:
+Online operators run inside **dataos-train** (the `tools/train` package in the DataOS
+monorepo) via its online-ops protocol — the old vendored LLaMA-Factory fork that used
+to drive the runtime was deleted once this path existed.
 
-1. Export the dataset to ShareGPT layout (writes `dataos_id` / `dataos_domain`):
-
-   ```python
-   from dataos_operator.adapters import export_sharegpt_dataset
-   export_sharegpt_dataset(ds, bundle_dir, dataset_name="my_run", split_name="train")
-   ```
-
-2. Write a `dataos_runtime_config.json`:
+1. Declare the op in the TrainSpec's `online_ops`, by entry-point name:
 
    ```json
-   {
-     "mode": "online",
-     "update_interval": 2,
-     "train_dataset_paths": [".../train.jsonl"],
-     "eval_dataset_paths":  [".../eval.jsonl"],
-     "operators": [
-       {"operator": "loss_selector", "kwargs": {"sample_size": 3000, "focus": "high"}}
-     ],
-     "backend": {"max_length": 2048, "max_new_tokens": 16}
-   }
+   {"online_ops": [{"op": "loss_reweighter",
+                    "params": {"strategy": "linupper", "delta": 1.0}}]}
    ```
 
-3. Train with the DataOS switch on:
+2. dataos-train resolves the name through the `dataos_train.online_ops` entry-point
+   group (registered by this package, see `integrations/dataos_train.py`), and the
+   trainer feeds live per-sample losses to the hook every batch — no extra model is
+   loaded. Hook contract (`reweight` / `select` / `step`): `tools/train/docs/online_ops.md`.
 
-   ```python
-   run_exp({..., "dataos_enable": True,
-            "dataos_config_path": ".../dataos_runtime_config.json",
-            "dataos_update_interval": 2})
-   ```
-
-The backend reuses the training model itself to compute per-sample losses, so
-no extra model is loaded. Operators are referenced by their **registry name**
-(the `operator` field) — the same name shown in the per-operator reference.
-
-> Under the hood the LLaMA-Factory controller drives the `PolicyRuntime` API
-> (`prepare → after_forward → on_update_boundary → finalize`). You only need it
-> directly to wire online operators into a *non*-LLaMA-Factory trainer.
+> The lower-level `PolicyRuntime` API (`prepare → after_forward → on_update_boundary
+> → finalize`, see `runtime/runner.py`) remains available directly for wiring online
+> operators into a *non*-dataos-train trainer.
 
 ### Extra inputs for some online selectors
 
