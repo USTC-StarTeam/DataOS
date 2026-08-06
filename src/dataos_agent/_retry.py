@@ -48,6 +48,10 @@ _NET_ERR_MARKERS: frozenset[str] = frozenset(
         "gateway timeout",
         "overloaded",
         "too many requests",
+        # codex CLI internal hang (models_manager refresh child never exits) — the CLI
+        # prints it to stderr and dies; it is a transport-side fault, resume-safe
+        "failed to refresh available models",
+        "timeout waiting for child process",
         " 429",
         " 500",
         " 502",

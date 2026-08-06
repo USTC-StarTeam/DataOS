@@ -7,21 +7,41 @@ exhausting retries, raised — never swallowed into a silent stop.
 Transport faults (dropped connections, flaky endpoints) are handled ONE LAYER DOWN, inside
 dataos_agent's self-healing stream (reached via
 :meth:`dataos.agent.llm.cli_agent.CliAgent.run`), so this module owns only the *semantic*
-retry: re-ask "JSON only" when ``output=`` cannot be parsed. A transport error only
-reaches here if the backend could not recover it, and it is intentionally raised rather
-than retried again.
+retry: re-ask "JSON only" when ``output=`` cannot be parsed. A transport error that still
+reaches here (an unrecognized fault shape the healing layer did not classify) gets a small
+bounded retry — one flaky CLI crash must not kill a 10h autonomous run.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from dataos import prompt as _prompt
 from dataos.agent.llm._output import OutputParseError, parse_output
+from dataos.agent.llm.cli_agent import AgentError
 
 log = logging.getLogger(__name__)
+
+_AGENT_ERROR_RETRIES = 3  # unrecognized CLI faults: bounded re-ask before giving up
+
+
+def _run_with_fault_retry(agent: Any, prompt: str, sid: str | None) -> Any:
+    """agent.run with a bounded retry on AgentError (unclassified CLI/transport crashes)."""
+    left = _AGENT_ERROR_RETRIES
+    while True:
+        try:
+            return agent.run(prompt, resume=sid)
+        except AgentError as e:
+            left -= 1
+            if left < 0:
+                raise
+            wait = 30.0
+            log.warning("agent call faulted (%s); retrying in %.0fs (%d left)",
+                        str(e)[:200], wait, left)
+            time.sleep(wait)
 
 
 def run_structured(
@@ -82,7 +102,7 @@ def run_structured_dialog(
 
     while True:
         try:
-            result = agent.run(prompt, resume=sid)
+            result = _run_with_fault_retry(agent, prompt, sid)
             sid = getattr(result, "session_id", None) or sid
             text = getattr(result, "text", "") or ""
             preview = " ".join(text[:300].split())

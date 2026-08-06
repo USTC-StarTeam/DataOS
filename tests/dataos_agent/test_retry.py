@@ -228,6 +228,9 @@ def test_marker_classification():
     assert not is_recoverable_text("authentication failed")
     assert is_recoverable(RuntimeError("broken pipe"))
     assert not is_recoverable(ValueError("bad argv"))
+    # codex CLI internal hangs (the gpqamain-bare run died unrecovered on these)
+    assert is_recoverable_text("failed to refresh available models: timeout waiting "
+                               "for child process to exit")
 
 
 # --- claude mapper: max_turns is a benign boundary -----------------------------
