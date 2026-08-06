@@ -506,8 +506,6 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     if recon is None and cfg.backend != "stub":
         log.info("RECON: mandatory reconnaissance before any experiment")
         _publish_live(cfg, round_idx=-1, phase="recon", started=started, now=_clock())
-        from dataos.agent import subagent_executor
-
         recon_deadline = (
             started + cfg.budget.max_wall_clock_s if cfg.budget.max_wall_clock_s else None
         )
@@ -648,7 +646,6 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         tree.mark_running(node_id)
         tree.save()
         log.info("round %d: executing node %s via experimenter", round_idx, node_id)
-        from dataos.agent import subagent_executor
 
         _publish_live(
             cfg,

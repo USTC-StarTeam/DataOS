@@ -187,3 +187,19 @@ def test_validate_plan_source_gate():
     plan.data["sources"] = ["invented_source"]
     errors = _validate_plan(plan, tree, cfg, recon)
     assert any("not in recon.source_profiles" in e for e in errors)
+
+
+def test_no_function_local_subagent_executor_import():
+    """Regression: a function-local `from dataos.agent import subagent_executor` inside
+    run_auto shadowed the module-level import and crashed --resume (recon present -> the
+    recon branch's local import never ran -> the budget line hit an unbound local)."""
+    import inspect
+
+    import dataos.agent.loop as loop
+
+    for name, fn in inspect.getmembers(loop, inspect.isfunction):
+        src = inspect.getsource(fn)
+        assert "from dataos.agent import subagent_executor" not in src, (
+            f"{name} has a function-local subagent_executor import — it shadows the "
+            "module-level import and breaks the resume path"
+        )
