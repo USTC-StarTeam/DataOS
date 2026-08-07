@@ -497,14 +497,15 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
 
 
 _RECON_FILE = "recon.json"
-_RECON_TIMEOUT_S = 45 * 60.0  # recon is cheap intel-gathering, not training — cap it tight
+_RECON_TIMEOUT_S = 2 * 3600.0  # recon + the baseline eval (a full-benchmark GPU eval can take ~1h)
 
 
 def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None) -> dict:
-    """RECON stage — a one-shot experimenter that gathers ground-truth intel BEFORE any training and
-    writes ``recon.json`` (eval_format_contract + baseline_diagnosis + source_profiles). It does NOT
-    train; it ssh's to H100, reads the eval scorer, and runs the deterministic source profiler over
-    the whole pool. Returns the parsed recon dict (also written to ``proj.project_dir/recon.json``).
+    """RECON stage — a one-shot experimenter that gathers ground-truth intel BEFORE any training
+    and writes ``recon.json`` (eval_format_contract + baseline_diagnosis + candidate_sources +
+    source_profiles) AND runs the round-0 BASELINE eval itself (frozen protocol on the base
+    model, report written to the round-0000 path — the loop's existing-report short-circuit
+    then skips the baseline experimenter; if it's missing, round 0 runs as before).
     Resume-safe: if a valid recon.json already exists on disk, the loop skips calling this."""
     del catalog  # recon needs the pool + eval code, not the operator catalog
     recon_path = Path(proj.project_dir) / _RECON_FILE
@@ -514,6 +515,19 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
     deploy_root = paths.get("deploy_root", "")
     eval_env = paths.get("eval_env", "")
     task_dir = _task_assets_dir(runtime)
+    eval_limit = getattr(cfg, "eval_limit", None)
+    if eval_limit is None:
+        eval_limit = 20 if cfg.ptb_profile == "smoke" else -1
+    limit_tag = "auto" if eval_limit == -2 else str(eval_limit)
+    baseline_run_root = f"{paths.get('runs_base', _RUNS_BASE)}/{cfg.project_id}/round-0000/baseline"
+    baseline_report = (
+        Path(proj.project_dir) / "round-0000" / "experiments" / "baseline" / "report.json"
+    )
+    from . import runtime_compose
+
+    env_ops, task_def, _ = runtime_compose.render_sections(
+        cfg, parent_model=cfg.h100_base_model, eval_limit=eval_limit,
+    )
     prompt = _prompt.render(
         "task/investigator",
         target_bench=cfg.target_bench,
@@ -527,6 +541,12 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         profile_script=f"{deploy_root}/resources/recon/{runtime.get('task', 'posttrainbench')}/profile_source.py",
         lm_bridge=f"{task_dir}/eval",
         recon_path=str(recon_path),
+        baseline_run_root=baseline_run_root,
+        baseline_eval_dir=f"{baseline_run_root}/eval/{cfg.target_bench}_limit{limit_tag}",
+        baseline_report_path=str(baseline_report),
+        eval_limit=eval_limit,
+        env_ops=env_ops,
+        task_def=task_def,
     )
     agent = build_agent(
         cfg,
@@ -552,21 +572,26 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         session_id = getattr(res, "session_id", None) or session_id
         last_text = (getattr(res, "text", "") or "").strip()
         recon = _read_json(recon_path)
-        if isinstance(recon, dict) and recon.get("source_profiles"):
-            log.info("recon: done — %d source profiles, base_cause=%s",
+        baseline_done = _read_json(baseline_report) or {}
+        if isinstance(recon, dict) and recon.get("source_profiles") \
+                and baseline_done.get("status") in {"completed", "failed"}:
+            log.info("recon: done — %d source profiles, base_cause=%s, baseline=%s",
                      len(recon.get("source_profiles") or []),
-                     (recon.get("baseline_diagnosis") or {}).get("cause"))
+                     (recon.get("baseline_diagnosis") or {}).get("cause"),
+                     baseline_done.get("score"))
             return recon
         prompt = (
-            "recon.json is not yet complete at %s. Finish gathering the three parts "
-            "(eval_format_contract, baseline_diagnosis, source_profiles) and write the file."
-            % recon_path
+            "recon.json is not yet complete at %s, or the baseline report is missing at %s. "
+            "Finish BOTH deliverables: recon.json (eval_format_contract, baseline_diagnosis, "
+            "candidate_sources, source_profiles) and the baseline report.json."
+            % (recon_path, baseline_report)
         )
     # fallback: don't block the run — write a minimal recon so the loop can proceed (loosely).
     log.warning("recon: incomplete (%s); writing minimal recon so the run can proceed", last_text[:200])
     recon = _read_json(recon_path) if isinstance(_read_json(recon_path), dict) else {}
     recon.setdefault("eval_format_contract", {"bench": cfg.target_bench, "summary": "recon incomplete"})
     recon.setdefault("baseline_diagnosis", {"cause": "unknown", "evidence": "recon incomplete"})
+    recon.setdefault("candidate_sources", [])
     recon.setdefault("source_profiles", [])
     atomic_write_json(recon_path, recon)
     return recon

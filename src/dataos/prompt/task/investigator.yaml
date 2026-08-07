@@ -1,7 +1,8 @@
 description: >
-  Investigator task message — one-shot intel gathering before any training. Render params:
-  target_bench, base_model, fixed_pool, deploy_root, eval_env_python, cluster_json,
-  profile_script, lm_bridge, recon_path.
+  Investigator task message — one-shot intel gathering + the round-0 baseline eval.
+  Render params: target_bench, base_model, fixed_pool, deploy_root, eval_env_python,
+  cluster_json, profile_script, lm_bridge, recon_path, baseline_run_root, baseline_eval_dir,
+  baseline_report_path, eval_limit, env_ops, task_def.
 template: |
   Gather ground-truth intel and write ONE file — the recon report — to:
     {{ recon_path }}   (a LOCAL path on THIS host; write it with your shell)
@@ -18,6 +19,26 @@ template: |
   -o IdentitiesOnly=yes <user>@<host> '…'`). Login-node discipline is in your system prompt —
   read only the specific files/paths named here.
 
+  BASELINE EVAL (you also own round 0 — running it yourself is what makes your
+  baseline_diagnosis first-hand evidence instead of a guess):
+    run_root on H100: {{ baseline_run_root }}
+    eval_dir: {{ baseline_eval_dir }}
+    write the report to this LOCAL path: {{ baseline_report_path }}
+  After gathering the eval contract (part 1 below), evaluate the BASE MODEL with the frozen
+  scorer per the TASK section at the bottom (the exact scoring command is there; model_path =
+  {{ base_model }}, eval_dir = the one above, limit = {{ eval_limit }}). Then read a handful
+  of raw predictions from the eval dir and write a report.json to the local path above:
+    {"name": "baseline", "status": "completed", "score": <float from summary.json>,
+     "stages": {"data": {"status": "skipped"}, "train": {"status": "skipped"},
+                "eval": {"status": "completed"}},
+     "model": {"path": "{{ base_model }}", "base_model": "{{ base_model }}"},
+     "eval": {"score": <same float>, "path": "<eval_dir>", "limit": {{ eval_limit }}},
+     "analysis": {"rollout_summary": "<correct/wrong counts + k sampled raw outputs read>",
+                  "failure_classes": {"<class>": <count>},
+                  "anomalies": "<repetition/length/format drift, or 'none'>",
+                  "conclusion": "<the base model's dominant failure mode in one sentence>"}}
+  Your baseline_diagnosis (part 2) then quotes THIS analysis — you have seen the raw outputs.
+
   Produce recon.json with EXACTLY these four parts:
 
   1. eval_format_contract — follow the eval-format guidance in your system prompt: the bench
@@ -26,12 +47,12 @@ template: |
      `format_sensitive` / `expected_target_shape` / `target_example`.
 
   2. baseline_diagnosis — decide whether the BASE model's low score is a FORMAT miss or a real
-     CAPABILITY gap. Cheapest path: read a handful of the base model's raw generations if any exist
-     under the runs tree; otherwise run a TINY generation (a few examples) or reason from the base
-     model + eval contract. Set cause to "format" (base emits the right idea in the wrong shape —
-     fixable by aligning the target template) or "capability" (base fundamentally can't do the task
-     — needs full-SFT / more data). Include short `evidence`. If you truly cannot tell cheaply, set
-     cause "unknown" with a note — do NOT run a full GPU eval just for this.
+     CAPABILITY gap, from FIRST-HAND evidence: the baseline eval you ran above gives you the raw
+     predictions — read a handful of correct AND wrong ones. Set cause to "format" (base emits
+     the right idea in the wrong shape — fixable by aligning the target template) or
+     "capability" (base fundamentally can't do the task — needs full-SFT / more data). Include
+     short `evidence` quoting what you saw. If the baseline eval itself failed, set cause
+     "unknown" with a note saying why.
 
   3. candidate_sources — the SHORTLIST for the leader. From the profiles + your notes, pick the
      sources (or source+subset) the leader is most likely to need for THIS bench:
@@ -79,3 +100,11 @@ template: |
   }
 
   Write the file, confirm it parses as JSON, then stop. That file is your entire deliverable.
+
+  The ENVIRONMENT OPS and TASK below are rendered from the runtime contract for THIS run
+  (env/run values already filled; `{ctx.*}` are placeholders YOU fill at execution time).
+  The TASK carries the frozen scoring command you use for the baseline eval.
+
+  {{ env_ops }}
+
+  {{ task_def }}
