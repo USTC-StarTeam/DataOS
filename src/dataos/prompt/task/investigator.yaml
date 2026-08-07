@@ -28,8 +28,10 @@ template: |
     write the report to this LOCAL path: {{ baseline_report_path }}
   After gathering the eval contract (part 1 below), evaluate the BASE MODEL with the frozen
   scorer per the TASK section at the bottom (the exact scoring command is there; model_path =
-  {{ base_model }}, eval_dir = the one above, limit = {{ eval_limit }}). Then read a handful
-  of raw predictions from the eval dir and write a report.json to the local path above:
+  {{ base_model }}, eval_dir = the one above, limit = {{ eval_limit }}). Submit it as ONE
+  single-node GPU job. NEVER shard the eval across nodes (-N>1 / NumTasks>1): multi-node jobs
+  cannot schedule in our partition and will sit PENDING forever (they get cancelled on sight).
+  Then read a handful of raw predictions from the eval dir and write a report.json to the local path above:
     {"name": "baseline", "status": "completed", "score": <float from summary.json>,
      "stages": {"data": {"status": "skipped"}, "train": {"status": "skipped"},
                 "eval": {"status": "completed"}},
