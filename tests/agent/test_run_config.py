@@ -212,7 +212,7 @@ def test_auto_eval_limit_prompts(tmp_path):
           "bench": "gsm8k", "runs_base": "/r", "resource": {"gpus": 1, "cpus": 8, "node": None},
           "eval_limit": -2, "fixed_pool": "/p"}
     env_ops, task_def = render(resolve(rc))
-    assert "AUTO" in task_def and "-2" in task_def
+    assert "探索性探针可用子集" in task_def and "候选 best" in task_def
     rc["eval_limit"] = -1
     _, task_def_full = render(resolve(rc))
-    assert "AUTO" not in task_def_full
+    assert "探索性探针" not in task_def_full
