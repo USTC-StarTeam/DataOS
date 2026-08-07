@@ -236,9 +236,14 @@ def profile_source(pool_root: str, source: str,
     # as "zero rows" because extraction silently missed the schema).
     degraded = rows and empty_out * 2 >= len(rows)
     raw0 = rows[0] if rows else {}
-    sample_raw = {
-        k: (v[:200] if isinstance(v, str) else v) for k, v in list(raw0.items())[:8]
-    }
+    sample_raw = {}
+    for k, v in list(raw0.items())[:8]:
+        if isinstance(v, str):
+            sample_raw[k] = v[:200]
+        elif isinstance(v, (int, float, bool)) or v is None:
+            sample_raw[k] = v
+        else:
+            sample_raw[k] = str(v)[:200]  # datetime/bytes/nested — keep it serializable
 
     # Raw statistics ONLY — no target_fit, no quality verdict, no usage hint. Format
     # fit against the bench is a fuzzy judgment: the investigator writes a per-source
@@ -285,10 +290,10 @@ def main() -> None:
     if args.all_sources:
         profiles = [profile_source(args.pool_root, s, args.n_sample, args.seed)
                     for s in _iter_sources(args.pool_root)]
-        json.dump(profiles, sys.stdout, ensure_ascii=False, indent=2)
+        json.dump(profiles, sys.stdout, ensure_ascii=False, indent=2, default=str)
     elif args.source:
         json.dump(profile_source(args.pool_root, args.source, args.n_sample, args.seed),
-                  sys.stdout, ensure_ascii=False, indent=2)
+                  sys.stdout, ensure_ascii=False, indent=2, default=str)
     else:
         ap.error("give --source <id> or --all-sources")
     print()
