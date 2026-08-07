@@ -33,11 +33,15 @@ def _build_prompt(
     context: dict,
     catalog: list[dict] | None,
     validation_errors: list[str] | None = None,
+    catalog_pointer: str | None = None,
+    catalog_path: str = "",
 ) -> str:
     return _prompt.render(
         "task/plan",
         context_json=json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
         catalog_json=json.dumps(_summarize_catalog(catalog), ensure_ascii=False, indent=2),
+        catalog_pointer=catalog_pointer,
+        catalog_path=catalog_path,
         validation_errors_json=(
             json.dumps(validation_errors, ensure_ascii=False, indent=2)
             if validation_errors
@@ -53,6 +57,8 @@ def next_plan(
     catalog: list[dict] | None = None,
     session_id: str | None = None,
     validation_errors: list[str] | None = None,
+    catalog_pointer: str | None = None,
+    catalog_path: str = "",
 ) -> tuple[ExperimentPlan, str | None]:
     """Ask the leader dialog for one next experiment plan."""
 
@@ -60,5 +66,7 @@ def next_plan(
         context=context,
         catalog=catalog,
         validation_errors=validation_errors,
+        catalog_pointer=catalog_pointer,
+        catalog_path=catalog_path,
     )
     return run_structured_dialog(agent, task, ExperimentPlan, session_id=session_id)

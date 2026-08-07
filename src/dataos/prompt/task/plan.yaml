@@ -1,6 +1,7 @@
 description: >
   Per-round planner task message asking the leader dialog for one ExperimentPlan.
-  Render params: context_json, catalog_json, validation_errors_json (optional).
+  Render params: context_json, catalog_json, catalog_pointer (optional — when set, the
+  catalog is NOT inlined; the leader reads the file), validation_errors_json (optional).
 template: |
   Choose the next single experiment to grow on the tree.
 
@@ -9,10 +10,17 @@ template: |
   Context bundle:
 
   {{ context_json }}
+  {% if catalog_pointer %}
 
-  Available data operators (name/kind/params):
+  Available data operators: read {{ catalog_pointer }} (name/kind/mode/effect/params — it's
+  persisted on disk; query it whenever you need it, no need to memorize).
+  {% else %}
+
+  Available data operators (name/kind/params) — this same list is also persisted at
+  {{ catalog_path }} for later rounds:
 
   {{ catalog_json }}
+  {% endif %}
   {% if validation_errors_json is defined and validation_errors_json %}
 
   Your previous plan failed code validation:

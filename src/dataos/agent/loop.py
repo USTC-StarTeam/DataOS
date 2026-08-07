@@ -491,6 +491,13 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     base_model = cfg.h100_base_model or cfg.base_model_id or "base"
     tree = TreeState.load(proj.project_dir, base_model)
 
+    # persist the operator catalog once per run — later rounds just point at the file
+    # (the leader has a shell; everything it needs must be queryable, not memorized)
+    from .planner import _summarize_catalog
+
+    catalog_path = Path(proj.project_dir) / "operator_catalog.json"
+    atomic_write_json(catalog_path, _summarize_catalog(catalog))
+
     main_agent = make_agent("leader", cfg)
     session_id = _load_session(Path(proj.project_dir))
     if session_id:
@@ -604,6 +611,15 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     catalog=catalog,
                     session_id=session_id,
                     validation_errors=validation_errors,
+                    # the catalog is inlined on the first plan (rounds 0-1); afterwards the
+                    # leader reads the persisted file on demand (validation failures re-inline
+                    # it — a bad op name usually means the leader needs the list again)
+                    catalog_pointer=(
+                        None
+                        if round_idx <= 1 or validation_errors
+                        else str(catalog_path)
+                    ),
+                    catalog_path=str(catalog_path),
                 )
                 _save_session(
                     Path(proj.project_dir),
