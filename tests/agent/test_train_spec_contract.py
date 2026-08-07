@@ -66,3 +66,17 @@ def test_full_env_menu_is_in_the_spec():
     assert spec.env.backends["llamafactory"] == "/envs/Llama"
     assert spec.env.backends["verl"] == "/envs/verl"
     assert spec.env.env_for("llamafactory", "sft") == "/envs/Llama"
+
+
+def test_cluster_nodelist_prefers_run_pin_then_env_pool():
+    # run pin wins
+    spec = build_train_spec(_resolved(), name="e0", plan_train={"finetuning_type": "lora"},
+                            parent_model="/models/base", run_root="/rb/e0", time_h=2.0)
+    assert spec["cluster"]["nodelist"] == "gpu04"
+    # no pin -> env.slurm.nodes pool
+    r = _resolved()
+    r["run"]["resource"]["node"] = None
+    r["environment"]["slurm"]["nodes"] = "gpu01,gpu02,gpu03"
+    spec = build_train_spec(r, name="e0", plan_train={"finetuning_type": "lora"},
+                            parent_model="/models/base", run_root="/rb/e0", time_h=2.0)
+    assert spec["cluster"]["nodelist"] == "gpu01,gpu02,gpu03"

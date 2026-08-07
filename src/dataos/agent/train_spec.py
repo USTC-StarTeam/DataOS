@@ -65,7 +65,8 @@ def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_mode
         "cluster": {
             "partition": env.get("slurm", {}).get("partition"),
             "qos": env.get("slurm", {}).get("qos"),
-            "nodelist": resource.get("node"),
+            # run pin wins; else the env's node pool (env.slurm.nodes)
+            "nodelist": resource.get("node") or env.get("slurm", {}).get("nodes"),
             "gres": f"gpu:{gpus}",
             "cpus_per_task": cpus,
         },
