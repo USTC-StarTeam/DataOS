@@ -38,13 +38,19 @@ template: |
      ssh <login> '{{ eval_env_python }} {{ profile_script }} \
        --pool-root {{ fixed_pool }} --all-sources'
      ```
-     The script prints a JSON array of per-source RAW STATISTICS (n_rows, n_sampled,
-     domain {label, scores}, output_format fractions, negatives rate, one real sample —
-     no quality verdicts and no format-fit score by design: format fit is a judgment,
-     and THAT judgment is yours next). Then ANNOTATE it: for each source, add a `note`
-     field — 1-2 sentences saying what the content actually is and what (if anything)
-     must be converted for THIS bench, judged against the eval_format_contract you just
-     recorded (e.g. "math CoT with LaTeX \\boxed answers; needs re-rendering to the
+     The script prints a JSON array of per-source RAW STATISTICS (n_rows, splits, schema,
+     shape, composition, domain {label, scores}, lengths, output_format fractions,
+     negatives rate, real samples — no quality verdicts and no format-fit score by design:
+     format fit is a judgment, and THAT judgment is yours next). Field guide: `shape` is
+     the row archetype (alpaca/qa/chat/chat_tools/preference/classification/raw_text/
+     translation/mcq) — it decides the conversion path (preference = take `chosen` or go
+     DPO; classification/translation are not instruction data); `composition` is the exact
+     per-subset breakdown of any low-cardinality column (e.g. problem_source) — pick the
+     SUBSET that fits, not just the source; `lengths` (p50/p95/max chars per side) grounds
+     the cutoff_len choice. Then ANNOTATE: for each source, add a `note` field — 1-2
+     sentences saying what the content actually is and what (if anything) must be
+     converted for THIS bench, judged against the eval_format_contract you just recorded
+     (e.g. "math CoT with LaTeX \\boxed answers; needs re-rendering to the
      `#### <number>` shape"). Keep every profile's stats verbatim — annotate, never
      rewrite the numbers. Put the annotated array in as `source_profiles`.
      ⚠️ If a profile carries a `degraded` mark or looks self-contradictory (n_rows > 0 but
