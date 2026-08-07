@@ -87,7 +87,7 @@ def test_experimenter_discipline_appears_once_across_system_and_task(tmp_path):
         pytest.skip("DataOS-Runtime checkout not available for the task composer")
     combined = system + "\n\n" + task
     for sig in ["LOGIN-NODE DISCIPLINE", "FORMAT PRE-CHECK", "REPORT CONTRACT",
-                "never in sbatch scheduling flags", "LOOK BEFORE YOU WRITE"]:
+                "SUBMIT, THEN WAIT PATIENTLY", "LOOK BEFORE YOU WRITE"]:
         assert combined.count(sig) == 1, f"{sig!r} appears {combined.count(sig)} times"
 
 

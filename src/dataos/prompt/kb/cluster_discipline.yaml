@@ -2,10 +2,6 @@ description: >
   KB block — H100 cluster discipline (login-node rules, no recursive scans, Slurm/ssh
   resilience, GPU utilization). Audience: experimenter + investigator. No render params.
 template: |
-  - GPU-utilization duty lives in RUNTIME flags (batch size / grad-accum / dataloader workers /
-    vLLM concurrency, avoiding CPU stalls) — never in sbatch scheduling flags: node count, GPU
-    count, partition, time limits are owned by the environment config (see the submit template),
-    you only write what the job runs. Stay within the leader's intent and the configured limits.
   - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
     submit sbatch, poll sacct/squeue (sleep ≥30s), and run BOUNDED internet steps (the judge;
     `llm_*` scoring on a SMALL sample). ALL data processing / training / eval-generation runs
