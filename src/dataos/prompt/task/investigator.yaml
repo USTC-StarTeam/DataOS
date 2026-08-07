@@ -26,12 +26,18 @@ template: |
     run_root on H100: {{ baseline_run_root }}
     eval_dir: {{ baseline_eval_dir }}
     write the report to this LOCAL path: {{ baseline_report_path }}
-  After gathering the eval contract (part 1 below), evaluate the BASE MODEL with the frozen
-  scorer per the TASK section at the bottom (the exact scoring command is there; model_path =
-  {{ base_model }}, eval_dir = the one above, limit = {{ eval_limit }}). Submit it as ONE
-  single-node GPU job. NEVER shard the eval across nodes (-N>1 / NumTasks>1): multi-node jobs
-  cannot schedule in our partition and will sit PENDING forever (they get cancelled on sight).
-  Then read a handful of raw predictions from the eval dir and write a report.json to the local path above:
+
+  PIPELINE — overlap, don't serialize:
+    1. gather the eval contract (part 1 below — you need it to run the eval correctly);
+    2. SUBMIT the baseline eval as ONE single-node GPU job (the exact scoring command is in
+       the TASK section at the bottom; model_path = {{ base_model }}, eval_dir = the one
+       above, limit = {{ eval_limit }}). NEVER shard it across nodes (-N>1 / NumTasks>1
+       cannot schedule here and gets cancelled on sight);
+    3. WHILE it runs, do parts 3-4 (pool profiles + notes + shortlist) — the eval takes
+       tens of minutes, the profiler takes minutes, so there is plenty of time; poll sacct
+       every ~60s between steps;
+    4. when the eval job completes: read a handful of raw predictions from the eval dir and
+       write report.json to the local path above:
     {"name": "baseline", "status": "completed", "score": <float from summary.json>,
      "stages": {"data": {"status": "skipped"}, "train": {"status": "skipped"},
                 "eval": {"status": "completed"}},
