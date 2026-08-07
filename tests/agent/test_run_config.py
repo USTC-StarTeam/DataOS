@@ -206,7 +206,7 @@ def test_auto_eval_limit_prompts(tmp_path):
         run_root="/r", report_path="/r/report.json", state_path="/r/s.json",
         env_ops="", task_def="", stage_blocks="",
     )
-    assert "AUTO" in text and "record the actual limit" in text
+    assert "AUTO" in text and "by this experiment's ROLE" in text
 
     rc = {"environment": "PTB_H100_slurm", "task": "posttrainbench", "base_model": "/m",
           "bench": "gsm8k", "runs_base": "/r", "resource": {"gpus": 1, "cpus": 8, "node": None},

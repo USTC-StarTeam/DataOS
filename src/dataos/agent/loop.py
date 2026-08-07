@@ -321,9 +321,10 @@ def _plan_context(
             "mode": "auto" if _effective_eval_limit(cfg) == -2 else "fixed_limit",
             "limit": _effective_eval_limit(cfg),
             "note": (
-                "eval_limit=-2 (auto): the experimenter picks the eval size per experiment "
-                "(default full); scores at different limits are NOT directly comparable — "
-                "check eval.limit in reports before ranking."
+                "eval_limit=-2 (auto): exploration probes may eval on a subset (fast "
+                "iteration); a confirmation / candidate-best experiment must run FULL. "
+                "Subset scores are NOT comparable to full scores — check eval.limit in "
+                "reports before ranking; confirm any new best at full before trusting it."
                 if _effective_eval_limit(cfg) == -2 else
                 "The frozen eval limit is fixed for the whole run (-1 = full benchmark); "
                 "every score is directly comparable."
