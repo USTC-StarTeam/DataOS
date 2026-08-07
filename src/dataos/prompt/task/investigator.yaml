@@ -37,7 +37,11 @@ template: |
                   "failure_classes": {"<class>": <count>},
                   "anomalies": "<repetition/length/format drift, or 'none'>",
                   "conclusion": "<the base model's dominant failure mode in one sentence>"}}
-  Your baseline_diagnosis (part 2) then quotes THIS analysis — you have seen the raw outputs.
+  Don't stop at WHAT the failures look like — locate them: for the dominant class, take 1-2
+  failing cases and check them against the scorer's parser yourself (you just read its code):
+  is the correct answer present but unparsable (protocol-side loss), or is the content itself
+  wrong/degenerate (model-side)? "parse_failure" is never a root cause — name what the parser
+  expected vs what the model emitted. Your baseline_diagnosis quotes THIS analysis.
 
   Produce recon.json with EXACTLY these four parts:
 

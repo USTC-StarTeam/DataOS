@@ -15,7 +15,7 @@ template: |
                 "failure_classes":{"<free-form class name>":<count>, ...},
                 "examples":[{"q":"...","model_output":"<clipped>","verdict":"...","cause":"..."}],
                 "anomalies":"<repetition/length/format drift, or 'none'>",
-                "conclusion":"<the model's dominant failure mode in one sentence>"}}
+                "conclusion":"<the dominant failure mode AND where it lives: model capability / output shape / scorer parsing>"}}
   `status:"completed"` only if `score` is a real number read from the eval's summary.json; otherwise
   `status:"failed"` with an `"error"` string. On a BASELINE run set stages data/train to
   `{"status":"skipped"}`.
