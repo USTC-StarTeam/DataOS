@@ -16,6 +16,9 @@
 命令模板(env/run 已填好;`{ctx.*}` 由你在执行时替换 —— run_root/env_path/script/jobid/model_path/eval_dir/label/remote/local):
 - activate: `{{ env.operations.activate }}`
 - submit:   `{{ env.operations.submit }}`
+{% if env.operations.submit_cpu is defined %}
+- submit_cpu(纯 CPU 活,无 gres): `{{ env.operations.submit_cpu }}`
+{% endif %}
 - poll:     `{{ env.operations.poll }}`
 - fetch:    `{{ env.operations.fetch }}`
 - cancel:   `{{ env.operations.cancel }}`

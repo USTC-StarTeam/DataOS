@@ -67,12 +67,32 @@ export HF_DATASETS_OFFLINE=1
 """
 
 
+def _time_s(v: str) -> int:
+    """Slurm time -> seconds: [[days-]hours:]minutes[:seconds]; a bare number is minutes."""
+    days, _, rest = v.partition("-")
+    if not rest:
+        days, rest = "0", v
+    if ":" not in rest:
+        return int(days) * 86400 + int(rest) * 60
+    secs = 0
+    for part in rest.split(":"):
+        secs = secs * 60 + int(part)
+    return int(days) * 86400 + secs
+
+
 def _sbatch_argv(args, env: dict) -> list[str]:
     """Scheduling facts, written here and ONLY here: single node, env node pool,
     partition/qos from env.yaml, gres/cpus from the run's resource facts. --time is
     explicit: with none, sbatch falls back to the QOS's 7d limit, which EXCEEDS the
-    partition's 3d MaxTime and pends forever (PartitionTimeLimit)."""
+    partition's 3d MaxTime and pends forever (PartitionTimeLimit); anything above
+    slurm.max_time is clamped to it for the same reason."""
     slurm = env["slurm"]
+    limit = args.time
+    max_time = slurm.get("max_time")
+    if max_time and _time_s(limit) > _time_s(max_time):
+        print(f"dataos-eval: --time {limit} exceeds the partition max {max_time}; clamped",
+              file=sys.stderr)
+        limit = max_time
     argv = [
         "sbatch", "--parsable",
         "-N1", "-n1",
@@ -80,7 +100,7 @@ def _sbatch_argv(args, env: dict) -> list[str]:
         f"--qos={slurm['qos']}",
         f"--gres=gpu:{args.gpus}",
         f"--cpus-per-task={args.cpus}",
-        f"--time={args.time}",
+        f"--time={limit}",
     ]
     if slurm.get("nodes"):
         argv.append(f"--nodelist={slurm['nodes']}")

@@ -137,6 +137,17 @@ def test_train_spec_injects_the_full_env_menu():
     assert spec["env"]["backends"] == {"llamafactory": "/envs/Llama", "verl": "/envs/verl"}
 
 
+def test_train_spec_clamps_time_to_the_partition_max():
+    from dataos.agent.train_spec import build_train_spec
+
+    res = _resolved()
+    res["environment"]["slurm"] = {"partition": "gpu", "qos": "q", "max_time": "3-00:00:00"}
+    spec = build_train_spec(
+        res, name="e0", plan_train={}, parent_model="/m", run_root="/rb/e0", time_h=200.0,
+    )
+    assert spec["resources"]["time_h"] == 72.0
+
+
 def test_templates_render_with_declared_params():
     assert "o.guide()" in prompt.render("kb/stage_data", catalog="CATALOG")
     frozen = prompt.render(

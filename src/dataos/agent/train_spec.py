@@ -22,15 +22,32 @@ _STRIP = {"model_name_or_path", "stage", "do_train", "dataset", "dataset_dir",
           "output_dir", "overwrite_output_dir"}
 
 
+def _slurm_time_hours(v: str) -> float:
+    """Slurm time -> hours: [[days-]hours:]minutes[:seconds]; a bare number is minutes."""
+    days, _, rest = v.partition("-")
+    if not rest:
+        days, rest = "0", v
+    if ":" not in rest:
+        return int(days) * 24 + int(rest) / 60
+    secs = 0
+    for part in rest.split(":"):
+        secs = secs * 60 + int(part)
+    return (int(days) * 86400 + secs) / 3600
+
+
 def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_model: str,
                      run_root: str, time_h: float) -> dict:
     """TrainSpec dict for dataos-train. ``env.backends`` carries the FULL env menu derived
     from the environment's ``tools.*.provides`` (the single source); dataos-train's
     ``env_for()`` resolves method→env at build. The backend itself is the code default
-    until the plan can express a method choice."""
+    until the plan can express a method choice. ``time_h`` is clamped to the partition's
+    slurm.max_time — a longer request pends forever on PartitionTimeLimit."""
     env = resolved.get("environment", {})
     run = resolved.get("run", {})
     tools = env.get("tools", {})
+    max_time = (env.get("slurm") or {}).get("max_time")
+    if max_time:
+        time_h = min(time_h, _slurm_time_hours(max_time))
     backend = "llamafactory"  # code default (plan-driven backend selection: verl work)
     env_backends = {
         b: (tools.get(name, {}).get("path") if isinstance(tools.get(name), dict) else tools.get(name))

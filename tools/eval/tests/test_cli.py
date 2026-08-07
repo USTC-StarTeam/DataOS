@@ -48,6 +48,14 @@ def test_submit_dry_run_bakes_everything(tmp_path, capsys):
     assert "TRITON_LIBCUDA_PATH" in out and "HF_HUB_OFFLINE=1" in out
 
 
+def test_submit_clamps_time_to_the_partition_max(tmp_path, capsys):
+    rc = _run_cli(["submit", *_argv(_submit_args(tmp_path, time="7-00:00:00", dry_run=True))])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "--time=3-00:00:00" in out      # clamped to env slurm.max_time (a 7d ask pends forever)
+    assert "--time=7-00:00:00" not in out
+
+
 def test_submit_writes_handle_with_fake_sbatch(tmp_path, monkeypatch, capsys):
     fake = tmp_path / "sbatch"
     fake.write_text("#!/bin/bash\necho 424242\n")
