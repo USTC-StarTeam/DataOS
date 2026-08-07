@@ -47,6 +47,11 @@ template: |
      recorded (e.g. "math CoT with LaTeX \\boxed answers; needs re-rendering to the
      `#### <number>` shape"). Keep every profile's stats verbatim — annotate, never
      rewrite the numbers. Put the annotated array in as `source_profiles`.
+     ⚠️ If a profile carries a `degraded` mark or looks self-contradictory (n_rows > 0 but
+     an empty sample / zeroed stats), do NOT write "do not select" from it — load a few
+     rows of that source yourself (`load_from_disk` + print one row) and judge from the
+     real row. A degraded profile means "the profiler couldn't see", never "the source
+     is bad".
 
   Then write recon.json locally as:
   {
