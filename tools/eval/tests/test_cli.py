@@ -15,7 +15,8 @@ def _submit_args(tmp_path, **over):
         "repo": str(REPO), "environment": "PTB_H100_slurm", "task_config": "posttrainbench",
         "task": "gsm8k", "model_path": "/models/base", "model_name": "baseline",
         "output_dir": str(tmp_path / "eval" / "gsm8k_limit-1"),
-        "run_root": str(tmp_path), "limit": -1, "gpus": 1, "cpus": 8, "dry_run": False,
+        "run_root": str(tmp_path), "limit": -1, "gpus": 1, "cpus": 8, "time": "12:00:00",
+        "dry_run": False,
     }
     argv.update(over)
     return argv
@@ -42,6 +43,7 @@ def test_submit_dry_run_bakes_everything(tmp_path, capsys):
     assert "-N1" in out and "-n1" in out                       # single node, single task
     assert "--nodelist=gpu01,gpu02,gpu03" in out               # the env node pool
     assert "--gres=gpu:1" in out
+    assert "--time=12:00:00" in out                             # explicit: no --time pends forever (QOS 7d > partition MaxTime 3d)
     assert "run_lmeval_eval.py" in out and "--limit -1" in out
     assert "TRITON_LIBCUDA_PATH" in out and "HF_HUB_OFFLINE=1" in out
 

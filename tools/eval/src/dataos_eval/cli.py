@@ -69,7 +69,9 @@ export HF_DATASETS_OFFLINE=1
 
 def _sbatch_argv(args, env: dict) -> list[str]:
     """Scheduling facts, written here and ONLY here: single node, env node pool,
-    partition/qos from env.yaml, gres/cpus from the run's resource facts."""
+    partition/qos from env.yaml, gres/cpus from the run's resource facts. --time is
+    explicit: with none, sbatch falls back to the QOS's 7d limit, which EXCEEDS the
+    partition's 3d MaxTime and pends forever (PartitionTimeLimit)."""
     slurm = env["slurm"]
     argv = [
         "sbatch", "--parsable",
@@ -78,6 +80,7 @@ def _sbatch_argv(args, env: dict) -> list[str]:
         f"--qos={slurm['qos']}",
         f"--gres=gpu:{args.gpus}",
         f"--cpus-per-task={args.cpus}",
+        f"--time={args.time}",
     ]
     if slurm.get("nodes"):
         argv.append(f"--nodelist={slurm['nodes']}")
@@ -192,6 +195,9 @@ def main() -> None:
     s.add_argument("--limit", type=int, default=-1)
     s.add_argument("--gpus", type=int, default=1)
     s.add_argument("--cpus", type=int, default=8)
+    s.add_argument("--time", default="12:00:00",
+                   help="job time limit — must stay under the partition MaxTime (3d); "
+                        "12h covers every full PTB eval with headroom")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(fn=cmd_submit)
 
