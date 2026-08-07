@@ -27,6 +27,7 @@ resolution-markers = [
 [manifest]
 members = [
     "dataos",
+    "dataos-eval",
     "dataos-operator",
     "dataos-train",
 ]
@@ -1146,6 +1147,17 @@ requires-dist = [
     { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.8.0" },
 ]
 provides-extras = ["dev", "train", "eval", "vllm"]
+
+[[package]]
+name = "dataos-eval"
+version = "0.1.0"
+source = { editable = "tools/eval" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = ">=6.0" }]
 
 [[package]]
 name = "dataos-operator"

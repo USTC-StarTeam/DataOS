@@ -518,7 +518,9 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
     eval_limit = getattr(cfg, "eval_limit", None)
     if eval_limit is None:
         eval_limit = 20 if cfg.ptb_profile == "smoke" else -1
-    limit_tag = "auto" if eval_limit == -2 else str(eval_limit)
+    if eval_limit == -2:
+        eval_limit = -1  # AUTO governs experiments; the baseline reference is always full
+    limit_tag = str(eval_limit)
     baseline_run_root = f"{paths.get('runs_base', _RUNS_BASE)}/{cfg.project_id}/round-0000/baseline"
     baseline_report = (
         Path(proj.project_dir) / "round-0000" / "experiments" / "baseline" / "report.json"

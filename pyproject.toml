@@ -76,7 +76,7 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "tools/eval/tests"]
 # integration tests drive real code-agent CLIs (kimi/codex/...) — run on demand only
 addopts = "--ignore=tests/dataos_agent/integration"
 asyncio_mode = "auto"

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dataos-eval"
+version = "0.1.0"
+description = "Deterministic eval-submit lifecycle for DataOS (submit/status/collect; the only way agents run GPU evals)"
+requires-python = ">=3.11"
+authors = [{ name = "USTC-StarTeam" }]
+dependencies = [
+  "pyyaml>=6.0",
+]
+
+[project.scripts]
+dataos-eval = "dataos_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dataos_eval*"]

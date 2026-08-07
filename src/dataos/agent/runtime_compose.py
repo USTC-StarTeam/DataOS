@@ -150,6 +150,7 @@ def build_run_config(cfg, *, parent_model: str, eval_limit: int) -> dict:
         "base_model": parent_model,
         "bench": cfg.target_bench,
         "runs_base": paths.get("runs_base"),
+        "deploy_root": paths.get("deploy_root"),
         "resource": {
             "node": cluster.get("nodelist"),
             "gpus": gpus,

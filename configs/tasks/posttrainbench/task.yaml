@@ -25,14 +25,14 @@ produce:
 
 scoring:
   evaluator: "eval/scripts/run_lmeval_eval.py"
-  # 确定性 bench(gsm8k/humaneval/bfcl/gpqamain/aime2025):in-job 直接出分。
+  # 评测由 dataos-eval CLI 驱动(在 login 节点经 ssh 调用):submit 提交 GPU job →
+  # status 轮询 → collect 出分。调度(节点池/qos/gres)、作业环境(cache/TMPDIR/libcuda/
+  # 离线 HF)与 judge 补分全由工具收口 —— agent 从不为评测手写 sbatch。
   command: |-
-    POSTTRAINBENCH_BENCHMARKS_DIR={{ task.assets_root }}/benchmarks HF_DATASETS_CACHE={{ task.assets_root }}/benchmarks/hf_datasets HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 {{ env.tools.eval_env.path }}/bin/python {{ task.assets_root }}/eval/scripts/run_lmeval_eval.py --task {{ run.bench }} --model-path {{ ctx.model_path }} --model-name {{ ctx.label }} --output-dir {{ ctx.eval_dir }} --limit {ctx.eval_limit}
-  # judge 类 bench(healthbench/arenahardwriting):上面先生成 predictions(compute 无网),
-  # 再在有网的 login 节点跑本命令补分(用 env 的 gateway 端点 + 本任务选的 judge 模型;key 内联不落盘)。
+    {{ env.tools.sft_env.path }}/bin/dataos-eval submit --repo {{ run.deploy_root }} --environment {{ run.environment }} --task-config {{ run.task }} --task {{ run.bench }} --model-path {{ ctx.model_path }} --model-name {{ ctx.label }} --output-dir {{ ctx.eval_dir }} --run-root {{ ctx.run_root }} --limit {{ ctx.eval_limit }}
+  # judge 类 bench(healthbench/arenahardwriting):GPU job 只生成 predictions(compute 无网),
+  # collect 时自动在 login 节点补分(端点来自 env.gateway + 下面的 judge 选择;key 内联不落盘)。
   judge: {model: qwen3.5-plus, workers: 32}   # 本任务的 judge 选择(端点来自 env.gateway)
-  judge_command: |-
-    OPENAI_API_KEY=$(cat {{ env.gateway.key_file }}) OPENAI_BASE_URL={{ env.gateway.base_url }} POSTTRAINBENCH_JUDGE_MODEL={{ task.scoring.judge.model }} POSTTRAINBENCH_BENCHMARKS_DIR={{ task.assets_root }}/benchmarks {{ env.tools.eval_env.path }}/bin/python {{ task.assets_root }}/eval/scripts/run_lmeval_judge.py --bench {{ run.bench }} --predictions {{ ctx.eval_dir }}/predictions.jsonl --output {{ ctx.eval_dir }}/summary.json --workers {{ task.scoring.judge.workers }}
   result:
     file: "{{ ctx.eval_dir }}/summary.json"    # 原生结果契约:任何 agent 读它拿分
     field: score                                # 原生百分比 0–100

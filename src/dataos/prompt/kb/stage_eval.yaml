@@ -1,15 +1,22 @@
 description: >
-  EVAL stage tool — the task's frozen scorer (an Evaluator registered from the resolved
-  runtime contract). Render params: command, result_field, result_file, result_range,
-  judge_command (str, may be empty), format_contract_loc (str, may be empty).
+  EVAL stage tool — the task's frozen scorer, driven through the dataos-eval CLI
+  (submit -> status -> collect; the tool owns ALL scheduling and the judge step).
+  Render params: command, eval_bin, repo, environment, task_config, result_field,
+  result_file, result_range, format_contract_loc (str, may be empty).
 template: |
-  run the task's evaluator: `{{ command }}`
-    then read `{{ result_field }}` from {{ result_file }} (range {{ result_range }}) → report.json.
-  {% if judge_command %}
-    judge benches (healthbench/arenahardwriting): the command above generates predictions only; then on the LOGIN node run: `{{ judge_command }}`
-  {% endif %}
+  run the eval through the `dataos-eval` CLI on the login node (ssh per ENV OPS) — a
+  deterministic lifecycle, NOT a script you write:
+    1. submit: `{{ command }}`
+       → prints {"job_id", "handle"}; the Slurm job is submitted FOR you — ONE node from the
+         pool, qos/gres/caches/offline-HF all owned by the tool. NEVER hand-write sbatch for eval.
+    2. poll:   `{{ eval_bin }} status --repo {{ repo }} <handle>`
+       → {"state": ...}; exit 2 = still queued/running, 0 = terminal (COMPLETED/FAILED/...).
+    3. score:  `{{ eval_bin }} collect --repo {{ repo }} --environment {{ environment }} --task-config {{ task_config }} <handle>`
+       → prints {"score": ...} and leaves {{ result_file }} in place; judge benches
+         (healthbench/arenahardwriting) are scored HERE, on the login node — predictions alone
+         are not a score. Then record `{{ result_field }}` (range {{ result_range }}) → report.json.
   {% if format_contract_loc %}
-    want a high score? read how the scorer parses output first: {{ format_contract_loc }}
+  want a high score? read how the scorer parses output first: {{ format_contract_loc }}
   {% endif %}
   the eval model label MUST start with the model family name (e.g. `Qwen3-...`): the frozen
   runner picks the chat template by matching the label string — an unrecognized label scores

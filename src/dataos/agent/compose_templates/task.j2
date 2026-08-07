@@ -16,13 +16,12 @@
 
 
 怎么被打分(原生结果契约):
-- 跑评测(确定性 bench,in-job 出分):
+- 跑评测(dataos-eval 生命周期:submit 提交 → status 轮询 → collect 出分;在 login 节点经 ssh 驱动,调度全由工具收口):
   `{{ task.scoring.command }}`
-{% if task.scoring.judge_command %}
-- judge 类 bench(healthbench/arenahardwriting)先由上面生成 predictions,再在有网的 login 节点补分:
-  `{{ task.scoring.judge_command }}`
+{% if task.scoring.judge %}
+- judge 类 bench(healthbench/arenahardwriting):GPU job 只生成 predictions,collect 时自动在有网的 login 节点补分 —— 没有 collect 就没有分。
 {% endif %}
 - 结果:读 `{{ task.scoring.result.file }}` 的 `{{ task.scoring.result.field }}` 字段(范围 {{ task.scoring.result.range }})= 你的分数。
 {% if task.scoring.format_contract %}
-- 想拿高分先读评测器如何解析输出(唯一真源):{{ (task.assets_root ~ '/' ~ task.scoring.format_contract) if ' ' not in task.scoring.format_contract else task.scoring.format_contract }}
+- 想拿高分先读评测器如何解析输出(唯一真源):{{ (run.deploy_root ~ '/configs/tasks/' ~ run.task ~ '/' ~ task.scoring.format_contract) if ' ' not in task.scoring.format_contract else task.scoring.format_contract }}
 {% endif %}

@@ -210,7 +210,8 @@ def test_auto_eval_limit_prompts(tmp_path):
     assert "AUTO" in text and "by this experiment's ROLE" in text
 
     rc = {"environment": "PTB_H100_slurm", "task": "posttrainbench", "base_model": "/m",
-          "bench": "gsm8k", "runs_base": "/r", "resource": {"gpus": 1, "cpus": 8, "node": None},
+          "bench": "gsm8k", "runs_base": "/r", "deploy_root": "/deploy",
+          "resource": {"gpus": 1, "cpus": 8, "node": None},
           "eval_limit": -2, "fixed_pool": "/p"}
     env_ops, task_def = render(resolve(rc))
     assert "探索性探针可用子集" in task_def and "候选 best" in task_def

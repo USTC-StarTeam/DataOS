@@ -29,16 +29,18 @@ template: |
 
   PIPELINE — overlap, don't serialize:
     1. gather the eval contract (part 1 below — you need it to run the eval correctly);
-    2. SUBMIT the baseline eval as ONE single-node GPU job (the exact scoring command is in
-       the TASK section at the bottom; model_path = {{ base_model }}, eval_dir = the one
-       above, limit = {{ eval_limit }}). NEVER shard it across nodes (-N>1 / NumTasks>1
-       cannot schedule here and gets cancelled on sight);
+    2. SUBMIT the baseline eval with the exact scoring command from the TASK section at the
+       bottom (a dataos-eval submit — the CLI owns ALL scheduling; fill model_path =
+       {{ base_model }}, eval_dir = the one above, run_root = the one above, limit =
+       {{ eval_limit }}). NEVER hand-write sbatch for it, NEVER shard eval across nodes;
     3. WHILE it runs, do parts 3-4 (pool profiles + notes + shortlist) — the eval takes
-       tens of minutes, the profiler takes minutes, so there is plenty of time; poll sacct
-       every ~60s between steps;
-    4. when the eval job completes: read a handful of raw predictions from the eval dir and
+       tens of minutes, the profiler takes minutes, so there is plenty of time; poll
+       `dataos-eval status --repo {{ deploy_root }} <handle>` between steps;
+    4. when it goes terminal: `dataos-eval collect --repo {{ deploy_root }} <handle>` (it
+       prints the score — for judge benches it also runs the login-node judge step itself),
+       read a handful of raw predictions from the eval dir and
        write report.json to the local path above:
-    {"name": "baseline", "status": "completed", "score": <float from summary.json>,
+    {"name": "baseline", "status": "completed", "score": <float printed by collect>,
      "stages": {"data": {"status": "skipped"}, "train": {"status": "skipped"},
                 "eval": {"status": "completed"}},
      "model": {"path": "{{ base_model }}", "base_model": "{{ base_model }}"},

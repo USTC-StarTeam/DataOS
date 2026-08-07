@@ -99,7 +99,7 @@ def build_stages(resolved: dict, registry: _tools.ToolRegistry | None = None) ->
                 if registry.evaluator is not None
                 else "run the task's evaluator per the TASK contract above"
             ),
-            where="scoring command in the GPU job (vLLM); judge step on the login node",
+            where="the dataos-eval CLI on the login node (the tool owns the GPU job + judge step)",
             owner=OWNER_PROVIDED,
         ),
         Stage(

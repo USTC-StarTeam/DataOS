@@ -13,7 +13,6 @@ def _resolved(*, frozen: bool = False) -> dict:
         "scoring": {
             "command": "bash {ctx.eval_dir}/run_eval.sh {ctx.model_path}",
             "result": {"file": "{ctx.eval_dir}/summary.json", "field": "score", "range": [0, 100]},
-            "judge_command": "python judge.py {ctx.eval_dir}",
             "format_contract": "contracts/gsm8k.md",
         },
         "assets_root": "/assets",
@@ -22,9 +21,11 @@ def _resolved(*, frozen: bool = False) -> dict:
         task["train"] = {"command": "bash train.sh", "produces": "out/model"}
     return {
         "task": task,
+        "run": {"deploy_root": "/deploy", "environment": "PTB_H100_slurm", "task": "posttrainbench"},
         "environment": {
             "tools": {
-                "sft_env": {"path": "/envs/Llama", "provides": ["llamafactory", "torch"]},
+                "sft_env": {"path": "/envs/Llama",
+                            "provides": ["llamafactory", "torch", "dataos-eval"]},
                 "rl_env": {"path": "/envs/verl", "provides": ["verl", "torch"]},
                 "train_cli_env": {"path": "/envs/train-cli", "provides": ["dataos-train"]},
             },
@@ -54,10 +55,12 @@ def test_data_invoke_carries_the_installed_catalog():
 
 def test_eval_invoke_from_the_resolved_contract():
     invoke = _stage(_resolved(), name="eval").invoke
-    assert "run the task's evaluator: `bash {ctx.eval_dir}/run_eval.sh {ctx.model_path}`" in invoke
-    assert "then read `score` from {ctx.eval_dir}/summary.json (range [0, 100])" in invoke
-    assert "on the LOGIN node run: `python judge.py {ctx.eval_dir}`" in invoke
-    assert "/assets/contracts/gsm8k.md" in invoke
+    assert "1. submit: `bash {ctx.eval_dir}/run_eval.sh {ctx.model_path}`" in invoke
+    assert "`/envs/Llama/bin/dataos-eval status --repo /deploy <handle>`" in invoke
+    assert "collect --repo /deploy --environment PTB_H100_slurm --task-config posttrainbench" in invoke
+    assert "`score` (range [0, 100])" in invoke
+    assert "NEVER hand-write sbatch for eval" in invoke
+    assert "/deploy/configs/tasks/posttrainbench/contracts/gsm8k.md" in invoke
 
 
 # --- the reserved trainer slot -----------------------------------------------
@@ -117,7 +120,7 @@ def test_rendered_blocks_parity():
     assert "custom ops via DATAOS_OPERATOR_PLUGINS — full mechanics in your system prompt" in blocks
     assert "FALLBACK only if dataos-train is broken/unavailable: hand-write the LF config" in blocks
     assert "submit {ctx.run_root}/spec.json --launcher slurm" in blocks
-    assert "want a high score? read how the scorer parses output first: /assets/contracts/gsm8k.md" in blocks
+    assert "want a high score? read how the scorer parses output first: /deploy/configs/tasks/posttrainbench/contracts/gsm8k.md" in blocks
 
 
 # --- the three templates render standalone (StrictUndefined — no empty holes) --
@@ -145,10 +148,11 @@ def test_templates_render_with_declared_params():
     )
     assert ours.startswith("DETERMINISTIC via dataos-train")
     minimal = prompt.render(
-        "kb/stage_eval", command="cmd", result_field="score", result_file="<result>",
-        result_range=[0, 100], judge_command="", format_contract_loc="",
+        "kb/stage_eval", command="cmd", eval_bin="/env/bin/dataos-eval", repo="/deploy",
+        environment="env", task_config="task", result_field="score", result_file="<result>",
+        result_range=[0, 100], format_contract_loc="",
     )
-    assert minimal.startswith(
-        "run the task's evaluator: `cmd`\n  then read `score` from <result> (range [0, 100]) → report.json."
-    )
+    assert minimal.startswith("run the eval through the `dataos-eval` CLI")
+    assert "1. submit: `cmd`" in minimal
+    assert "`/env/bin/dataos-eval status --repo /deploy <handle>`" in minimal
     assert "model family name" in minimal  # the label->template selection rule

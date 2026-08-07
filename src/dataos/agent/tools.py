@@ -84,19 +84,35 @@ class FrozenEvaluator:
 
     def invoke(self, resolved: dict) -> str:
         task = resolved.get("task", {})
+        env = resolved.get("environment", {})
+        run = resolved.get("run", {})
         scoring = task.get("scoring", {})
         result = scoring.get("result", {})
         fc = scoring.get("format_contract")
-        assets_root = task.get("assets_root", "")
+        eval_bin = next(
+            (
+                f"{t['path']}/bin/dataos-eval"
+                for t in (env.get("tools") or {}).values()
+                if isinstance(t, dict) and "dataos-eval" in (t.get("provides") or [])
+            ),
+            "<sft_env>/bin/dataos-eval",
+        )
+        repo = run.get("deploy_root") or "<deploy_root>"
+        task_config = run.get("task", "")
         return _prompt.render(
             "kb/stage_eval",
             command=str(scoring.get("command", "")).strip(),
+            eval_bin=eval_bin,
+            repo=repo,
+            environment=run.get("environment", ""),
+            task_config=task_config,
             result_field=result.get("field", "score"),
             result_file=result.get("file", "<result>"),
             result_range=result.get("range", [0, 100]),
-            judge_command=str(scoring.get("judge_command") or "").strip(),
             format_contract_loc=(
-                f"{assets_root}/{fc}" if fc and " " not in str(fc) else str(fc or "")
+                f"{repo}/configs/tasks/{task_config}/{fc}"
+                if fc and " " not in str(fc)
+                else str(fc or "")
             ),
         )
 
