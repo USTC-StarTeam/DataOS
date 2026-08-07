@@ -318,9 +318,16 @@ def _plan_context(
         "recent_reviews": _recent_reviews(proj),
         "frozen_eval": eval_cfg,
         "eval_policy": {
-            "mode": "sampled_loop_eval",
+            "mode": "auto" if _effective_eval_limit(cfg) == -2 else "fixed_limit",
             "limit": _effective_eval_limit(cfg),
-            "note": "The search loop uses sampled PTB eval for fast ranking; do not plan full eval.",
+            "note": (
+                "eval_limit=-2 (auto): the experimenter picks the eval size per experiment "
+                "(default full); scores at different limits are NOT directly comparable — "
+                "check eval.limit in reports before ranking."
+                if _effective_eval_limit(cfg) == -2 else
+                "The frozen eval limit is fixed for the whole run (-1 = full benchmark); "
+                "every score is directly comparable."
+            ),
         },
         "fixed_pool": {
             "path": (cfg.runtime_config.get("paths") or {}).get("fixed_pool"),
@@ -338,7 +345,7 @@ def _plan_context(
             "the cluster — never invent names or use placeholders.",
             "Do not set train.model_name_or_path; code injects the parent model path.",
             "One experimenter owns the full data/train/eval experiment.",
-            "Use the frozen eval protocol for this run (eval_limit from runtime config; -1 = full).",
+            "Use the frozen eval protocol for this run (eval_limit from runtime config; -1 = full, -2 = auto/experimenter picks).",
             "GPU work must run through the configured executor, not on a login node.",
         ],
     }

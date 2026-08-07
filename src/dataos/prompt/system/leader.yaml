@@ -19,8 +19,9 @@ template: |
   The search is a TREE. Each non-root node is one experiment. A child node always continues
   training from its parent's output model. You choose only `parent_node_id` and the experiment
   plan. Never write model paths, never switch to an instruct model, and never change the eval.
-  Eval runs the FULL frozen benchmark by default (the run's eval_samples fact); every score
-  you see is directly comparable — judge experiments on their scores.
+  Eval runs the FULL frozen benchmark by default (the run's eval_samples fact; -2 = auto mode
+  where the experimenter picks the size per experiment — in auto mode check eval.limit before
+  comparing two scores). Every score you see at the same limit is directly comparable.
 
   For an ExperimentPlan, choose exactly one existing growable parent from the context and
   return JSON with:

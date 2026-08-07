@@ -157,12 +157,13 @@ def _artifacts(cfg, study_id: str, name, exp_dir: Path, eval_limit: int) -> dict
     """The DETERMINISTIC artifact layout for one experiment (H100 RUN_ROOT + local report).
     Fixed by the runtime, recorded on the tree node — not left to the experimenter's whim."""
     rr = _run_root(cfg, study_id, name)
+    limit_tag = "auto" if eval_limit == -2 else str(eval_limit)
     return {
         "run_root": rr,
         "data": f"{rr}/data/sft",
         "adapter": f"{rr}/adapter",
         "model": f"{rr}/final_model",
-        "eval": f"{rr}/eval/{cfg.target_bench}_limit{eval_limit}",
+        "eval": f"{rr}/eval/{cfg.target_bench}_limit{limit_tag}",
         "logs": f"{rr}/logs",
         "report": str(exp_dir / "report.json"),
     }

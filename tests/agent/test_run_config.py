@@ -178,3 +178,41 @@ def test_budget_ideal_time_excludes_queue_credit():
     assert stop_reason(started_at=0, budget=b, now=150.0, queue_credit_s=80.0) is None
     # 150s elapsed with 40s queue -> ideal 110s >= 100 -> stop
     assert stop_reason(started_at=0, budget=b, now=150.0, queue_credit_s=40.0) == "budget:wall_clock"
+
+
+def test_eval_samples_auto_mode(tmp_path):
+    """budget.eval_samples: -2 = auto (experimenter picks the eval size per experiment)."""
+    cfg = PtbRunConfig.from_dict(
+        _run_json(tmp_path / "myrun", budget={"time_hours": 1, "eval_samples": -2})
+    ).to_auto_config(resolved_config_path=tmp_path / "r.json")
+    assert cfg.eval_limit == -2
+
+    with pytest.raises(ValueError, match="eval_samples"):
+        PtbRunConfig.from_dict(
+            _run_json(tmp_path / "myrun", budget={"time_hours": 1, "eval_samples": -3})
+        )
+
+
+def test_auto_eval_limit_prompts(tmp_path):
+    """-2 renders the AUTO guidance into the experimenter task + the task constraint."""
+    from dataos import prompt as _prompt
+    from dataos.agent.runtime_compose import resolve, render
+
+    text = _prompt.render(
+        "task/experimenter", exp_name="e", bench="gsm8k", profile="formal",
+        parent_model="/m", root_base_model="/m", node_id="n1", parent_node_id="n0",
+        eval_limit=-2, is_smoke=False, recipe_json="{}", train_json="{}",
+        train_spec_json="", subagent_brief="b", runtime_config_json="{}",
+        run_root="/r", report_path="/r/report.json", state_path="/r/s.json",
+        env_ops="", task_def="", stage_blocks="",
+    )
+    assert "AUTO" in text and "record the actual limit" in text
+
+    rc = {"environment": "PTB_H100_slurm", "task": "posttrainbench", "base_model": "/m",
+          "bench": "gsm8k", "runs_base": "/r", "resource": {"gpus": 1, "cpus": 8, "node": None},
+          "eval_limit": -2, "fixed_pool": "/p"}
+    env_ops, task_def = render(resolve(rc))
+    assert "AUTO" in task_def and "-2" in task_def
+    rc["eval_limit"] = -1
+    _, task_def_full = render(resolve(rc))
+    assert "AUTO" not in task_def_full

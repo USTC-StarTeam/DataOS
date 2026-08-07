@@ -179,7 +179,7 @@ run JSON 携带**单次 run 的全部 run 级事实**(schema/校验见 `src/data
 | `exec.resource` | 是 | map | `{gpus: int>0, cpus: int>0, node?: str}`(node 缺省 = Slurm 自选空闲节点) |
 | `budget` | 是 | map | 预算 |
 | `budget.time_hours` | 是 | float | 墙钟预算(小时,>0) |
-| `budget.eval_samples` | 否 | int | 每个 experiment 的评测样本数;`-1` = 全量 benchmark(默认 `-1`) |
+| `budget.eval_samples` | 否 | int | 每个 experiment 的评测样本数:`-1` = 全量(默认);`-2` = AUTO(agent 按预算自选大小,report 须记录实际 limit,不同 limit 分数不直接可比);正整数 = 固定采样数 |
 | `agent` | 否 | map | host 侧 brain 的 code-agent CLI 选择(子字段见下;未知键报错) |
 | `monitor_port` | 否 | int | live monitor HTTP 端口(默认 `8765`;`0` = 关闭) |
 

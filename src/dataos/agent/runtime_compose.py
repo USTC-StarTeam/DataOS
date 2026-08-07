@@ -87,6 +87,7 @@ def resolve(run_config: dict, configs_root: str | Path = CONFIGS_DIR) -> dict:
     resolved_env["discipline"] = [_render_str(d, ns) for d in env["discipline"]]
 
     resolved_task = dict(task)
+    resolved_task["constraints"] = [_render_str(c, ns) for c in task["constraints"]]
     sc = dict(task["scoring"])
     for k in ("command", "judge_command"):
         if sc.get(k):

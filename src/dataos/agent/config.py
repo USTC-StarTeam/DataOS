@@ -91,7 +91,7 @@ class AutoRunConfig:
     eval_cfg: dict | None = None  # IGNORED on agent-version-ptb (eval is fixed to PostTrainBench)
     stub: bool = False  # stub eval score for tests/dev (no GPU/HF)
     ptb_profile: str = "formal"  # PostTrainBench limit profile: "formal" | "smoke"
-    eval_limit: int | None = None  # eval size per experiment; -1 = full benchmark (all samples)
+    eval_limit: int | None = None  # eval size: -1 full benchmark; -2 auto (agent picks); N subset
     target_bench: str | None = None  # PTB single-bench target (per-(base,bench)); None = 7-suite
     monitor_port: int = 8765  # live-monitor HTTP port (host-side infra fact; 0 disables)
 

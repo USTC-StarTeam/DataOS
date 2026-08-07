@@ -28,4 +28,5 @@ template: |
   off); an `analysis` written before the score is on disk is a contract violation. If you
   fail BEFORE any score exists, still write a `status:"failed"` report with an `"error"`
   string — never crash without one. Record any compatibility fixes / format-pre-check
-  outcome in report.json.
+  outcome in report.json. If the run's eval limit is AUTO (-2), also record the actual
+  limit you used as `eval.limit`.

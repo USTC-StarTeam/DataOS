@@ -428,9 +428,12 @@ def _positive_int(value: Any, field_name: str) -> int:
 
 
 def _eval_samples(value: Any, field_name: str) -> int:
-    """eval size per experiment: a positive int (subset) or -1 (full benchmark)."""
-    if not isinstance(value, int) or isinstance(value, bool) or (value <= 0 and value != -1):
-        raise ValueError(f"{field_name} must be a positive integer or -1 (full benchmark)")
+    """eval size per experiment: positive int (subset), -1 (full), or -2 (auto: the
+    experimenter picks the size per experiment, default full)."""
+    if not isinstance(value, int) or isinstance(value, bool) or (value <= 0 and value not in (-1, -2)):
+        raise ValueError(
+            f"{field_name} must be a positive integer, -1 (full benchmark), or -2 (auto)"
+        )
     return value
 
 
