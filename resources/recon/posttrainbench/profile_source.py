@@ -205,24 +205,39 @@ def _domain_label(scores: dict[str, float]) -> str:
 
 def _shape(schema: list[str]) -> str:
     """Classify the row shape — the archetype that decides how (or whether) the source
-    converts into SFT data. Signature rules over the schema's field set."""
-    cols = set(schema)
+    converts into SFT data. Signature rules over the schema's field set (case-folded)."""
+    cols = {c.lower() for c in schema}
     if {"chosen", "rejected"} & cols:
         return "preference"          # DPO pairs — not directly SFT-able
     if "translation" in cols:
         return "translation"         # lang-pair dicts
-    if {"conversations", "messages"} & cols:
+    if {"conversations", "messages", "conversation", "chat"} & cols:
         return "chat_tools" if "tools" in cols else "chat"
-    if {"question", "choices", "answerKey"} <= cols or {"question", "choices", "answer"} <= cols:
+    if {"message_1", "message_2"} & cols or {"patient", "doctor"} & cols:
+        return "chat"                # camel role-turns / medical dialogs
+    if ({"choices", "endings", "distractor1", "answerkey", "answer_key"} & cols) \
+            or ({"sol1", "sol2"} <= cols) or ({"option1", "option2"} <= cols) \
+            or ({"opa", "opb"} <= cols):
         return "mcq"
-    if "instruction" in cols and "output" in cols:
+    if ({"article", "document", "dialogue"} & cols) and ({"summary", "highlights"} & cols):
+        return "summarization"
+    if "instruction" in cols and ({"output", "response"} & cols):
         return "alpaca"
-    if {"question", "answer"} <= cols or {"problem", "solution"} <= cols \
-            or {"problem", "generated_solution"} <= cols:
+    if ({"query", "prompt", "question"} & cols) and ({"response", "best_answer"} & cols):
+        return "alpaca"              # instruction-style prompt→response variants
+    if ({"question", "question_stem", "question_content", "question_title", "problem",
+         "query", "prompt"} & cols) and (
+        {"answer", "solution", "generated_solution", "final_answer", "final_decision",
+         "long_answer", "story", "code", "correct_answer", "answers", "response",
+         "best_answer"} & cols
+    ):
         return "qa"
-    if "text" in cols and ({"label", "labels", "label_text"} & cols):
+    if ({"text", "content", "message", "sentence", "sms"} & cols) \
+            and ({"label", "labels", "label_text"} & cols):
         return "classification"
-    if "text" in cols and len(cols) <= 4:
+    if {"clean_text", "raw_text"} & cols:
+        return "raw_text"
+    if len(cols) <= 5 and ({"text", "content", "sample", "poem"} & cols):
         return "raw_text"
     return "other"
 
