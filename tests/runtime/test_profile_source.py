@@ -61,7 +61,7 @@ def test_profile_marks_degraded_when_extraction_fails(monkeypatch):
     p = ps.profile_source("/fake", "fake_source", n_sample=10)
     assert "degraded" in p
     assert p["extraction"]["empty_outputs"] == 10
-    assert p["samples_raw"]  # the raw rows are still visible for manual judgment
+    assert p["samples"]  # the raw rows are still visible for manual judgment
 
 
 def test_profile_not_degraded_on_good_schema(monkeypatch):
@@ -73,7 +73,7 @@ def test_profile_not_degraded_on_good_schema(monkeypatch):
     )
     p = ps.profile_source("/fake", "openmathinstruct2", n_sample=10)
     assert "degraded" not in p
-    assert p["sample"]["output"]          # a real sample is present
+    assert p["samples"] and "generated_solution" in p["samples"][0]  # real rows visible
     assert p["domain"]["scores"]["math"] == 1.0  # \boxed{} rows count as math evidence
     assert p["shape"] == "qa"
     assert p["splits"] == {"train": 10}

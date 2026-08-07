@@ -255,12 +255,15 @@ def _recon_context(recon: dict | None, *, round_idx: int, recon_path: Path) -> d
     out = {
         "eval_format_contract": recon.get("eval_format_contract"),
         "baseline_diagnosis": recon.get("baseline_diagnosis"),
+        # the investigator's shortlist is small and always relevant — inline it every round
+        "candidate_sources": recon.get("candidate_sources"),
         "recon_path": str(recon_path),
     }
     if round_idx <= 1:
         out["source_profiles"] = [
             {
                 "source": p.get("source"),
+                "shape": p.get("shape"),
                 "domain": (p.get("domain") or {}).get("label") if isinstance(p.get("domain"), dict)
                           else p.get("domain"),
                 "n_rows": p.get("n_rows", p.get("n")),

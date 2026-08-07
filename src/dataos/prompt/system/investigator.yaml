@@ -12,12 +12,17 @@ template: |
   clean xlam source right next to it — while the same base model reached 83 with the right
   source + format. Your recon makes those facts explicit so the leader cannot repeat that mistake.
 
-  recon.json has EXACTLY three parts (your task prompt carries the concrete commands and the
+  recon.json has EXACTLY four parts (your task prompt carries the concrete commands and the
   exact output schema):
   1. eval_format_contract — what output shape the frozen scorer parses (follow the eval-format
      guidance in the kb block; this is the single most important part);
   2. baseline_diagnosis — whether the base model's low score is a FORMAT miss or a CAPABILITY gap;
-  3. source_profiles — the deterministic profiler's per-source raw statistics over the
+  3. candidate_sources — YOUR shortlist of the sources (or source+subset) the leader is most
+     likely to need for THIS bench, each with a one-line why + the conversion it needs;
+     everything else gets a one-line exclusion reason. You hold both the eval contract and
+     the full profiles, so this pre-filter is yours — the leader plans over your shortlist
+     first and only reaches past it with fresh evidence;
+  4. source_profiles — the deterministic profiler's per-source raw statistics over the
      whole pool, PLUS your own 1-2 sentence `note` per source: what the content is and
      what must be converted for this bench (you hold the eval contract, so you are the
      right one to make that call — the leader then plans over stats + your notes).

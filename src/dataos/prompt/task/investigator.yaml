@@ -18,7 +18,7 @@ template: |
   -o IdentitiesOnly=yes <user>@<host> '…'`). Login-node discipline is in your system prompt —
   read only the specific files/paths named here.
 
-  Produce recon.json with EXACTLY these three parts:
+  Produce recon.json with EXACTLY these four parts:
 
   1. eval_format_contract — follow the eval-format guidance in your system prompt: the bench
      task/scorer lives under `{{ lm_bridge }}/` (the eval bridge in the DataOS-Runtime task dir);
@@ -33,7 +33,15 @@ template: |
      — needs full-SFT / more data). Include short `evidence`. If you truly cannot tell cheaply, set
      cause "unknown" with a note — do NOT run a full GPU eval just for this.
 
-  3. source_profiles — run the deterministic profiler over the WHOLE pool (it's cheap, ~minutes):
+  3. candidate_sources — the SHORTLIST for the leader. From the profiles + your notes, pick the
+     sources (or source+subset) the leader is most likely to need for THIS bench:
+     [{"source": "...", "subset": "<optional, e.g. a composition value>", "why": "...",
+       "conversion": "<what the target side must become for this bench>"}, ...]
+     A good shortlist is 3-8 entries, ordered by expected usefulness; mark the rest with a
+     one-line exclusion reason (whole shapes like classification/translation may be excluded
+     as a group). Judge against the eval_format_contract, not vibes.
+
+  4. source_profiles — run the deterministic profiler over the WHOLE pool (it's cheap, ~minutes):
      ```bash
      ssh <login> '{{ eval_env_python }} {{ profile_script }} \
        --pool-root {{ fixed_pool }} --all-sources'
@@ -41,7 +49,7 @@ template: |
      The script prints a JSON array of per-source RAW STATISTICS (n_rows, splits, schema,
      shape, composition, domain {label, scores}, lengths, output_format fractions,
      negatives rate, real samples — no quality verdicts and no format-fit score by design:
-     format fit is a judgment, and THAT judgment is yours next). Field guide: `shape` is
+     format fit is a judgment, and THAT judgment is yours). Field guide: `shape` is
      the row archetype (alpaca/qa/chat/chat_tools/preference/classification/raw_text/
      translation/mcq) — it decides the conversion path (preference = take `chosen` or go
      DPO; classification/translation are not instruction data); `composition` is the exact
@@ -65,7 +73,9 @@ template: |
                              "format_sensitive": true, "expected_target_shape": "...",
                              "target_example": "..."},
     "baseline_diagnosis":   {"cause": "format|capability|unknown", "evidence": "..."},
-    "source_profiles":      [ <the profiler's JSON array, verbatim> ]
+    "candidate_sources":    [ {"source": "...", "subset": "...", "why": "...",
+                               "conversion": "..."} ],
+    "source_profiles":      [ <the profiler's JSON array, verbatim + your notes> ]
   }
 
   Write the file, confirm it parses as JSON, then stop. That file is your entire deliverable.

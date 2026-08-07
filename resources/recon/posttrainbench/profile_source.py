@@ -293,17 +293,6 @@ def _length_stats(pairs: list[tuple[str, str]]) -> dict:
     }
 
 
-def _profile_shape_note(shape: str) -> str:
-    return {
-        "preference": "DPO pairs (chosen/rejected) — needs SFT conversion (take chosen) or a DPO recipe",
-        "translation": "language-pair dicts — not SFT dialog data",
-        "chat_tools": "multi-turn chat with a tools declaration — function-calling material",
-        "classification": "label+text classification — not instruction data",
-        "raw_text": "plain text — pretraining-style, not instruction data",
-        "mcq": "multiple-choice with explicit options",
-    }.get(shape, "")
-
-
 def profile_source(pool_root: str, source: str,
                    n_sample: int = 200, seed: int = 42) -> dict[str, Any]:
     try:
@@ -325,7 +314,6 @@ def profile_source(pool_root: str, source: str,
 
     fmt = {"function_call_json": 0, "natural_language": 0, "code": 0, "other": 0}
     neg = 0
-    first_out = first_ctx = ""
     out_modes: dict[str, int] = {}
     empty_out = 0
     for r in rows:
@@ -334,8 +322,6 @@ def profile_source(pool_root: str, source: str,
         out_modes[out_mode] = out_modes.get(out_mode, 0) + 1
         if not out.strip():
             empty_out += 1
-        if not first_out and out.strip():
-            first_out, first_ctx = out, ctx
         fmt[_classify_output(out)] += 1
         if _is_negative(ctx, out):
             neg += 1
@@ -350,7 +336,7 @@ def profile_source(pool_root: str, source: str,
     # read its stats as evidence (see the openmathinstruct2 incident: 13.9M rows reported
     # as "zero rows" because extraction silently missed the schema).
     degraded = rows and empty_out * 2 >= len(rows)
-    samples_raw = []
+    samples = []
     for raw0 in rows[:2]:
         entry = {}
         for k, v in list(raw0.items())[:8]:
@@ -360,10 +346,9 @@ def profile_source(pool_root: str, source: str,
                 entry[k] = v
             else:
                 entry[k] = str(v)[:200]  # datetime/bytes/nested — keep it serializable
-        samples_raw.append(entry)
+        samples.append(entry)
 
     shape = _shape(schema)
-    note = _profile_shape_note(shape)
 
     # Raw statistics ONLY — no target_fit, no quality verdict, no usage hint. Format
     # fit against the bench is a fuzzy judgment: the investigator writes a per-source
@@ -377,12 +362,10 @@ def profile_source(pool_root: str, source: str,
         "splits": splits,
         "schema": schema,
         "shape": shape,
-        "shape_note": note or None,
         "composition": _composition(ds, rows),
         "domain": {"label": _domain_label(dom_scores), "scores": dom_scores},
         "lengths": _length_stats(pairs),
-        "sample": {"context": first_ctx[:200], "output": first_out[:200]},
-        "samples_raw": samples_raw,
+        "samples": samples,
         "output_format": fmt_frac,
         "negatives": neg_ratio,
         "extraction": {"output_modes": out_modes, "empty_outputs": empty_out},
