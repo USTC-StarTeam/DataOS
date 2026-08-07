@@ -1,0 +1,49 @@
+{
+  "name": "xlam_clean_singlecall_lora",
+  "backend": "llamafactory",
+  "base_model": "/data/hcgu/archive/hf_cache/hub/models--Qwen--Qwen3-4B-Base/snapshots/906bfd4b4dc7f14ee4320094d8b41684abff8539",
+  "run_dir": "/data2/hcgu/dataos_agentver_runs/ptb-bfcl-4b2/round-0001/xlam-clean-singlecall-lora",
+  "dataset": {
+    "path": "/data2/hcgu/dataos_agentver_runs/ptb-bfcl-4b2/round-0001/xlam-clean-singlecall-lora/data/sft",
+    "format": "alpaca"
+  },
+  "method": {
+    "kind": "sft",
+    "finetuning_type": "lora",
+    "lora_target": "all",
+    "lora_rank": 64,
+    "lora_alpha": 128,
+    "learning_rate": 0.0001,
+    "num_train_epochs": 2.0,
+    "per_device_train_batch_size": 2,
+    "gradient_accumulation_steps": 8,
+    "cutoff_len": 2048,
+    "warmup_ratio": 0.05,
+    "bf16": true,
+    "extra": {
+      "lora_dropout": 0.05,
+      "lr_scheduler_type": "cosine",
+      "gradient_checkpointing": true,
+      "flash_attn": "fa2"
+    }
+  },
+  "resources": {
+    "nodes": 1,
+    "gpus": 1,
+    "cpus": 8,
+    "time_h": 10.0
+  },
+  "env": {
+    "backends": {
+      "llamafactory": "/data/hcgu/users/tjh/dataos_agentver/configs/environments/PTB_H100_slurm/envs/dataos_sft/.venv",
+      "verl": "/data/hcgu/users/tjh/dataos_runtime/environments/PTB_H100_slurm/envs/rl/.venv"
+    }
+  },
+  "cluster": {
+    "partition": "gpu",
+    "qos": "gpu_priv",
+    "nodelist": "gpu01,gpu02,gpu03",
+    "gres": "gpu:1",
+    "cpus_per_task": 8
+  }
+}

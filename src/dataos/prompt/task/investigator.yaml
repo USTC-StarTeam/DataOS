@@ -17,7 +17,9 @@ template: |
 
   ssh to the H100 login node with the cluster block above (`ssh -i <key> -p <port>
   -o IdentitiesOnly=yes <user>@<host> '…'`). Login-node discipline is in your system prompt —
-  read only the specific files/paths named here.
+  read only the specific files/paths named here. ALL your jobs are single-node — the profiler
+  is light CPU work (run it inline on the login node or as a single-node job), and the
+  baseline eval takes ONE GPU on ONE node. Never request multi-node (NumNodes>1) jobs.
 
   BASELINE EVAL (you also own round 0 — running it yourself is what makes your
   baseline_diagnosis first-hand evidence instead of a guess):
