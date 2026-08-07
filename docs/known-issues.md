@@ -156,3 +156,20 @@ humaneval 19 个出分节点 10 个 0.0：best（39.02，5k 严格清洗 LoRA）
 leader 的纪律（读根因、换维度）让它没卡死，但脆区里反复探的性价比很低。观察项：
 是否要在 review/策略层引入"连续 N 个 0.0 即判定脆区、回到 best 做保守确认或换大
 维度（full-SFT/换源族）"的引导。
+
+## P15 investigator/experimenter 手写 eval sbatch 反复越界（✅ 已修，2026-08-07）
+
+4b2 批（qwen3-4B）investigator 的 baseline eval **6 次手写 sbatch 越出节点池**
+（-N2 多节点 / 自钉 gpu05 / 自加 --time 等），每次都被值守 scancel；prompt 纪律
+（kb/cluster_discipline + ENV OPS 资源上限明示）被证明压不住——agent 在压力下总会
+退回手写脚本。同期实锤一个隐藏 bug：task.yaml 的 scoring.command 用
+`task.assets_root` 渲染，带出 **agent 主机本地路径**（/zssd/...），在 H100 上根本
+不存在，历代 agent 全靠自行替换成 $DEPLOY 路径硬绕。
+**修复（收编成工具，不再依赖纪律）**：新增 `tools/eval`（dataos-eval CLI，
+submit/status/collect）——sbatch 头（单节点、env 节点池、partition/qos/gres）、
+作业环境（TMPDIR/libcuda/cache/离线 HF）、judge 补分（collect 时在 login 节点）
+全部由工具代码写死，agent 没有任何可调度的旋钮。task.yaml scoring.command 改为
+调它（--repo 用 run.deploy_root，本地路径 bug 顺带根治）；task 的 judge_command
+模板删除（collect 从 env.gateway + scoring.judge 自行推导）；stage_eval kb /
+task.j2 / investigator baseline 段同步改写；baseline 评测在 eval_samples=-2(AUTO)
+下恒为全量（-1）。
