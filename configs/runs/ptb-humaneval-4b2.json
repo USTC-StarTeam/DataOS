@@ -1,7 +1,7 @@
 {
   "goal": "Use the fixed PTB data pool (v2) to improve Qwen3-4B-Base on humaneval within the 10h H100 budget.",
   "workspace": "workspace/ptb-humaneval-4b2",
-  "environment": "PTB_H100_slurm",
+  "environment": "PTB_H100_slurm_normal",
   "task": "posttrainbench",
   "bench": "humaneval",
   "inputs": {

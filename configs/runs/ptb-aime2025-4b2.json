@@ -1,7 +1,7 @@
 {
   "goal": "Use the fixed PTB data pool (v2) to improve Qwen3-4B-Base on aime2025 within the 10h H100 budget.",
   "workspace": "workspace/ptb-aime2025-4b2",
-  "environment": "PTB_H100_slurm",
+  "environment": "PTB_H100_slurm_normal",
   "task": "posttrainbench",
   "bench": "aime2025",
   "inputs": {
