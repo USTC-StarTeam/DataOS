@@ -11,6 +11,8 @@
 
 关键路径:runs_base={{ run.runs_base }}{% if env.paths is defined and env.paths.benchmarks %} · benchmarks={{ env.paths.benchmarks }}{% endif %}{% if run.fixed_pool %} · fixed_pool={{ run.fixed_pool }}{% endif %}
 
+⚠️ 资源限制:本 run 只允许使用 **{{ run.resource.gpus }} 张 GPU × {{ run.resource.cpus }} CPU,单个节点**——任何 job 不许超过这个规模,不许多节点/多卡并行,不许分片。
+
 命令模板(env/run 已填好;`{ctx.*}` 由你在执行时替换 —— run_root/env_path/script/jobid/model_path/eval_dir/label/remote/local):
 - activate: `{{ env.operations.activate }}`
 - submit:   `{{ env.operations.submit }}`
