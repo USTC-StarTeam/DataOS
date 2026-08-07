@@ -203,3 +203,24 @@ def test_no_function_local_subagent_executor_import():
             f"{name} has a function-local subagent_executor import — it shadows the "
             "module-level import and breaks the resume path"
         )
+
+
+def test_invalid_plans_skip_rounds_then_stop_cleanly(tmp_path):
+    """A leader that keeps returning invalid plans must not crash the run: each invalid
+    round is skipped, and after 3 consecutive invalid rounds the run finishes cleanly
+    (regression: gpqamain-4b died on 'estimated_hours must be positive' RuntimeError)."""
+    ws = str(tmp_path / "ws")
+    bad_plan = json.dumps({
+        "parent_node_id": "n0001", "name": "bad", "hypothesis": "h",
+        "estimated_hours": -1,  # fails validation: must be positive
+        "data": {}, "train": {"finetuning_type": "lora"}, "eval_plan": "e",
+        "expected_signal": "s", "subagent_brief": "b", "rationale": "r",
+    })
+    cfg = AutoRunConfig(
+        project_id="p", workspace=ws, backend="stub", stub=True, poll_interval_s=0.05,
+        stub_replies={"plan": [bad_plan], "review": REVIEW},
+        budget=Budget(max_wall_clock_s=1e9),
+    )
+    res = run_auto(cfg, _clock=_clock_for_rounds(ws, 99))
+    assert "leader_invalid_plans" in res["stop_reason"]
+    assert res["final_model"] is not None  # baseline model still submitted

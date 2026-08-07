@@ -489,6 +489,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     round_idx = len(_reviewed_studies(proj))
     best = _global_best(proj)
     events: list[dict] = []
+    invalid_streak = 0  # consecutive rounds whose plans never validated (skip, don't crash)
     if round_idx:
         log.info(
             "resuming: %d reviewed node(s) on disk; continuing at round %d (best=%s)",
@@ -608,10 +609,25 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     validation_errors,
                 )
             if validation_errors:
-                raise RuntimeError(
-                    "leader returned invalid ExperimentPlan after retries: "
-                    + "; ".join(validation_errors)
+                # never let a malformed plan kill the whole run: skip the round and
+                # re-ask next round; stop cleanly only after a sustained invalid streak.
+                invalid_streak += 1
+                log.error(
+                    "round %d: invalid plan after %d attempts (%s); skipping round "
+                    "(streak %d)",
+                    round_idx, _PLAN_RETRIES, "; ".join(validation_errors), invalid_streak,
                 )
+                if invalid_streak >= 3:
+                    reason = f"leader_invalid_plans x{invalid_streak}"
+                    log.error("STOP: %s", reason)
+                    _publish_live(cfg, round_idx=round_idx, phase="done", started=started,
+                                  now=_clock())
+                    result = _finish(proj, reason, best, round_idx, events, tree)
+                    log.info("final_model: %s", result.get("final_model"))
+                    return result
+                round_idx += 1
+                continue
+            invalid_streak = 0
             assert plan is not None
             node_id = tree.add_planned_node(
                 parent=plan.parent_node_id,
