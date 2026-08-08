@@ -34,15 +34,22 @@ def _load(repo: Path, environment: str, task: str) -> tuple[dict, dict]:
 def _render_job(args, env: dict) -> str:
     """The full job script: every hard-won environment lesson baked in (short TMPDIR,
     libcuda link, cache redirects, offline HF). No scheduling flags exist here — those
-    are passed to sbatch by submit() and are not the caller's business."""
-    run_root = Path(args.run_root)
+    are passed to sbatch by submit() and are not the caller's business. All interpolated
+    paths are shlex-quoted (run roots can contain parens, e.g. fresh-instance -1 dirs)."""
+    import shlex
+
+    run_root = shlex.quote(args.run_root)
+    model_path = shlex.quote(args.model_path)
+    model_name = shlex.quote(args.model_name)
+    output_dir = shlex.quote(args.output_dir)
+    bench = shlex.quote(args.task)
     eval_py = f"{env['tools']['eval_env']['path']}/bin/python"
     bridge = Path(args.repo) / "configs" / "tasks" / args.task_config / "eval" / "scripts"
     benchmarks = Path(args.repo) / "configs" / "tasks" / args.task_config / "benchmarks"
     return f"""#!/bin/bash
 set -euo pipefail
 export TMPDIR=/tmp/job_${{SLURM_JOB_ID}}
-mkdir -p "$TMPDIR" "$TMPDIR/culib" "{run_root}/cache/torch" "{run_root}/cache/triton" "{run_root}/cache/inductor"
+mkdir -p "$TMPDIR" "$TMPDIR/culib" {run_root}/cache/torch {run_root}/cache/triton {run_root}/cache/inductor
 trap 'rm -rf "$TMPDIR"' EXIT
 export TORCH_HOME={run_root}/cache/torch
 export TRITON_CACHE_DIR={run_root}/cache/triton
@@ -59,10 +66,10 @@ export HF_DATASETS_CACHE={benchmarks}/hf_datasets
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 {eval_py} {bridge}/run_lmeval_eval.py \\
-  --task {args.task} \\
-  --model-path {args.model_path} \\
-  --model-name {args.model_name} \\
-  --output-dir {args.output_dir} \\
+  --task {bench} \\
+  --model-path {model_path} \\
+  --model-name {model_name} \\
+  --output-dir {output_dir} \\
   --limit {args.limit}
 """
 
@@ -193,20 +200,23 @@ def cmd_collect(args) -> int:
 
     if handle.get("needs_judge") and summary.get("score") is None:
         # judge on the login node (the only place with internet) — bounded by design
+        import shlex
+
         judge = (task_cfg.get("scoring") or {}).get("judge") or {}
         gateway = env.get("gateway") or {}
         bridge = Path(args.repo) / "configs" / "tasks" / args.task_config / "eval" / "scripts"
+        benchmarks = Path(args.repo) / "configs" / "tasks" / args.task_config / "benchmarks"
         env_vars = (
-            f"OPENAI_API_KEY=$(cat {gateway['key_file']}) "
-            f"OPENAI_BASE_URL={gateway['base_url']} "
-            f"POSTTRAINBENCH_JUDGE_MODEL={judge.get('model')} "
-            f"POSTTRAINBENCH_BENCHMARKS_DIR={Path(args.repo) / 'configs' / 'tasks' / args.task_config / 'benchmarks'}"
+            f"OPENAI_API_KEY=$(cat {shlex.quote(gateway['key_file'])}) "
+            f"OPENAI_BASE_URL={shlex.quote(gateway['base_url'])} "
+            f"POSTTRAINBENCH_JUDGE_MODEL={shlex.quote(str(judge.get('model')))} "
+            f"POSTTRAINBENCH_BENCHMARKS_DIR={shlex.quote(str(benchmarks))}"
         )
         cmd = (
             f"{env_vars} {env['tools']['eval_env']['path']}/bin/python "
-            f"{bridge}/run_lmeval_judge.py --bench {handle['task']} "
-            f"--predictions {handle['output_dir']}/predictions.jsonl "
-            f"--output {summary_path} --workers {judge.get('workers', 32)}"
+            f"{bridge}/run_lmeval_judge.py --bench {shlex.quote(handle['task'])} "
+            f"--predictions {shlex.quote(handle['output_dir'])}/predictions.jsonl "
+            f"--output {shlex.quote(str(summary_path))} --workers {judge.get('workers', 32)}"
         )
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
         if r.returncode != 0:

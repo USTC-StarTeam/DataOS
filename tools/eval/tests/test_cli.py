@@ -124,3 +124,17 @@ def test_status_reads_the_primary_job_row(tmp_path, monkeypatch, capsys):
     fake.chmod(fake.stat().st_mode | _stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
     assert _state("1") == "FAILED"
+
+
+def test_render_quotes_paren_paths(tmp_path, capsys):
+    """Fresh-instance run roots can contain parens ('ptb-x-1' style dirs) — the generated
+    job script must quote every interpolated path or bash dies at line 6."""
+    rc = _run_cli(["submit", *_argv(_submit_args(tmp_path, run_root=str(tmp_path / "ptb-x(1)"),
+                                                output_dir=str(tmp_path / "ptb-x(1)/eval"),
+                                                dry_run=True))])
+    assert rc == 0
+    out = capsys.readouterr().out
+    script = out[out.find("#!/bin/bash"):]
+    import subprocess as sp
+    r = sp.run(["bash", "-n"], input=script, text=True, capture_output=True)
+    assert r.returncode == 0, r.stderr  # the script parses
