@@ -57,6 +57,11 @@ _NET_ERR_MARKERS: frozenset[str] = frozenset(
         " 502",
         " 503",
         " 504",
+        # a single stream line beyond the 16MiB read limit (codex aggregated_output of a
+        # huge command log): killing + resuming escapes it — the giant line is not
+        # re-streamed on resume
+        "limitoverrunerror",
+        "separator is not found",
     }
 )
 

@@ -145,20 +145,43 @@ def cmd_submit(args) -> int:
     return 0
 
 
+_FAIL = {"FAILED", "NODE_FAIL", "OUT_OF_MEMORY", "BOOT_FAIL", "PREEMPTED", "REVOKED"}
+_TMO = {"TIMEOUT", "DEADLINE"}
+
+
+def _map_state(raw: str) -> str:
+    """Coarse terminal/running mapping for one sacct State field — tolerates the reason
+    suffix (`CANCELLED by 1003`) and the long tail of fail states. Same policy as
+    dataos-train's map_sacct_state."""
+    token = (raw or "").strip()
+    state = token.split()[0].upper() if token else ""
+    if state == "COMPLETED":
+        return "COMPLETED"
+    if state in _FAIL or state.startswith("CANCELLED"):
+        return "FAILED"
+    if state in _TMO:
+        return "TIMEOUT"
+    if state in ("RUNNING", "COMPLETING", "RESIZING", "SUSPENDED"):
+        return "RUNNING"
+    return "PENDING"
+
+
 def _state(job_id: str) -> str:
     out = subprocess.run(
         ["sacct", "-j", job_id, "--format=State", "--noheader", "-n"],
         capture_output=True, text=True, check=False,
     )
     states = [s.strip() for s in out.stdout.splitlines() if s.strip()]
-    return states[-1] if states else "UNKNOWN"
+    # first non-empty row = the primary job, NOT .batch/.extern (a failed job's .extern
+    # is often COMPLETED — reading the LAST row misreports FAILED evals as COMPLETED)
+    return _map_state(states[0]) if states else "PENDING"
 
 
 def cmd_status(args) -> int:
     handle = json.loads(Path(args.handle).read_text())
     state = _state(handle["job_id"])
     print(json.dumps({"job_id": handle["job_id"], "state": state}))
-    return 0 if state in ("COMPLETED", "FAILED", "CANCELLED", "TIMEOUT") else 2
+    return 0 if state in ("COMPLETED", "FAILED", "TIMEOUT") else 2
 
 
 def cmd_collect(args) -> int:

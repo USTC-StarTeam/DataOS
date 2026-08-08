@@ -45,6 +45,22 @@ async def run_cli(
     )
     acc = Result()
 
+    # stderr is drained CONCURRENTLY into a bounded tail buffer: a PIPE that is only read
+    # after process exit deadlocks the child once the 64KB pipe buffer fills.
+    stderr_tail = bytearray()
+
+    async def _drain_stderr() -> None:
+        assert proc.stderr is not None
+        while True:
+            chunk = await proc.stderr.read(65536)
+            if not chunk:
+                return
+            stderr_tail.extend(chunk)
+            if len(stderr_tail) > 262_144:  # keep the tail; error text only needs the end
+                del stderr_tail[: len(stderr_tail) - 262_144]
+
+    drain = asyncio.create_task(_drain_stderr())
+
     async def _read() -> AsyncIterator[Event]:
         assert proc.stdout is not None
         async for raw_line in proc.stdout:
@@ -88,13 +104,11 @@ async def run_cli(
         except asyncio.TimeoutError:
             proc.kill()
             rc = await proc.wait()
-        stderr = b""
-        if proc.stderr is not None:
-            try:
-                stderr = await proc.stderr.read()
-            except Exception:
-                stderr = b""
-        stderr_text = stderr.decode("utf-8", "replace")
+        try:
+            await asyncio.wait_for(drain, timeout=5)
+        except Exception:
+            drain.cancel()
+        stderr_text = bytes(stderr_tail).decode("utf-8", "replace")
         if acc.status == "done" and rc not in (0, None):
             # non-zero exit that the stream didn't already explain
             acc.status = "error"

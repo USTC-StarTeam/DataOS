@@ -260,3 +260,42 @@ def test_transcript_tee(tmp_path):
     assert lines[-1]["type"] == "done" and lines[-1]["data"]["text"] == "back"
     # exactly one done (the failed attempt's was swallowed, per the stream contract)
     assert types.count("done") == 1
+
+
+# --- pipe hygiene -------------------------------------------------------------
+
+_STDERR_FLOOD_SCRIPT = (
+    "import json,sys;"
+    "sys.stderr.write('x' * 200_000);sys.stderr.flush();"
+    "print(json.dumps({'type':'text','text':'survived'}),flush=True)"
+)
+
+
+class FloodCliSpec(CliSpec):
+    """Real subprocess that floods stderr with 200KB before answering — a PIPE read only
+    after process exit deadlocks at the 64KB pipe buffer; the concurrent drain must not."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.bin = sys.executable
+
+    def build_argv(self, config: AgentConfig, prompt: str) -> list[str]:
+        return ["-c", _STDERR_FLOOD_SCRIPT]
+
+    def parse_line(self, raw: dict, acc: Result):
+        if raw.get("type") == "text":
+            acc.text += raw["text"]
+            yield Event(type="text", text=raw["text"])
+
+
+async def test_stderr_flood_does_not_deadlock():
+    spec = FloodCliSpec("flood1")
+    register(spec)
+    r = await asyncio.wait_for(aquery("hi", provider="flood1"), timeout=15)
+    assert r.status == "done" and r.text == "survived"
+
+
+def test_limit_overrun_is_recoverable():
+    """A single stream line beyond the 16MiB read limit heals via kill+resume."""
+    exc = asyncio.LimitOverrunError("Separator is not found, and chunk exceed the limit", 100)
+    assert is_recoverable(exc)

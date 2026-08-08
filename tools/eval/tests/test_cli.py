@@ -97,3 +97,30 @@ def _argv(d: dict) -> list[str]:
         else:
             argv += [f"--{k.replace('_', '-')}", str(v)]
     return argv
+
+
+def test_map_state_tolerates_suffixes_and_fail_states():
+    from dataos_eval.cli import _map_state
+
+    assert _map_state("COMPLETED") == "COMPLETED"
+    assert _map_state("CANCELLED by 1003") == "FAILED"      # scancel (e.g. GPU Guard)
+    assert _map_state("NODE_FAIL") == "FAILED"
+    assert _map_state("OUT_OF_MEMORY") == "FAILED"
+    assert _map_state("PREEMPTED") == "FAILED"
+    assert _map_state("TIMEOUT") == "TIMEOUT"
+    assert _map_state("RUNNING") == "RUNNING"
+    assert _map_state("") == "PENDING"
+
+
+def test_status_reads_the_primary_job_row(tmp_path, monkeypatch, capsys):
+    """sacct lists the main job first, then .batch/.extern — a failed job's .extern is
+    COMPLETED, so reading the LAST row misreports FAILED as COMPLETED."""
+    import stat as _stat
+
+    from dataos_eval.cli import _state
+
+    fake = tmp_path / "sacct"
+    fake.write_text("#!/bin/bash\necho FAILED; echo COMPLETED; echo COMPLETED\n")
+    fake.chmod(fake.stat().st_mode | _stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+    assert _state("1") == "FAILED"

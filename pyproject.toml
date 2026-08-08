@@ -17,6 +17,7 @@ dependencies = [
   # --- in-repo workspace tools (the agent's instruments, see tools/) ---
   "dataos-operator",
   "dataos-train",
+  "dataos-eval",
   # --- autonomous layer (dataos.agent): main + sub agents drive code-agent CLIs
   #     (claude / kimi / qwen ...) via the in-repo dataos_agent package
   #     (src/dataos_agent — transport self-healing lives there) ---
@@ -32,13 +33,16 @@ members = ["tools/*"]
 [tool.uv.sources]
 dataos-operator = { workspace = true }
 dataos-train = { workspace = true }
+dataos-eval = { workspace = true }
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "ruff>=0.6.0",
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
 ]
+
+[project.optional-dependencies]
 train = [
   "llamafactory[metrics]>=0.9.4,<0.10",
 ]
