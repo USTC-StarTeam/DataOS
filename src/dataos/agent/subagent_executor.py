@@ -389,7 +389,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
     exp_dir.mkdir(parents=True, exist_ok=True)
     report_path = exp_dir / "report.json"
     state_path = exp_dir / _STATE_FILE
-    eval_limit = getattr(cfg, "eval_limit", None)
+    eval_limit = spec.get("eval_limit") or getattr(cfg, "eval_limit", None)
     if eval_limit is None:
         eval_limit = 20 if cfg.ptb_profile == "smoke" else 200
     existing_report = _report_from_disk(report_path)

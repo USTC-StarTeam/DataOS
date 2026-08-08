@@ -180,13 +180,41 @@ def test_validate_plan_source_gate():
         growable_nodes=lambda: [{"id": "n0000"}],
         experiment_names=lambda: set(),
     )
-    cfg = types.SimpleNamespace(target_bench="gsm8k")
+    cfg = types.SimpleNamespace(target_bench="gsm8k", eval_limit=-1)
     # a profiled source passes even with ratio 0.0 / 90% negatives (leader's call, not code's)
     assert _validate_plan(plan, tree, cfg, recon) == []
     # an unprofiled (invented) source is rejected
     plan.data["sources"] = ["invented_source"]
     errors = _validate_plan(plan, tree, cfg, recon)
     assert any("not in recon.source_profiles" in e for e in errors)
+
+
+def test_validate_plan_eval_limit_required_in_auto_mode():
+    """In auto (-2) runs the leader must pick each experiment's eval size; fixed runs don't care."""
+    from dataos.agent.loop import _validate_plan
+    from dataos.agent.schemas import ExperimentPlan
+    import types
+
+    plan = ExperimentPlan(
+        parent_node_id="n0000", name="x", hypothesis="h",
+        data={"sources": [], "recipe": []}, train={},
+    )
+    tree = types.SimpleNamespace(
+        has_node=lambda _id: True,
+        growable_nodes=lambda: [{"id": "n0000"}],
+        experiment_names=lambda: set(),
+    )
+    auto = types.SimpleNamespace(target_bench="gsm8k", eval_limit=-2)
+    assert any("eval_limit" in e for e in _validate_plan(plan, tree, auto))   # missing
+    plan.eval_limit = 0
+    assert any("eval_limit" in e for e in _validate_plan(plan, tree, auto))   # not positive
+    plan.eval_limit = -1
+    assert _validate_plan(plan, tree, auto) == []                             # full
+    plan.eval_limit = 256
+    assert _validate_plan(plan, tree, auto) == []                             # subset
+    fixed = types.SimpleNamespace(target_bench="gsm8k", eval_limit=-1)
+    plan.eval_limit = None
+    assert _validate_plan(plan, tree, fixed) == []                            # fixed mode: optional
 
 
 def test_no_function_local_subagent_executor_import():

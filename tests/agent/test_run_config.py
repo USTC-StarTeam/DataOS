@@ -195,26 +195,27 @@ def test_eval_samples_auto_mode(tmp_path):
 
 
 def test_auto_eval_limit_prompts(tmp_path):
-    """-2 renders the AUTO guidance into the experimenter task + the task constraint."""
+    """-2 (auto): the LEADER picks each experiment's eval size via plan.eval_limit; the
+    experimenter only executes the number; the task constraint says the plan owns it."""
     from dataos import prompt as _prompt
     from dataos.agent.runtime_compose import resolve, render
 
     text = _prompt.render(
         "task/experimenter", exp_name="e", bench="gsm8k", profile="formal",
         parent_model="/m", root_base_model="/m", node_id="n1", parent_node_id="n0",
-        eval_limit=-2, is_smoke=False, recipe_json="{}", train_json="{}",
+        eval_limit=256, is_smoke=False, recipe_json="{}", train_json="{}",
         train_spec_json="", subagent_brief="b", runtime_config_json="{}",
         run_root="/r", report_path="/r/report.json", state_path="/r/s.json",
         env_ops="", task_def="", stage_blocks="",
     )
-    assert "AUTO" in text and "by this experiment's ROLE" in text
+    assert "eval limit: 256" in text and "set by the plan" in text
 
     rc = {"environment": "PTB_H100_slurm", "task": "posttrainbench", "base_model": "/m",
           "bench": "gsm8k", "runs_base": "/r", "deploy_root": "/deploy",
           "resource": {"gpus": 1, "cpus": 8, "node": None},
           "eval_limit": -2, "fixed_pool": "/p"}
     env_ops, task_def = render(resolve(rc))
-    assert "探索性探针可用子集" in task_def and "候选 best" in task_def
+    assert "评多少由 plan 决定" in task_def
     rc["eval_limit"] = -1
     _, task_def_full = render(resolve(rc))
-    assert "探索性探针" not in task_def_full
+    assert "--limit 已固定为 -1" in task_def_full

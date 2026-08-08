@@ -39,6 +39,13 @@ class ExperimentPlan(BaseModel):
         default="",
         description="short note about what signal to read from the frozen evaluator",
     )
+    eval_limit: int | None = Field(
+        default=None,
+        description="eval size for THIS experiment: -1 = full frozen benchmark, or a "
+        "positive subset size. REQUIRED when the run's eval mode is auto (-2) — pick by "
+        "the experiment's role: exploration probe -> a subset sized to the bench's eval "
+        "cost; a candidate-best confirmation -> -1 (full). Ignored in fixed-limit runs.",
+    )
     expected_signal: str = Field(default="", description="what outcome would be informative")
     subagent_brief: str = Field(
         default="",

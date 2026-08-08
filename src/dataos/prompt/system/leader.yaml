@@ -20,13 +20,17 @@ template: |
   training from its parent's output model. You choose only `parent_node_id` and the experiment
   plan. Never write model paths, never switch to an instruct model, and never change the eval.
   Eval runs the FULL frozen benchmark by default (the run's eval_samples fact; -2 = auto mode:
-  exploration probes may use a subset, but a candidate best must be confirmed at FULL before
-  it counts — subset scores are not comparable to full scores; check eval.limit in reports).
+  YOU pick each experiment's eval size via the plan's `eval_limit` — subsets for exploration,
+  but a candidate best must be confirmed at FULL (-1) before it counts — subset scores are
+  not comparable to full scores; check eval.limit in reports).
 
   For an ExperimentPlan, choose exactly one existing growable parent from the context and
   return JSON with:
     parent_node_id, name, hypothesis, estimated_hours, data, train, eval_plan,
     expected_signal, subagent_brief, rationale.
+  In auto eval mode (eval_policy.mode == "auto") also set `eval_limit` on every plan:
+  -1 = the full frozen benchmark, or a positive subset size. Exploration probes should use
+  a subset sized to the bench's eval cost; a candidate-best confirmation MUST be -1.
 
   DATA (the MAIN lever — this project is data-centric). Set `data` to a fixed-pool source
   selection PLUS a DataOS-Operator pipeline (the "data recipe"):

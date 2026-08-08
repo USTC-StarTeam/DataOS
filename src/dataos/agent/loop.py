@@ -324,10 +324,13 @@ def _plan_context(
             "mode": "auto" if _effective_eval_limit(cfg) == -2 else "fixed_limit",
             "limit": _effective_eval_limit(cfg),
             "note": (
-                "eval_limit=-2 (auto): exploration probes may eval on a subset (fast "
-                "iteration); a confirmation / candidate-best experiment must run FULL. "
-                "Subset scores are NOT comparable to full scores — check eval.limit in "
-                "reports before ranking; confirm any new best at full before trusting it."
+                "eval_limit=-2 (auto): YOU pick each experiment's eval size via the plan's "
+                "eval_limit field (-1 = full frozen benchmark, or a positive subset size). "
+                "Use subsets for exploration probes (fast iteration) — size them to the "
+                "bench's eval cost (the baseline's full-eval sample_len + elapsed_seconds "
+                "are in its eval summary.json on the cluster); a candidate best must be "
+                "confirmed at FULL (-1) before it counts. Subset scores are NOT comparable "
+                "to full scores — check eval.limit in reports before ranking."
                 if _effective_eval_limit(cfg) == -2 else
                 "The frozen eval limit is fixed for the whole run (-1 = full benchmark); "
                 "every score is directly comparable."
@@ -349,7 +352,7 @@ def _plan_context(
             "the cluster — never invent names or use placeholders.",
             "Do not set train.model_name_or_path; code injects the parent model path.",
             "One experimenter owns the full data/train/eval experiment.",
-            "Use the frozen eval protocol for this run (eval_limit from runtime config; -1 = full, -2 = auto/experimenter picks).",
+            "Use the frozen eval protocol for this run (eval_limit: -1 = full; in auto (-2) runs YOU pick each experiment's eval size via the plan's eval_limit field).",
             "GPU work must run through the configured executor, not on a login node.",
         ],
     }
@@ -373,6 +376,14 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
         errors.append("train.model_name_or_path must be omitted; code injects the parent model")
     if plan.estimated_hours is not None and plan.estimated_hours <= 0:
         errors.append("estimated_hours must be positive when provided")
+    if _effective_eval_limit(cfg) == -2:
+        el = plan.eval_limit
+        if el is None or not isinstance(el, int) or isinstance(el, bool) or (el <= 0 and el != -1):
+            errors.append(
+                "eval_limit is required in auto eval mode: -1 (full benchmark) or a "
+                "positive subset size — exploration probes may subset; a candidate-best "
+                "confirmation must be -1 (full)"
+            )
 
     # Gate ②: every planned source must be one RECON profiled, and domain-relevant. The
     # DIRTY-format rejection was removed (2026-07-14, per user): off-format data may still teach
@@ -408,6 +419,7 @@ def _spec_from_node(node: dict, eval_cfg: dict) -> dict:
         "data": dict(plan.get("data") or {}),
         "train": train,
         "eval": dict(eval_cfg),
+        "eval_limit": plan.get("eval_limit"),  # the leader's pick in auto mode; None in fixed
         "hypothesis": plan.get("hypothesis", ""),
         "expected_signal": plan.get("expected_signal", ""),
         "subagent_brief": plan.get("subagent_brief", ""),

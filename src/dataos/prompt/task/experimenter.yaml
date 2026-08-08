@@ -8,7 +8,7 @@ template: |
   Parent model to continue training from (use this exact path): {{ parent_model }}
   Root base model for provenance only: {{ root_base_model }}
   Tree node: {{ node_id }} parent={{ parent_node_id }}
-  {% if eval_limit == -2 %}eval limit: AUTO — pick the eval size by this experiment's ROLE: exploration probes may use a subset (fast iteration); a confirmation / candidate-best experiment MUST run the FULL benchmark. Record the actual limit as eval.limit in report.json — subset scores are NOT comparable to full scores.{% else %}sampled eval limit: {{ eval_limit }}{% endif %}{% if is_smoke %}    smoke→cap data to ≤1000 rows{% endif %}
+  eval limit: {{ eval_limit }} (-1 = full benchmark; set by the plan — a subset score is NOT comparable to full scores; record the actual limit as eval.limit in report.json).{% if is_smoke %}    smoke→cap data to ≤1000 rows{% endif %}
   {% if remaining_minutes is defined and remaining_minutes %}
   TIME BUDGET: ~{{ remaining_minutes }} minutes of wall-clock remain for THIS experiment. Pace to FINISH within it: size training (n_samples / steps) to fit, run the sampled eval, and WRITE report.json before time runs out — a partial or failed report still counts, getting killed with no report does not. Do not schedule far-out wakeups; poll tightly and finish ASAP.
   {% endif %}
