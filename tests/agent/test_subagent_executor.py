@@ -113,3 +113,22 @@ def test_runtime_config_injected_into_subagent_prompt(tmp_path):
     assert subagent_exec._run_root(cfg, "round-0000", "explore-0") == (
         "/remote/runs/p/round-0000/explore-0"
     )
+
+
+def test_queue_credit_overlap_math():
+    """Queue credit = the [submit, wait_end] overlap with THIS invocation. Rows arrive as
+    (submit, wait_end) epochs resolved cluster-side: a cancelled-pending job is capped at
+    its End (never at now), a still-pending job at now."""
+    f = subagent_exec._queue_credit_s
+    # cancelled-while-pending: End-capped, finite forever (the P0: no infinite money printer)
+    assert f([(100.0, 200.0)], since=0.0) == 100.0
+    # still pending at query time: counts submit -> now
+    assert f([(100.0, 500.0)], since=0.0) == 400.0
+    # entirely before this invocation (resume case): zero
+    assert f([(100.0, 200.0)], since=300.0) == 0.0
+    # partial overlap: only the in-window part counts
+    assert f([(100.0, 400.0)], since=250.0) == 150.0
+    # submitted inside the window: whole wait counts
+    assert f([(350.0, 400.0)], since=250.0) == 50.0
+    # clock-skewed row (end < submit) clamps to zero
+    assert f([(400.0, 100.0)], since=0.0) == 0.0

@@ -516,6 +516,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         log.info("leader: resuming dialog session %s", session_id)
 
     started = _clock()
+    subagent_executor.set_invocation_wall_start(time.time())  # anchor for queue-credit overlap
     round_idx = len(_reviewed_studies(proj))
     best = _global_best(proj)
     events: list[dict] = []

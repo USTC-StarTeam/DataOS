@@ -121,13 +121,32 @@ def _ssh_text(cfg, remote_cmd: str, *, timeout: int = 25) -> str:
         return ""
 
 
+_INVOCATION_WALL_START: float | None = None  # wall-clock start of THIS run_auto invocation
+
+
+def set_invocation_wall_start(ts: float) -> None:
+    """Anchor queue-credit accounting: only queue waits overlapping THIS invocation count
+    (budget is per-invocation wall-clock; without the anchor every --resume re-credits the
+    whole history)."""
+    global _INVOCATION_WALL_START
+    _INVOCATION_WALL_START = ts
+
+
+def _queue_credit_s(rows: list[tuple[float, float]], *, since: float) -> float:
+    """Sum the [submit, wait_end] overlap with [since, +inf) over (submit, wait_end) epochs."""
+    return sum(max(0.0, end - max(sub, since)) for sub, end in rows)
+
+
 def _queue_wait_s(cfg) -> float:
-    """Total Slurm PENDING (queue-wait) time across this run's jobs, in seconds.
+    """Total Slurm queue-wait time across this run's jobs, in seconds, overlapping THIS
+    invocation.
 
     The run's budget tracks IDEAL run time — queue waiting is budget-free by design
-    (cluster contention is environment noise, not experiment work). Measured
-    deterministically from sacct over this run's job ids (found via slurm-<id>.out
-    logs and dataos-train handle.json files under runs_base/<project_id>)."""
+    (cluster contention is environment noise, not experiment work). Job ids are found via
+    slurm-<id>.out logs and *handle.json files (dataos-train handle.json + dataos-eval
+    eval_handle.json) under runs_base/<project_id>; sacct epochs are resolved cluster-side.
+    A job that never started is capped at its End (cancellation), never at now — a
+    cancelled-pending job must not print credit forever."""
     import shlex
 
     runtime = _runtime_config(cfg)
@@ -137,20 +156,35 @@ def _queue_wait_s(cfg) -> float:
     base = shlex.quote(f"{runs_base}/{cfg.project_id}")  # project ids can contain parens
     remote = (
         f"ids=$( (find {base} -maxdepth 4 -name 'slurm-*.out' 2>/dev/null | grep -oP 'slurm-\\K[0-9]+';"
-        f" find {base} -maxdepth 3 -name 'handle.json' 2>/dev/null | xargs -r grep -hoP '\"job_id\":\\s*\"?\\K[0-9]+') | sort -u | tr '\\n' ',' );"
-        " ids=${ids%,}; [ -z \"$ids\" ] && echo 0 && exit 0;"
+        f" find {base} -maxdepth 3 -name '*handle.json' 2>/dev/null | xargs -r grep -hoP '\"job_id\":\\s*\"?\\K[0-9]+') | sort -u | tr '\\n' ',' );"
+        " ids=${ids%,}; [ -z \"$ids\" ] && exit 0;"
         " now=$(date +%s);"
-        " sacct -j \"$ids\" --format=Submit,Start -P -n 2>/dev/null | while IFS='|' read -r sub sta; do"
+        # -X: main job rows only (no .batch/.extern steps)
+        " sacct -j \"$ids\" --format=Submit,Start,End -P -n -X 2>/dev/null | while IFS='|' read -r sub sta end; do"
         "   se=$(date -d \"$sub\" +%s 2>/dev/null || echo 0); [ \"$se\" = 0 ] && continue;"
-        "   if [ -z \"$sta\" ] || [ \"$sta\" = Unknown ]; then ee=$now; else ee=$(date -d \"$sta\" +%s 2>/dev/null || echo $now); fi;"
-        "   [ $ee -lt $se ] && ee=$se; echo $((ee - se));"
-        " done | awk '{s+=$1} END {print s+0}'"
+        "   ee=0;"
+        "   for cand in \"$sta\" \"$end\"; do"  # Start first; a never-started job falls to End
+        "     if [ -n \"$cand\" ] && [ \"$cand\" != None ] && [ \"$cand\" != Unknown ]; then"
+        "       ee=$(date -d \"$cand\" +%s 2>/dev/null || echo 0);"
+        "     fi;"
+        "     [ \"$ee\" != 0 ] && break;"
+        "   done;"
+        "   [ \"$ee\" = 0 ] && ee=$now;"  # still pending: wait is still accruing
+        "   [ $ee -lt $se ] && ee=$se;"
+        "   echo \"$se $ee\";"
+        " done"
     )
     out = _ssh_text(cfg, remote)
-    try:
-        return float(out) if out else 0.0
-    except ValueError:
-        return 0.0
+    rows: list[tuple[float, float]] = []
+    for line in (out or "").splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            rows.append((float(parts[0]), float(parts[1])))
+        except ValueError:
+            continue
+    return _queue_credit_s(rows, since=_INVOCATION_WALL_START or 0.0)
 
 
 def _artifacts(cfg, study_id: str, name, exp_dir: Path, eval_limit: int) -> dict:
