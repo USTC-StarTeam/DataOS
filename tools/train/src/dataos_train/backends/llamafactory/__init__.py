@@ -16,6 +16,7 @@ from ...io import read_json
 from ...spec import DPO, KTO, ORPO, PPO, TrainSpec
 from ...types import Capabilities, JobSpec, LaunchPlan, SlurmExtras, Status, TrainResult
 from ..base import is_hf_model_dir, tail_text
+from .ext.templates import DATAOS_TEMPLATES
 from .config import (
     SUPPORTED_METHODS,
     LlamaFactoryMethod,
@@ -223,7 +224,7 @@ class LlamaFactoryBackend:
         ]
         if m.finetuning_type == "lora":
             steps.append(
-                "llamafactory-cli export "
+                f"{self._export_entry(m.template)} "
                 f"--model_name_or_path {shlex.quote(spec.base_model)} "
                 f"--adapter_name_or_path {shlex.quote(adapter_dir)} "
                 f"--template {shlex.quote(m.template)} --finetuning_type lora "
@@ -264,7 +265,17 @@ class LlamaFactoryBackend:
                 "python -m dataos_train.backends.llamafactory.ext.entry "
                 f"--online-ops {shlex.quote(ops)} --"
             )
+        # Templates LF does not ship (see ext/templates.py) need our registering wrapper; every
+        # other template keeps LF's own console script, so this path carries only what needs it.
+        if getattr(spec.method, "template", None) in DATAOS_TEMPLATES:
+            return "python -m dataos_train.backends.llamafactory.ext.lf_entry train"
         return "llamafactory-cli train"
+
+    @staticmethod
+    def _export_entry(template: str) -> str:
+        if template in DATAOS_TEMPLATES:
+            return "python -m dataos_train.backends.llamafactory.ext.lf_entry export"
+        return "llamafactory-cli export"
 
     def collect(self, run_dir: str) -> TrainResult:
         rd = Path(run_dir)

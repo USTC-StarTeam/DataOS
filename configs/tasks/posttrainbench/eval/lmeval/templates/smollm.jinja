@@ -64,8 +64,12 @@
       {{- python_tool_string -}}
     {%- endif -%}
     {{- "\n\n" -}}
-    {{- "<|im_end|>\n" -}}
   {%- endif -%}
+  {# The upstream SmolLM3 template emitted this INSIDE the tools branch, so a promptwith no
+     tools left the system turn unterminated: "...persona<|im_start|>user". Every non-tool
+     bench (gsm8k / humaneval / gpqamain / aime2025 / healthbench / arenahardwriting) got
+     malformed ChatML, and no training template could ever match it. #}
+  {{- "<|im_end|>\n" -}}
 {%- endif -%}
 {# ───── main loop ───── #}
 {%- for message in messages -%}

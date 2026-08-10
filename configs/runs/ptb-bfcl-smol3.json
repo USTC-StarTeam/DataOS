@@ -1,0 +1,29 @@
+{
+  "goal": "Use the fixed PTB data pool (v2) to improve SmolLM3-3B-Base on bfcl within the 10h H100 budget.",
+  "workspace": "workspace/ptb-bfcl-smol3",
+  "environment": "PTB_H100_slurm",
+  "task": "posttrainbench",
+  "bench": "bfcl",
+  "inputs": {
+    "base_model_path": "/data/hcgu/archive/hf_cache/hub/models--HuggingFaceTB--SmolLM3-3B-Base/snapshots/d78a42f79198603e614095753484a04c10c2b940",
+    "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2"
+  },
+  "exec": {
+    "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
+    "runs_base": "/data2/hcgu/dataos_agentver_runs",
+    "resource": {
+      "gpus": 1,
+      "cpus": 8
+    }
+  },
+  "budget": {
+    "time_hours": 10,
+    "eval_samples": -2
+  },
+  "agent": {
+    "provider": "codex",
+    "model": "gpt-5.6-sol",
+    "effort": "medium"
+  },
+  "monitor_port": 8772
+}
