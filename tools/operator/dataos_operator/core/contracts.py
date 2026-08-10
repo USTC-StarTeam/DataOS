@@ -101,7 +101,16 @@ def is_dataset(value: object) -> TypeGuard[Dataset]:
     if isinstance(value, str | bytes | bytearray) or is_record(value):
         return False
     if not isinstance(value, Sequence):
-        return False
+        # A HuggingFace ``datasets.Dataset`` sizes, indexes to a Mapping and iterates records —
+        # it just is not REGISTERED as ``collections.abc.Sequence``, so the isinstance test above
+        # rejected it and every operator raised "expected a record or dataset, got
+        # datasets.arrow_dataset.Dataset" on the toolbox's most natural input (a loaded source).
+        # Duck-type it instead of importing ``datasets``: the toolbox must not depend on it.
+        # Only row 0 is inspected — indexing an Arrow-backed dataset materializes a row, so the
+        # full scan the Sequence branch does would decode the whole table.
+        if not (hasattr(value, "__len__") and hasattr(value, "__getitem__")):
+            return False
+        return len(value) == 0 or is_record(value[0])
     return all(is_record(item) for item in value)
 
 

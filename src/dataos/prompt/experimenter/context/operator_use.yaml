@@ -14,3 +14,8 @@ template: |
     `.usage('<op>')`, then compose a recipe (filter / dedup / quality-score / select), and bridge to
     alpaca. Before running a recipe on H100, `export DATAOS_OPERATOR_PLUGINS=$AGENTVER/resources/custom_operators:$RUN_ROOT/custom_operators`
     so both shared and run-local custom operators are discoverable by name.
+  - OPERATORS TAKE `dataos_operator.Dataset`, NOT A HUGGINGFACE DATASET. Loading a source gives you
+    a `datasets.Dataset`; handing that straight to an operator dies with
+    `TypeError: MapperOperator expected a record or dataset, got <class 'datasets.arrow_dataset.Dataset'>`.
+    Wrap it first — `from dataos_operator import Dataset` then `Dataset(list_of_dicts)` — and convert
+    back with `datasets.Dataset.from_list(...)` when you save.

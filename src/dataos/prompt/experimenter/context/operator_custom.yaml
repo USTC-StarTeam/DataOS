@@ -19,3 +19,6 @@ template: |
     shared `$AGENTVER/resources/custom_operators/` dir (committed in the DataOS brain repo, so it
     persists across runs). Both dirs are on `DATAOS_OPERATOR_PLUGINS`, so either is discoverable in
     the OPERATOR CATALOG. e.g. a "keep only valid function-call rows" filter becomes `function_call_filter`.
+  - IMPORT A RUN-LOCAL OPERATOR BY ITS PACKAGE PATH: `from custom_operators.<module> import <Class>`.
+    The bare `from <module> import <Class>` fails — `$RUN_ROOT` is the cwd, not `custom_operators/`,
+    and the plugins env var only feeds the by-name CATALOG lookup, not Python's import system.

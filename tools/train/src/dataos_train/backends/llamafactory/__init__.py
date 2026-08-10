@@ -201,9 +201,20 @@ class LlamaFactoryBackend:
         if spec.env.deploy_root and not pythonpath:
             pythonpath = [f"{spec.env.deploy_root}/src", spec.env.deploy_root]
 
-        steps = [
-            "#!/bin/bash",
-            "set -euo pipefail",
+        # Self-sufficient script: the launcher preamble already activates the env, but the
+        # script is also run on its own (by hand, or from a helper job). Without activation
+        # the convert step falls through to /usr/bin/python and dies on
+        # "No module named 'dataos_train'" — seen in 4b2 v5, gsm8k round-0002.
+        train_env = spec.env.env_for(self.name, m.kind)
+        steps = ["#!/bin/bash", "set -euo pipefail"]
+        if spec.env.conda_sh and train_env:
+            steps.append(
+                f"source {shlex.quote(spec.env.conda_sh)} && "
+                f"conda activate {shlex.quote(train_env)}"
+            )
+        elif train_env and train_env.startswith("/"):
+            steps.append(f"source {shlex.quote(train_env)}/bin/activate")
+        steps += [
             "python -m dataos_train.data.convert "
             f"--in {shlex.quote(spec.dataset.path)} --informat {shlex.quote(spec.dataset.format)} "
             f"--out {shlex.quote(data_dir)} --to {self._convert_target(m)} "

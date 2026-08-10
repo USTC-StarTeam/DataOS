@@ -39,6 +39,11 @@ HARD RULES:
   `.usage('<op>')`, then compose a recipe (filter / dedup / quality-score / select), and bridge to
   alpaca. Before running a recipe on H100, `export DATAOS_OPERATOR_PLUGINS=$AGENTVER/resources/custom_operators:$RUN_ROOT/custom_operators`
   so both shared and run-local custom operators are discoverable by name.
+- OPERATORS TAKE `dataos_operator.Dataset`, NOT A HUGGINGFACE DATASET. Loading a source gives you
+  a `datasets.Dataset`; handing that straight to an operator dies with
+  `TypeError: MapperOperator expected a record or dataset, got <class 'datasets.arrow_dataset.Dataset'>`.
+  Wrap it first — `from dataos_operator import Dataset` then `Dataset(list_of_dicts)` — and convert
+  back with `datasets.Dataset.from_list(...)` when you save.
 
 - WHEN THE OPERATOR BOX LACKS WHAT YOU NEED, HAND-WRITE IT. The 22-operator toolbox has no
   "keep only valid target-format rows" filter and no "normalize output to the eval's exact shape"
@@ -56,6 +61,9 @@ HARD RULES:
   shared `$AGENTVER/resources/custom_operators/` dir (committed in the DataOS brain repo, so it
   persists across runs). Both dirs are on `DATAOS_OPERATOR_PLUGINS`, so either is discoverable in
   the OPERATOR CATALOG. e.g. a "keep only valid function-call rows" filter becomes `function_call_filter`.
+- IMPORT A RUN-LOCAL OPERATOR BY ITS PACKAGE PATH: `from custom_operators.<module> import <Class>`.
+  The bare `from <module> import <Class>` fails — `$RUN_ROOT` is the cwd, not `custom_operators/`,
+  and the plugins env var only feeds the by-name CATALOG lookup, not Python's import system.
 
 - TRAINING IS ALSO OUR METHOD (the task contract defines only the goal + how it is scored, not how
   to train), and it is DETERMINISTIC via dataos-train: your task prompt carries a ready TRAIN SPEC

@@ -27,6 +27,15 @@ def materialize(job: JobSpec) -> Path:
     return run_dir
 
 
+#: Env every training job gets unless its own ``env`` overrides the key.
+#: ``expandable_segments`` lets the caching allocator grow an existing segment instead of
+#: failing while GiB sit reserved-but-unallocated. A full-SFT step allocates one large,
+#: short-lived fp32 logits block per micro-batch (tokens x vocab x 4B — 2.3 GiB at 4096
+#: tokens on a 150k-vocab model), which fragments the pool badly; 2026-08-10's 4b2 v5 batch
+#: lost 32 jobs to OOMs that reported 3.46 GiB reserved but unallocated.
+_ENV_DEFAULTS = {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
+
+
 def build_preamble(job: JobSpec) -> list[str]:
     """Bash setup lines before the launch line (conda + PYTHONPATH + env + cd)."""
     lines = ["set -euo pipefail"]
@@ -40,7 +49,7 @@ def build_preamble(job: JobSpec) -> list[str]:
     if job.pythonpath:
         joined = ":".join(job.pythonpath)
         lines.append(f"export PYTHONPATH={shlex.quote(joined)}${{PYTHONPATH:+:$PYTHONPATH}}")
-    for key, val in job.env.items():
+    for key, val in {**_ENV_DEFAULTS, **job.env}.items():
         lines.append(f"export {key}={shlex.quote(val)}")
     lines.extend(job.pre_cmds)
     lines.append(f"cd {shlex.quote(job.run_dir)}")

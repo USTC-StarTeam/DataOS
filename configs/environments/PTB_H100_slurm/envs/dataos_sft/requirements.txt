@@ -4,3 +4,10 @@ deepspeed
 accelerate
 datasets>=2.20
 torchaudio==2.8.0  # pin to match torch 2.8.0 — unpinned resolves to 2.11.0 (ABI mismatch, breaks llamafactory import)
+# Pinned EQUAL to eval_env's lm-eval so the parser here is byte-for-byte the scorer's parser.
+# Why it is in the SFT env at all: build_data.py pre-validates training rows against the real
+# eval parser (`from eval.lmeval.task import _parse_bfcl_prediction`), and that module imports
+# lm_eval at import time for its ConfigurableTask base classes. Without it the check dies on
+# ModuleNotFoundError and the run trains on unvalidated targets (4b2 v5, bfcl rounds 3-4).
+# Resolution is additive only — verified by `uv pip install --dry-run` (26 added, 0 changed).
+lm-eval==0.4.12

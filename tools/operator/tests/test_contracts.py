@@ -11,6 +11,7 @@ from dataos_operator.core import (
     DataOperator,
     EvaluatorOperator,
     GeneratorOperator,
+    MapperOperator,
     MixerOperator,
     OperatorKind,
     OperatorSpec,
@@ -18,6 +19,7 @@ from dataos_operator.core import (
     RecordOperator,
     SelectorOperator,
     get_field,
+    is_dataset,
     require_field,
     set_field,
 )
@@ -292,3 +294,41 @@ def test_mixer_operator_accepts_multiple_datasets() -> None:
         {"id": "a"},
         {"id": "b"},
     ]
+
+
+def test_operator_accepts_a_huggingface_dataset() -> None:
+    """A loaded source IS a ``datasets.Dataset``, the toolbox's most natural input.
+
+    It sizes, indexes to a Mapping and iterates records, but it is not REGISTERED as
+    ``collections.abc.Sequence`` — so an isinstance-only check rejected it and every operator
+    raised "expected a record or dataset". Cost a build_data round in 4b2 v5 (aime2025 r0004).
+    """
+    hf = pytest.importorskip("datasets")
+
+    class Tag(MapperOperator):
+        """给每条 record 加标记。"""
+
+        def map_record(self, record: Record) -> Record:
+            return {**record, "tagged": True}
+
+    dataset = hf.Dataset.from_list([{"id": "a"}, {"id": "b"}])
+    assert not isinstance(dataset, Sequence)  # exactly why the old check failed
+    assert Tag().run(dataset).to_records() == [
+        {"id": "a", "tagged": True},
+        {"id": "b", "tagged": True},
+    ]
+
+
+def test_a_non_record_indexable_is_not_a_dataset() -> None:
+    """The duck-typing must not swallow every len()+[]-able object (e.g. an array of numbers)."""
+
+    class Numbers:
+        def __len__(self) -> int:
+            return 2
+
+        def __getitem__(self, index: int) -> int:
+            return index
+
+    assert not is_dataset(Numbers())
+    assert not is_dataset("ab")
+    assert is_dataset([])

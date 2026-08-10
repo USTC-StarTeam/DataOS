@@ -29,3 +29,10 @@ tools live in the **derived** `dataos_sft` env instead (sft baseline + `tools/tr
 `tools/operator` installed from the local checkout). Their versions are pinned by the
 `dataos_tools` declaration in `env.yaml` (a test keeps declaration == `tools/*/pyproject`
 version); upgrade = bump the version, update the declaration, run `scripts/sync_envs.py`.
+
+`dataos_sft` also carries `lm-eval`, pinned equal to `eval`'s version. Data-building wants to
+pre-validate its targets with the SCORER's own parser rather than a re-implementation, and
+`configs/tasks/posttrainbench/eval/lmeval/task.py` needs lm_eval at import time (its task
+classes subclass `ConfigurableTask`, so a try/except guard cannot defer it). `eval` is a frozen
+shared baseline, so the dependency goes in the derived env instead. Keep the two pins equal —
+a version skew would silently make the pre-check disagree with the scorer.
