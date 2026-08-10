@@ -15,8 +15,11 @@ incompatible with how these CLIs authenticate, and the incompatibility is not fi
 
 * Their OAuth credential lives inside the config root and carries a SINGLE-USE, rotating refresh
   token. Give N processes their own copy of it and the first refresh invalidates the token for
-  every other copy — and for the real file too. Seven concurrent runs did exactly that on
-  2026-08-10 and left ``codex`` needing a fresh interactive login.
+  every other copy — and for the real file too. (On 2026-08-10 seven concurrent runs all died on
+  ``refresh token was already used``. That particular token was already spent before they
+  started — the real file and all seven copies were byte-identical afterwards, so none of them had
+  refreshed successfully — but N holders of a single-use token is a race waiting to happen, and it
+  turns one expired credential into N simultaneous failures.)
 * Symlinking the credential instead is not a fix either: with a config root that otherwise looks
   empty, a CLI may RE-INITIALISE its credential store rather than refresh it, and the write lands
   on the real file through the link. ``kimi`` did that, zeroing a live login.
