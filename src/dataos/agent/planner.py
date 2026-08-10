@@ -37,7 +37,7 @@ def _build_prompt(
     catalog_path: str = "",
 ) -> str:
     return _prompt.render(
-        "task/plan",
+        "leader/turn/plan",
         context_json=json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
         catalog_json=json.dumps(_summarize_catalog(catalog), ensure_ascii=False, indent=2),
         catalog_pointer=catalog_pointer,

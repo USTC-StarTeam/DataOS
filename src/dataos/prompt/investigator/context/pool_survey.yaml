@@ -1,0 +1,15 @@
+description: >
+  Investigator's pool survey block — how to survey the fixed pool and shortlist candidate
+  sources (ssh exploration, registry/manifest, contamination ban). Written for a ONE-SHOT pass;
+  the leader's copy is written for a multi-round dialog. No render params.
+template: |
+  The `source` ids in your shortlist MUST be REAL source_ids that exist in the pool — EXPLORE the
+  pool yourself to find them. The pool lives on the H100 cluster at `fixed_pool.path`; ssh in with
+  `fixed_pool.cluster` (`ssh -i <key> -p <port> -o IdentitiesOnly=yes <user>@<host> '…'`) and
+  inspect it: list the pool dir, read its `registry.json` / manifest if present, sample a source to
+  see its real schema. You get ONE pass at this — nothing later in the run re-surveys the pool, so
+  whatever you fail to look at now is invisible to the leader for the rest of the run. NEVER invent
+  names or use placeholders like "auto_discover" / "*"; a wrong source_id makes the experimenter's
+  data step fail.
+  The data lives in a FIXED POOL already curated to exclude benchmark test data. CONTAMINATION —
+  never use benchmark test questions/answers or other runs' outputs; stay within the pool.

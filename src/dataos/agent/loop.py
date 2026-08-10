@@ -122,18 +122,27 @@ def _report_score(report: dict) -> float | None:
     return float(score) if isinstance(score, (int, float)) else None
 
 
+def _report_eval_limit(report: dict) -> int | None:
+    """How many eval items produced this report's score. ``-1`` = the full benchmark, ``None`` =
+    the report didn't record it. The leader must see this next to every score: a subset score and
+    a full score are not comparable, and it is the leader that decides what to do about that."""
+    limit = (report.get("eval") or {}).get("limit")
+    return int(limit) if isinstance(limit, (int, float)) else None
+
+
 def _read_report(exp_root: Path, name: str):
-    """Read one experiment report as score/model/artifacts/scripts/status."""
+    """Read one experiment report as score/eval_limit/model/artifacts/scripts/status."""
     from dataos.core.study import _slug
 
     path = exp_root / _slug(name) / "report.json"
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
-        return None, None, {}, {}, None, str(path)
+        return None, None, None, {}, {}, None, str(path)
     model = report.get("model") or {}
     return (
         _report_score(report),
+        _report_eval_limit(report),
         model.get("path"),
         report.get("artifacts") or {},
         report.get("scripts") or {},
@@ -232,6 +241,40 @@ def _effective_eval_limit(cfg: AutoRunConfig) -> int:
     return 20 if cfg.ptb_profile == "smoke" else 200
 
 
+def _full_eval_size(cfg: AutoRunConfig) -> int | None:
+    """How many items the benchmark actually has, from the round-0 baseline's own eval.
+
+    The baseline always runs at the full protocol (-1), so its ``eval.n_samples`` is the only
+    place the run learns the benchmark's real size. ``None`` until round 0 has landed, or for a
+    run whose baseline predates the field."""
+    # read defensively: _validate_plan calls this, and tests validate against sparse doubles
+    workspace, project_id = getattr(cfg, "workspace", None), getattr(cfg, "project_id", None)
+    if not workspace or not project_id:
+        return None
+    path = (Path(workspace) / project_id / "round-0000" / "experiments" / "baseline"
+            / "report.json")
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    n = (report.get("eval") or {}).get("n_samples")
+    return int(n) if isinstance(n, (int, float)) and n > 0 else None
+
+
+def _probe_floor(full: int | None) -> int | None:
+    """Smallest subset worth spending an exploration probe on.
+
+    A third of the benchmark, never under 100 items: below that the noise (~50/sqrt(N)) is larger
+    than any effect worth chasing, so the probe cannot answer its own question. When that floor
+    would already eat two thirds of the benchmark the subset saves nothing worth having, and the
+    floor becomes the full size — i.e. use the full benchmark. ``None`` = size unknown, no
+    numeric guidance to give."""
+    if not full or full <= 0:
+        return None
+    floor = max(full // 3, 100)
+    return full if floor >= full * 2 // 3 else floor
+
+
 _RECON_FILE = "recon.json"
 
 
@@ -244,40 +287,41 @@ def _load_recon(project_dir: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def _recon_context(recon: dict | None, *, round_idx: int, recon_path: Path) -> dict | None:
-    """The recon view for the leader's context bundle. The small, always-relevant parts
-    (eval contract + baseline diagnosis) stay INLINE every round; the large per-source
-    profiles are shown ONCE as a sample-free stats table (rounds 0-1) and afterwards the
-    leader just gets the file path — it has a shell and reads recon.json on demand. The
-    HARD guard is _validate_plan (code), so this is information, not enforcement."""
+def _recon_context(recon: dict | None, *, recon_path: Path) -> dict | None:
+    """The recon view for the leader's context bundle — EVERY round the same shape.
+
+    What the leader can act on: the investigator's shortlist (already filtered against the eval
+    contract), the ids that ``_validate_plan`` will accept, and the target shape its data recipe
+    has to render toward. The annotated per-source profile table is never inlined: it runs to
+    tens of thousands of characters, and inlining it once into a persistent dialog is the worst
+    of both worlds — it occupies the history for the rest of the run and is still gone after a
+    compaction. It stays on disk, and the leader (which has a shell) reads it when it wants to
+    reach past the shortlist.
+
+    ``parser`` is dropped from the contract: it names the scorer's function and file:line, which
+    only whoever re-checks built targets against it can use — that is the experimenter."""
     if not recon:
         return recon
-    out = {
-        "eval_format_contract": recon.get("eval_format_contract"),
+    contract = {k: v for k, v in (recon.get("eval_format_contract") or {}).items()
+                if k != "parser"}
+    profiles = [p for p in (recon.get("source_profiles") or []) if isinstance(p, dict)]
+    return {
+        "eval_format_contract": contract or None,
         "baseline_diagnosis": recon.get("baseline_diagnosis"),
-        # the investigator's shortlist is small and always relevant — inline it every round
+        # the investigator's shortlist: small, already judged against the eval contract, and the
+        # intended starting point for every plan
         "candidate_sources": recon.get("candidate_sources"),
+        # every id _validate_plan accepts — the leader needs these to reach past the shortlist,
+        # and nothing else about a source is needed to name it
+        "legal_source_ids": [p.get("source") for p in profiles if p.get("source")],
         "recon_path": str(recon_path),
+        "note": (
+            "candidate_sources is the investigator's shortlist, filtered against the eval "
+            "contract — plan over it. Any id in legal_source_ids is also accepted; the full "
+            "annotated profiles (stats, real samples, per-source notes) are in recon_path, so "
+            "read that file before reaching past the shortlist."
+        ),
     }
-    if round_idx <= 1:
-        out["source_profiles"] = [
-            {
-                "source": p.get("source"),
-                "shape": p.get("shape"),
-                "domain": (p.get("domain") or {}).get("label") if isinstance(p.get("domain"), dict)
-                          else p.get("domain"),
-                "n_rows": p.get("n_rows", p.get("n")),
-                "negatives": p.get("negatives"),
-                "note": p.get("note"),
-            }
-            for p in (recon.get("source_profiles") or [])
-        ]
-    else:
-        out["note"] = (
-            "source_profiles (with real samples) live in recon_path — search/read it on "
-            "demand when choosing data sources"
-        )
-    return out
 
 
 def _plan_context(
@@ -286,19 +330,18 @@ def _plan_context(
     tree,
     proj,
     round_idx: int,
-    eval_cfg: dict,
     started: float,
     now: float,
     recon: dict | None = None,
 ) -> dict:
+    full_size = _full_eval_size(cfg)  # read once: both the tree view and eval_policy need it
     return {
+        # only what a plan field can be chosen from: the goal, the bench, and the profile that
+        # sizes it. Ids and config paths are host bookkeeping the leader cannot act on.
         "setting": {
-            "project_id": cfg.project_id,
             "goal": cfg.goal or cfg.instruct,
-            "scenario": cfg.scenario,
             "target_bench": cfg.target_bench,
             "ptb_profile": cfg.ptb_profile,
-            "runtime_config": cfg.runtime_config_path,
         },
         "budget": {
             "max_wall_clock_s": cfg.budget.max_wall_clock_s,
@@ -310,50 +353,32 @@ def _plan_context(
             ),
         },
         "round_idx": round_idx,
-        # RECON intel (gathered once before training): eval contract + baseline diagnosis
-        # inline every round; source stats table once (rounds 0-1), then a file pointer.
-        # data.sources MUST come from source_profiles — enforced in _validate_plan.
-        "recon": _recon_context(
-            recon, round_idx=round_idx, recon_path=Path(proj.project_dir) / _RECON_FILE
-        ),
-        "tree": tree.to_context(),
+        # RECON intel (gathered once before training): the shortlist, the legal ids and the eval
+        # contract, inline every round; the annotated profile table stays on disk.
+        # data.sources MUST be one of legal_source_ids — enforced in _validate_plan.
+        "recon": _recon_context(recon, recon_path=Path(proj.project_dir) / _RECON_FILE),
+        "tree": tree.to_context(full_size=full_size),
         "best": _global_best(proj),
         "recent_reviews": _recent_reviews(proj),
-        "frozen_eval": eval_cfg,
         "eval_policy": {
             "mode": "auto" if _effective_eval_limit(cfg) == -2 else "fixed_limit",
             "limit": _effective_eval_limit(cfg),
-            "note": (
-                "eval_limit=-2 (auto): YOU pick each experiment's eval size via the plan's "
-                "eval_limit field (-1 = full frozen benchmark, or a positive subset size). "
-                "Use subsets for exploration probes (fast iteration) — size them to the "
-                "bench's eval cost (the baseline's full-eval sample_len + elapsed_seconds "
-                "are in its eval summary.json on the cluster); a candidate best must be "
-                "confirmed at FULL (-1) before it counts. Subset scores are NOT comparable "
-                "to full scores — check eval.limit in reports before ranking."
-                if _effective_eval_limit(cfg) == -2 else
-                "The frozen eval limit is fixed for the whole run (-1 = full benchmark); "
-                "every score is directly comparable."
-            ),
+            # the benchmark's real item count (from the round-0 baseline) and the smallest
+            # subset a probe may use; both None until the baseline has landed
+            "full_size": full_size,
+            "probe_floor": _probe_floor(full_size),
+            # the RULE for using these lives in the leader's context prompt (one copy); this is
+            # only the run's numbers, which the context cannot carry because they arrive with
+            # round 0's baseline
         },
-        "fixed_pool": {
-            "path": (cfg.runtime_config.get("paths") or {}).get("fixed_pool"),
-            # the pool lives on the H100 cluster — the leader ssh's in and explores it itself
-            "cluster": {
-                k: (cfg.runtime_config.get("cluster") or {}).get(k)
-                for k in ("host", "user", "port", "key")
-            },
-        },
-        "constraints": [
-            "Return exactly one ExperimentPlan; no action/stop field.",
+        # What CODE will reject, and nothing else: the leader's own role, the eval policy and the
+        # data rules live in its context prompt, and repeating them here every round produced
+        # three drifting copies of the same rule.
+        "validated_by_code": [
             "parent_node_id must be one of tree.growable_node_ids.",
-            "Child nodes continue training from the selected parent's output model.",
-            "data.sources must be real source_ids you verified by exploring fixed_pool.path on "
-            "the cluster — never invent names or use placeholders.",
-            "Do not set train.model_name_or_path; code injects the parent model path.",
-            "One experimenter owns the full data/train/eval experiment.",
-            "Use the frozen eval protocol for this run (eval_limit: -1 = full; in auto (-2) runs YOU pick each experiment's eval size via the plan's eval_limit field).",
-            "GPU work must run through the configured executor, not on a login node.",
+            "name must not repeat an existing experiment_name.",
+            "data.sources must all appear in recon.legal_source_ids.",
+            "train.model_name_or_path must be omitted; code injects the parent model path.",
         ],
     }
 
@@ -384,6 +409,16 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
                 "positive subset size — exploration probes may subset; a candidate-best "
                 "confirmation must be -1 (full)"
             )
+        else:
+            # A probe below the floor cannot answer its own question: the noise (~50/sqrt(N))
+            # exceeds any effect worth chasing, so it spends budget and returns nothing.
+            floor = _probe_floor(_full_eval_size(cfg))
+            if floor is not None and el != -1 and el < floor:
+                errors.append(
+                    f"eval_limit {el} is below the probe floor {floor} for this benchmark "
+                    f"(a third of it, never under 100 items): a subset that small is noise. "
+                    f"Use -1 (full) or at least {floor}"
+                )
 
     # Gate ②: every planned source must be one RECON profiled, and domain-relevant. The
     # DIRTY-format rejection was removed (2026-07-14, per user): off-format data may still teach
@@ -599,10 +634,8 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     estimated_hours=0.5,
                     data={},
                     train={},
-                    eval_plan="frozen sampled eval of the parent (base) model",
                     expected_signal="reference score for every later experiment",
                     subagent_brief="BASELINE: evaluate the parent model directly; skip data and train.",
-                    rationale="the baseline anchors all later comparisons",
                 )
             for attempt in range(1, _PLAN_RETRIES + 1):
                 if plan is not None:
@@ -612,7 +645,6 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     tree=tree,
                     proj=proj,
                     round_idx=round_idx,
-                    eval_cfg=eval_cfg,
                     started=started,
                     now=now,
                     recon=recon,
@@ -719,7 +751,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)
 
         exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
-        score, mpath, artifacts, scripts, status, report_path = _read_report(
+        score, eval_limit, mpath, artifacts, scripts, status, report_path = _read_report(
             exp_root,
             spec["name"],
         )
@@ -728,6 +760,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             report_path=report_path,
             status=status,
             score=score,
+            eval_limit=eval_limit,
             model_path=mpath,
             artifacts=artifacts,
             scripts=scripts,
@@ -743,11 +776,18 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         )
 
         digest = study.summary()
+        _node = tree.get(node_id)
         review_context = {
             "round_idx": round_idx,
-            "node": tree.get(node_id),
+            # what the leader predicted when it planned this node, lifted out of node.plan so the
+            # review is asked about it instead of having to go looking
+            "prediction": {
+                "hypothesis": _node.get("hypothesis"),
+                "expected_signal": (_node.get("plan") or {}).get("expected_signal"),
+            },
+            "node": _node,
             "study_digest": digest,
-            "tree": tree.to_context(),
+            "tree": tree.to_context(full_size=_full_eval_size(cfg)),
             "goal": cfg.goal or cfg.instruct,
         }
         log.info("round %d: asking leader for review", round_idx)

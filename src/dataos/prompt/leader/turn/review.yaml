@@ -8,12 +8,16 @@ template: |
     {"interpretation": "...", "lesson": "...", "recommendation_for_future_growth": "..."}
 
   The digest contains: ranking, best {name, score}, varied_keys, metric_winners, caution.
-  - interpretation: grounded in the digest numbers AND the report's `analysis` block (the
-    experimenter's rollout-level findings: failure classes, example outputs, anomalies) — the
-    best experiment, its bench score, what DATA MIXTURE / hyperparameters varied, and WHAT the
-    model's outputs actually look like. When the analysis and your prior hypothesis conflict,
-    trust the analysis. An honest negative ("no recipe beat the parent within noise") is a
-    valid, valuable interpretation.
+  - interpretation: OPEN by scoring your own prediction. `prediction` carries the hypothesis and
+    the expected_signal you committed to when you planned this node; say plainly whether the
+    outcome matched it, missed it, or cannot tell — and if it missed, what you had wrong. This
+    comes first because it is the only feedback you get on your own judgement; a run that never
+    marks its predictions wrong keeps making the same one. Then interpret: grounded in the digest
+    numbers AND the report's `analysis` block (the experimenter's rollout-level findings: failure
+    classes, example outputs, anomalies) — the best experiment, its bench score, what DATA
+    MIXTURE / hyperparameters varied, and WHAT the model's outputs actually look like. When the
+    analysis and your prediction conflict, trust the analysis. An honest negative ("no recipe
+    beat the parent within noise") is a valid, valuable interpretation.
   - recommendation_for_future_growth: a concrete next hint WITHIN PTB constraints, grounded in
     what actually varied — e.g. which data sources / quality filters / mixture / size to try next,
     whether a learning-rate or epoch change helped, or whether to switch lora↔full. Suggest

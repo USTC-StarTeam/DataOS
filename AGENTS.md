@@ -67,15 +67,24 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   helper), `posttrainbench.py`
   (the eval protocol: bench list + sampled limits per profile), and `monitor.py`
   (the live HTTP monitor — pure stdlib, embedded by `run_auto`; serves the `web/` UI).
-- `src/dataos/prompt` — EVERY prompt as a Jinja2 YAML template, in THREE layers/folders:
-  `system/` (role skeletons: `leader` / `experimenter` / `investigator`),
-  `kb/` (single-sourced knowledge blocks assembled into system prompts: operator_* / pool_survey /
-  training / cluster_discipline / eval_format / report_contract / failure_diagnosis + the three
-  stage-tool blocks), `task/` (per-call task messages — facts only). No prompt text is hardcoded
-  in `.py`; render via `from dataos import prompt; prompt.render(name, **facts)` where `name` is
-  the folder-relative path (`prompt.render("kb/cluster_discipline")`). System prompts are composed
-  in ONE place — `backend.system_prompt(role, cfg)` (`_BLOCKS`: skeleton + kb blocks, joined with
-  blank lines); run facts (budget, GPUs) are render params of the leader skeleton only.
+- `src/dataos/prompt` — EVERY prompt as a Jinja2 YAML template, organised PER AGENT and split
+  into two layers: `<role>/context/` and `<role>/turn/` for each of `leader` / `experimenter` /
+  `investigator`, plus `_adapter/` (the structured-output scaffolding, which belongs to the LLM
+  adapter rather than to any role).
+  - `context/` blocks are composed once per run into the CLI's OWN context file
+    (`AGENTS.md` / `CLAUDE.md` / `QWEN.md` — see `dataos_agent.context_filename` and
+    `llm.config.build_agent`), so they may reference ONLY run-level facts (`prompt_facts`).
+  - `turn/` templates are rendered per call into that turn's prompt, and carry everything
+    that changes between turns (parent model, remaining minutes, the experiment's recipe).
+  - No block is shared between roles: a block written to serve two roles sharpens neither, and
+    each role's copy is free to diverge. `_BLOCKS` in `backend.py` fixes only the ORDER;
+    the directory decides membership. `tests/agent/test_prompt_layers.py` enforces both, and
+    `test_prompt_golden.py` holds byte-exact snapshots so a structural refactor cannot change
+    the composed text by accident.
+  No prompt text is hardcoded in `.py`; render via `from dataos import prompt;
+  prompt.render(name, **facts)` where `name` is the folder-relative path
+  (`prompt.render("experimenter/context/cluster_discipline")`). Context prompts are composed in
+  ONE place — `backend.system_prompt(role, cfg)`.
   The leader prompt carries NO strategy priors by design (bare leader: role + tools + facts);
   empirical lessons live in `docs/known-issues.md` for maintainers, not in the prompt.
 - `web/` — the live monitor's single-page UI (`index.html`) and a standalone CLI wrapper

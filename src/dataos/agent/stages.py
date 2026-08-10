@@ -43,7 +43,7 @@ def _train_invoke(resolved: dict, registry: _tools.ToolRegistry) -> str:
     frozen = resolved.get("task", {}).get("train")
     if frozen:
         return _prompt.render(
-            "kb/stage_train",
+            "experimenter/turn/stage_train",
             frozen_command=str(frozen.get("command", "")).strip(),
             frozen_produces=frozen.get("produces", "the harness run_dir model"),
             cli_path="",
@@ -107,7 +107,7 @@ def build_stages(resolved: dict, registry: _tools.ToolRegistry | None = None) ->
             role="model rollouts -> failure analysis",
             input="{ctx.eval_dir}/predictions.jsonl (the model's raw answers from EVAL)",
             output="the `analysis` block in report.json (failure classes + examples + conclusion)",
-            invoke=_prompt.render("kb/stage_review"),
+            invoke=_prompt.render("experimenter/turn/stage_review"),
             where="login node (reading jsonl is light)",
             owner=OWNER_OURS,
         ),

@@ -529,6 +529,10 @@ def main() -> None:
             "metrics": {"predictions": records},
             "elapsed_seconds": elapsed,
             "limit": args.limit,
+            # how many items were ACTUALLY scored. ``limit`` is only the request (-1 = "all"),
+            # so this is the one place the benchmark's real size is recorded — the leader needs
+            # it to know what a subset score is a subset OF.
+            "n_samples": records,
         }
     else:
         value, metric_key = extract_score(task_results, task)
@@ -545,6 +549,7 @@ def main() -> None:
             },
             "elapsed_seconds": elapsed,
             "limit": args.limit,
+            "n_samples": records,  # see the judge branch: the real item count, not the request
         }
         if metric_key is not None:
             summary["metric_key"] = metric_key

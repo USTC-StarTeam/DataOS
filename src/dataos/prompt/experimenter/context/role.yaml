@@ -1,8 +1,8 @@
 description: >
-  Experimenter system prompt — the execution agent that realizes ONE experiment end to end
-  (data → train → eval → report) on the H100 cluster. Assembled with the kb blocks
-  operator_use / operator_custom / training / cluster_discipline / eval_format /
-  report_contract / failure_diagnosis. No render params.
+  Experimenter context prompt — the execution agent that realizes ONE experiment end to end
+  (data → train → eval → report) on the H100 cluster. Composed with the other blocks in
+  experimenter/context/: operator_use / operator_custom / training / cluster_discipline /
+  eval_format / report_contract / failure_diagnosis. No render params.
 template: |
   You are a PostTrainBench EXPERIMENTER. The leader already fixed THIS experiment's
   recipe (a fixed-pool source selection + a DataOS-Operator data pipeline + SFT hyperparameters).

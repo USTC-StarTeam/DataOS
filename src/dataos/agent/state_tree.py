@@ -98,12 +98,14 @@ class TreeState:
         status: str | None,
         score,
         model_path,
+        eval_limit: int | None = None,
         artifacts: dict | None = None,
         scripts: dict | None = None,
     ) -> None:
         node = self.get(node_id)
         node["status"] = status or "unknown"
         node["score"] = score
+        node["eval_limit"] = eval_limit  # how many eval items produced that score (-1 = full)
         if model_path:
             node["model_path"] = model_path
         node["report_path"] = report_path
@@ -154,12 +156,48 @@ class TreeState:
             "max_depth": max((int(node.get("depth") or 0) for node in self.nodes), default=0),
         }
 
-    def to_context(self, *, max_nodes: int = 40) -> dict:
-        """Compact tree view for the leader context bundle."""
+    @staticmethod
+    def _score_at(node: dict, full_size: int | None = None) -> str | None:
+        """``score`` annotated with the eval size that produced it — ``"74.00@200/1319"``,
+        ``"84.69@full"``, or ``"84.69@?"`` when the report didn't record one.
 
-        def summarize(node: dict) -> dict:
-            review = node.get("review") or {}
-            return {
+        The leader picks each experiment's eval size, so raw floats in the tree are silently
+        cross-caliber: a 25-item probe and the full benchmark both arrive as bare numbers, and
+        "did this beat its parent?" becomes a comparison between two different measurements.
+        Attaching the caliber to the number itself makes that impossible to miss, and leaves the
+        judgement where it belongs — with the leader."""
+        score = node.get("score")
+        if not isinstance(score, (int, float)):
+            return None
+        limit = node.get("eval_limit")
+        if limit == -1:
+            at = "full"
+        elif limit is None:
+            at = "?"
+        elif full_size:
+            at = f"{limit}/{full_size}"  # a subset, and what fraction of the benchmark it is
+        else:
+            at = str(limit)
+        return f"{float(score):.2f}@{at}"
+
+    #: How many of the most recent nodes carry their ``hypothesis`` in the tree view. Measured on
+    #: a real 31-node run, prose was 92% of the view's 40K while the structure a parent choice
+    #: actually needs (ids, score, status, depth) was 8%. Older nodes keep the structure only;
+    #: the whole tree is on disk in tree.json, which the leader can read for an old node's
+    #: reasoning. Per-round reviews are NOT repeated here — the bundle's ``recent_reviews``
+    #: carries them whole (interpretation + lesson + recommendation + caution).
+    PROSE_NODES = 8
+
+    def to_context(self, *, max_nodes: int = 40, full_size: int | None = None) -> dict:
+        """Tiered tree view for the leader context bundle.
+
+        ``full_size`` (the benchmark's real item count) turns a subset score into
+        ``"74.00@200/1319"`` instead of a bare ``@200``. The newest :attr:`PROSE_NODES` nodes are
+        rendered in full; earlier ones keep only the fields a parent choice needs, because this
+        view is re-sent every round and grows with the tree."""
+
+        def summarize(node: dict, *, prose: bool) -> dict:
+            out = {
                 "node_id": node["id"],
                 "parent_node_id": node.get("parent"),
                 "depth": node.get("depth"),
@@ -167,21 +205,25 @@ class TreeState:
                 "status": node.get("status"),
                 "experiment_name": node.get("experiment_name"),
                 "has_model": bool(node.get("model_path")),
-                "score": node.get("score"),
-                "hypothesis": node.get("hypothesis"),
-                "review": {
-                    "lesson": review.get("lesson"),
-                    "recommendation": review.get("recommendation_for_future_growth"),
-                }
-                if review
-                else None,
+                # "<score>@<eval items>" — never a bare float, so a subset score can't be read
+                # as if it were comparable to a full-benchmark one
+                "score": self._score_at(node, full_size),
             }
+            if prose:
+                out["hypothesis"] = node.get("hypothesis")
+            return out
 
         nodes = self.nodes[-max_nodes:]
+        prose_from = len(nodes) - self.PROSE_NODES
         return {
             "root_node_id": self.root_id,
             "stats": self.stats(),
             "growable_node_ids": [node["id"] for node in self.growable_nodes()],
             "best_node_id": (self.best_node() or {}).get("id"),
-            "nodes": [summarize(node) for node in nodes],
+            "nodes": [summarize(n, prose=i >= prose_from) for i, n in enumerate(nodes)],
+            "note": (
+                f"hypothesis is shown for the {self.PROSE_NODES} most recent nodes; for older "
+                f"ones, and for any node's full plan, read tree.json in the project dir. "
+                f"Per-round reviews are in recent_reviews."
+            ),
         }

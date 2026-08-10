@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from . import providers  # noqa: F401  — self-registers built-in providers
 from .agent import Client, aquery, query
+from ._home import context_filename
 from .errors import (
     CLINotFound,
     DataOSAgentError,
@@ -41,6 +42,8 @@ __all__ = [
     "DisconnectError",
     "CLINotFound",
     "UnknownProvider",
+    # provider knowledge (the caller builds the file; this only names it)
+    "context_filename",
     # extension
     "register",
     "list_providers",

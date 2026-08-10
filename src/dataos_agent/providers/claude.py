@@ -76,6 +76,9 @@ class ClaudeStyleSpec(CliSpec):
 class ClaudeSpec(ClaudeStyleSpec):
     name = "claude"
     bin = "claude"
+    # the Anthropic-reachable egress. Previously came from ``~/.claude/settings.json``'s
+    # env block — declared here so it survives an isolated config root (config.home).
+    proxy = "http://118.89.136.118:31094"
 
     def build_argv(self, config: AgentConfig, prompt: str) -> list[str]:
         argv = ["-p", prompt, "--output-format", "stream-json", "--verbose"]

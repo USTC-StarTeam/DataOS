@@ -14,7 +14,9 @@ class QwenSpec(ClaudeStyleSpec):
     bin = "qwen"
 
     def build_argv(self, config: AgentConfig, prompt: str) -> list[str]:
-        if config.instructions:                       # no system-prompt flag -> prepend
+        # no system-prompt flag -> prepend. Unconditional (unlike codex/kimi): this
+        # provider never passes a resume id to the CLI, so every call is a fresh session.
+        if config.instructions:
             prompt = f"{config.instructions}\n\n{prompt}"
         argv = ["-p", prompt, "--output-format", "stream-json"]
         if config.model:

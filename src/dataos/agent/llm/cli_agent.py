@@ -42,6 +42,7 @@ class CliAgent:
         *,
         instructions: str = "",
         workspace: str = ".",
+        home: str | None = None,
         provider: str = "claude",
         model: str | None = None,
         max_steps: int = 12,
@@ -51,6 +52,10 @@ class CliAgent:
     ) -> None:
         self.instructions = instructions or ""
         self.workspace = str(workspace)
+        # isolated config root for the CLI (CODEX_HOME / CLAUDE_CONFIG_DIR / ...): the run
+        # then ignores this machine's CLI config, skills, hooks, MCP and global context
+        # file. None -> use the host's own config.
+        self.home = str(home) if home else None
         self.provider = provider
         self.model = model  # None -> the CLI's default model
         self.max_steps = max_steps
@@ -68,7 +73,7 @@ class CliAgent:
         prompt = task
         if output is not None:
             schema = json.dumps(output.model_json_schema())
-            prompt = _prompt.render("task/structured_schema", task=task, schema=schema)
+            prompt = _prompt.render("_adapter/structured_schema", task=task, schema=schema)
 
         log = logging.getLogger(__name__)
         # ``timeout`` is the wall-clock budget for the whole call and COVERS dataos_agent's
@@ -81,6 +86,7 @@ class CliAgent:
                     model=self.model,
                     instructions=self.instructions or None,
                     workspace=self.workspace,
+                    home=self.home,
                     max_steps=max(2, self.max_steps),
                     tools=True,
                     permission="auto",

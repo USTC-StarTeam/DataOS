@@ -25,10 +25,8 @@ def _plan(parent: str, name: str) -> str:
             "estimated_hours": 0.1,
             "data": {},
             "train": {"finetuning_type": "lora"},
-            "eval_plan": "sampled eval",
             "expected_signal": "completed score",
             "subagent_brief": f"run {name}",
-            "rationale": "stub",
         }
     )
 
@@ -173,7 +171,7 @@ def test_validate_plan_source_gate():
     plan = ExperimentPlan(
         parent_node_id="n0000", name="x", hypothesis="h", estimated_hours=1.0,
         data={"sources": ["good_math"], "recipe": []}, train={"finetuning_type": "lora"},
-        eval_plan="e", expected_signal="s", subagent_brief="b", rationale="r",
+        expected_signal="s", subagent_brief="b",
     )
     tree = types.SimpleNamespace(
         has_node=lambda _id: True,
@@ -241,8 +239,8 @@ def test_invalid_plans_skip_rounds_then_stop_cleanly(tmp_path):
     bad_plan = json.dumps({
         "parent_node_id": "n0001", "name": "bad", "hypothesis": "h",
         "estimated_hours": -1,  # fails validation: must be positive
-        "data": {}, "train": {"finetuning_type": "lora"}, "eval_plan": "e",
-        "expected_signal": "s", "subagent_brief": "b", "rationale": "r",
+        "data": {}, "train": {"finetuning_type": "lora"},
+        "expected_signal": "s", "subagent_brief": "b",
     })
     cfg = AutoRunConfig(
         project_id="p", workspace=ws, backend="stub", stub=True, poll_interval_s=0.05,

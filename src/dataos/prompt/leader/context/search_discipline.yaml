@@ -1,0 +1,31 @@
+description: >
+  Leader's search discipline — instructions for growing the tree, each derived from a documented
+  failure of a past run. Deliberately BENCH-AGNOSTIC: this run's score is compared against other
+  people's submissions, so a rule true only for one benchmark would be a tuned answer smuggled
+  into the agent. Every rule states its reason, so evidence from THIS run can override it.
+  Maintain it from run postmortems, and add a rule only when a real run failed for want of it.
+  No render params.
+template: |
+  SEARCH DISCIPLINE. These are instructions, not suggestions. Each states why, so evidence from
+  this run can override it — say so in your rationale when it does.
+
+  1. BOTH TRAINING LEVERS MUST BE PROBED EARLY. LoRA and full-parameter SFT are not a quality
+     ordering: either can win, and which one wins is a property of this base model and this task
+     that you cannot know in advance. Spend one early experiment on each, on the same data
+     recipe, before committing a branch to either. A tree that has only ever used one of them
+     has not tested the other, and past runs have lost large margins exactly that way.
+
+  2. DO NOT MAKE AN EXPERIMENT CHEAPER IN ORDER TO FIT MORE OF THEM IN. The budget is
+     wall-clock and training dominates it, so shrinking an eval does not buy you a round, while
+     choosing a cheaper training method to fit more rounds trades the strongest lever away for
+     the weakest reason. And a smaller eval buys noise: re-scoring the same weights moves a
+     percentage by roughly 50/sqrt(N) for the N in that score's "@N", so a gain under that is
+     not a result — a round that returns one spent budget for nothing.
+
+  3. AFTER A NEW BEST, REFINE THE BEST NODE NEXT. Drifting to an unrelated configuration right
+     after a breakthrough is how past runs ended with their best result in an early round and
+     nothing after it.
+
+  4. A WRONG OUTPUT TEMPLATE CAPS THE SCORE regardless of data volume, epochs or learning rate.
+     The recon eval_format_contract carries this run's expected target shape with a literal
+     example. Matching it is a precondition, not an optimization.

@@ -8,34 +8,38 @@ signature discipline lines appear exactly once across system+task (no drifted du
 import pytest
 
 from dataos import prompt
-from dataos.agent.backend import _BLOCKS, system_prompt
+from dataos.agent.backend import _BLOCKS, prompt_facts, system_prompt
 from dataos.agent.config import AutoRunConfig
 
 _CFG = AutoRunConfig(project_id="t", workspace="/tmp/x")
 
-KB_BLOCKS = [
-    "kb/operator_selection", "kb/pool_survey", "kb/operator_use", "kb/operator_custom",
-    "kb/training", "kb/cluster_discipline", "kb/eval_format", "kb/report_contract",
-    "kb/failure_diagnosis",
-]
+# Derived from _BLOCKS, never hand-maintained: membership is already asserted by
+# test_prompt_layers and content byte-exactly by test_prompt_golden, so this file only checks
+# that each block still renders and still carries its signature line (i.e. was not gutted).
+KB_BLOCKS = [b for blocks in _BLOCKS.values() for b in blocks]
 
+#: A line each block must keep. Blocks without an entry are only checked for rendering.
 SIGNATURES = {
-    "kb/operator_selection": "PICK BY `effect`",
-    "kb/pool_survey": "EXPLORE the pool yourself",
-    "kb/operator_use": "LOOK BEFORE YOU WRITE",
-    "kb/operator_custom": "HAND-WRITE IT",
-    "kb/training": "DETERMINISTIC via dataos-train",
-    "kb/cluster_discipline": "LOGIN-NODE DISCIPLINE",
-    "kb/eval_format": "FORMAT PRE-CHECK",
-    "kb/report_contract": "REPORT CONTRACT",
-    "kb/failure_diagnosis": "DIAGNOSE, DON'T BLINDLY RETRY",
+    "leader/context/operator_selection": "PICK BY `effect`",
+    "leader/context/search_discipline": "SEARCH DISCIPLINE",
+    "experimenter/context/operator_use": "LOOK BEFORE YOU WRITE",
+    "experimenter/context/operator_custom": "HAND-WRITE IT",
+    "experimenter/context/training": "DETERMINISTIC via dataos-train",
+    "experimenter/context/cluster_discipline": "LOGIN-NODE DISCIPLINE",
+    "experimenter/context/eval_contract": "FORMAT PRE-CHECK",
+    "experimenter/context/report_contract": "REPORT CONTRACT",
+    "experimenter/context/failure_diagnosis": "DIAGNOSE, DON'T BLINDLY RETRY",
+    "investigator/context/pool_survey": "EXPLORE the",
 }
 
 
 @pytest.mark.parametrize("block", KB_BLOCKS)
 def test_kb_block_renders_standalone(block):
-    text = prompt.render(block)
-    assert SIGNATURES[block] in text
+    text = prompt.render(block, **prompt_facts(_CFG))
+    sig = SIGNATURES.get(block)
+    assert text.strip(), f"{block} rendered empty"
+    if sig:
+        assert sig in text, f"{block} lost its signature line {sig!r}"
 
 
 def test_block_sets_cover_all_roles():

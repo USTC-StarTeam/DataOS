@@ -201,7 +201,7 @@ def test_auto_eval_limit_prompts(tmp_path):
     from dataos.agent.runtime_compose import resolve, render
 
     text = _prompt.render(
-        "task/experimenter", exp_name="e", bench="gsm8k", profile="formal",
+        "experimenter/turn/experiment", exp_name="e", bench="gsm8k", profile="formal",
         parent_model="/m", root_base_model="/m", node_id="n1", parent_node_id="n0",
         eval_limit=256, is_smoke=False, recipe_json="{}", train_json="{}",
         train_spec_json="", subagent_brief="b", runtime_config_json="{}",

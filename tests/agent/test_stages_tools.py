@@ -149,17 +149,17 @@ def test_train_spec_clamps_time_to_the_partition_max():
 
 
 def test_templates_render_with_declared_params():
-    assert "o.guide()" in prompt.render("kb/stage_data", catalog="CATALOG")
+    assert "o.guide()" in prompt.render("experimenter/turn/stage_data", catalog="CATALOG")
     frozen = prompt.render(
-        "kb/stage_train", frozen_command="cmd", frozen_produces="prod", cli_path=""
+        "experimenter/turn/stage_train", frozen_command="cmd", frozen_produces="prod", cli_path=""
     )
     assert "`cmd` → model at prod" in frozen
     ours = prompt.render(
-        "kb/stage_train", frozen_command="", frozen_produces="", cli_path="/te/bin/dataos-train"
+        "experimenter/turn/stage_train", frozen_command="", frozen_produces="", cli_path="/te/bin/dataos-train"
     )
     assert ours.startswith("DETERMINISTIC via dataos-train")
     minimal = prompt.render(
-        "kb/stage_eval", command="cmd", eval_bin="/env/bin/dataos-eval", repo="/deploy",
+        "experimenter/turn/stage_eval", command="cmd", eval_bin="/env/bin/dataos-eval", repo="/deploy",
         environment="env", task_config="task", result_field="score", result_file="<result>",
         result_range=[0, 100], format_contract_loc="",
     )

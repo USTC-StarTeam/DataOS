@@ -14,19 +14,41 @@ experimenters build the same backend the same way.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from dataos_agent import context_filename
 
 from dataos.agent.llm.cli_agent import CliAgent
 
 if TYPE_CHECKING:
     from dataos.agent.config import AutoRunConfig
 
+# The roles' cwd and config root live OUTSIDE the repo. A cwd inside it makes every CLI
+# auto-discover <repo>/AGENTS.md — which is the guide for agents DEVELOPING DataOS
+# ("Operating guide for AI coding agents working in this repository"), not for the roles
+# RUNNING it. Keyed per role so the three share no context file, session or memory.
+_AGENT_ROOT = Path.home() / ".cache" / "dataos-agent"
+
+
+def role_dirs(project_id: str, role: str) -> tuple[str, str]:
+    """``(cwd, config_root)`` for one role of one run.
+
+    Deterministic, so it is the same directory on a later call and after a process
+    restart — which is what resume needs, since the CLI keeps its sessions inside the
+    config root."""
+    base = _AGENT_ROOT / project_id / role
+    cwd, home = base / "cwd", base / "home"
+    for p in (cwd, home):
+        p.mkdir(parents=True, exist_ok=True)
+    return str(cwd), str(home)
+
 
 def build_agent(
     cfg: "AutoRunConfig",
     *,
+    role: str,
     instructions: str,
-    workspace: str,
     max_steps: int | None = None,
     transcript: str | None = None,
 ) -> CliAgent:
@@ -37,10 +59,22 @@ def build_agent(
     defaults to ``cfg.max_steps``; callers that need a bigger turn budget
     (execution experimenters) pass their own. ``transcript`` is the JSONL
     run-record path (tee'd neutral events) when activity should be persisted.
+
+    ``instructions`` is the role's high-level prompt. It is written into the role's cwd
+    as the CLI's own global context file (``AGENTS.md`` / ``CLAUDE.md`` / ``QWEN.md``), so
+    it rides that CLI's native channel — re-injected on every resume, never part of the
+    compactable conversation — instead of being prepended to each turn's prompt. Rewritten
+    unconditionally: the prompt source may have changed since the last run.
     """
+    cwd, home = role_dirs(cfg.project_id, role)
+    ctx_name = context_filename(cfg.agent_provider)
+    if instructions and ctx_name:
+        (Path(cwd) / ctx_name).write_text(instructions, encoding="utf-8")
+        instructions = ""  # delivered as the context file; don't also send it per turn
     return CliAgent(
         instructions=instructions,
-        workspace=workspace,
+        workspace=cwd,
+        home=home,
         provider=cfg.agent_provider,
         model=cfg.agent_model,
         max_steps=cfg.max_steps if max_steps is None else max_steps,

@@ -27,15 +27,16 @@ class KimiSpec(CliSpec):
     bin = "kimi"
 
     def build_argv(self, config: AgentConfig, prompt: str) -> list[str]:
-        if config.instructions:                       # no system-prompt flag -> prepend
-            prompt = f"{config.instructions}\n\n{prompt}"
+        resume = config.extra.get("resume")
+        if config.instructions and not resume:        # no system-prompt flag -> prepend;
+            prompt = f"{config.instructions}\n\n{prompt}"   # a resumed session already has it
         argv = ["-p", prompt, "--output-format", "stream-json"]
         if config.model:
             argv += ["-m", config.model]
         # no workspace flag in the new CLI: the subprocess cwd IS the workspace
         # (run_cli spawns with cwd=config.workspace)
-        if config.extra.get("resume"):
-            argv += ["-S", config.extra["resume"]]
+        if resume:
+            argv += ["-S", resume]
         argv += list(config.extra.get("args", []))
         return argv
 

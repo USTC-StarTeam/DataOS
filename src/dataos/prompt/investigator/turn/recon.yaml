@@ -44,7 +44,11 @@ template: |
      "stages": {"data": {"status": "skipped"}, "train": {"status": "skipped"},
                 "eval": {"status": "completed"}},
      "model": {"path": "{{ base_model }}", "base_model": "{{ base_model }}"},
-     "eval": {"score": <same float>, "path": "<eval_dir>", "limit": {{ eval_limit }}},
+     "eval": {"score": <same float>, "path": "<eval_dir>", "limit": {{ eval_limit }},
+              "n_samples": <the summary.json "n_samples": how many items were actually scored —
+                            this run's baseline is the only place the benchmark's real size gets
+                            recorded, and every later experiment's subset score is judged
+                            against it, so copy it exactly>},
      "analysis": {"rollout_summary": "<correct/wrong counts + k sampled raw outputs read>",
                   "failure_classes": {"<class>": <count>},
                   "anomalies": "<repetition/length/format drift, or 'none'>",
@@ -104,18 +108,13 @@ template: |
      real row. A degraded profile means "the profiler couldn't see", never "the source
      is bad".
 
-  Then write recon.json locally as:
-  {
-    "eval_format_contract": {"bench": "{{ target_bench }}", "summary": "...", "parser": "...",
-                             "format_sensitive": true, "expected_target_shape": "...",
-                             "target_example": "..."},
-    "baseline_diagnosis":   {"cause": "format|capability|unknown", "evidence": "..."},
-    "candidate_sources":    [ {"source": "...", "subset": "...", "why": "...",
-                               "conversion": "..."} ],
-    "source_profiles":      [ <the profiler's JSON array, verbatim + your notes> ]
-  }
+  Then write recon.json locally with exactly those four top-level keys, each shaped as its part
+  above describes:
+  {"eval_format_contract": {…}, "baseline_diagnosis": {…},
+   "candidate_sources": [ … ], "source_profiles": [ … ]}
 
-  Write the file, confirm it parses as JSON, then stop. That file is your entire deliverable.
+  You are done only when BOTH files parse as JSON on disk: the baseline report.json at
+  {{ baseline_report_path }} and recon.json at {{ recon_path }}. Verify both, then stop.
 
   The ENVIRONMENT OPS and TASK below are rendered from the runtime contract for THIS run
   (env/run values already filled; `{ctx.*}` are placeholders YOU fill at execution time).

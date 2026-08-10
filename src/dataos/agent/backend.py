@@ -23,41 +23,80 @@ from .llm._output import parse_output
 from .llm.config import build_agent
 
 
-# Role -> system-prompt assembly: skeleton + its kb knowledge blocks, in order.
-# Each block is a YAML template in src/dataos/prompt/{system,kb}/; only the leader
-# skeleton takes render params (the run's facts).
+# Role -> the ORDER its context blocks compose in. Every block lives in
+# src/dataos/prompt/<role>/context/ and belongs to exactly ONE role: a block shared by two
+# roles has to be written to serve both, so neither gets the sharpest version. Membership is
+# the directory's business (test_prompt_layers asserts the two agree); this table only fixes
+# the order, which is a real decision — the hardest constraints go first, domain knowledge
+# last, because a long context file buries whatever trails it.
 _BLOCKS = {
-    "leader": ("system/leader", "kb/operator_selection", "kb/pool_survey"),
-    "experimenter": ("system/experimenter", "kb/operator_use", "kb/operator_custom",
-                     "kb/training", "kb/cluster_discipline", "kb/eval_format",
-                     "kb/report_contract", "kb/failure_diagnosis"),
-    "investigator": ("system/investigator", "kb/pool_survey", "kb/cluster_discipline",
-                     "kb/eval_format"),
+    "leader": (
+        "leader/context/role",
+        "leader/context/search_discipline",
+        "leader/context/operator_selection",
+    ),
+    "experimenter": (
+        "experimenter/context/role",
+        "experimenter/context/operator_use",
+        "experimenter/context/operator_custom",
+        "experimenter/context/training",
+        "experimenter/context/cluster_discipline",
+        "experimenter/context/eval_contract",
+        "experimenter/context/report_contract",
+        "experimenter/context/failure_diagnosis",
+    ),
+    "investigator": (
+        "investigator/context/role",
+        "investigator/context/pool_survey",
+        "investigator/context/cluster_discipline",
+        "investigator/context/eval_contract",
+    ),
 }
 
 
-def _run_facts(cfg: AutoRunConfig) -> dict:
-    budget_h = (cfg.budget.max_wall_clock_s or 0) / 3600 or 10
+def prompt_facts(cfg: AutoRunConfig) -> dict:
+    """The run-level facts a CONTEXT template may reference — and the only ones it may.
+
+    A context block is written once per run into the CLI's context file, so it can only
+    carry values that hold for the whole run. Anything that changes between turns
+    (parent model, remaining minutes, the experiment's recipe) belongs in a turn template.
+    ``test_prompt_layers`` enforces that by checking every context template's variables
+    against these keys."""
+    # Read defensively: this is now called for EVERY role, including from tests that pass a
+    # sparse double with no budget/runtime_config.
+    budget = getattr(cfg, "budget", None)
+    budget_h = (getattr(budget, "max_wall_clock_s", None) or 0) / 3600 or 10
     budget_hours = int(budget_h) if budget_h == int(budget_h) else round(budget_h, 1)
-    gres = str((cfg.runtime_config.get("cluster") or {}).get("gres", "gpu:1"))
+    runtime = getattr(cfg, "runtime_config", None) or {}
+    gres = str((runtime.get("cluster") or {}).get("gres", "gpu:1"))
     try:
         gpus = int(gres.rsplit(":", 1)[-1])
     except ValueError:
         gpus = 1
-    return {"budget_hours": budget_hours, "gpus": gpus}
+    # the eval policy as a NAME, so a context block can carry only the branch that applies
+    # instead of explaining every mode and its magic number. Mirrors loop._effective_eval_limit.
+    limit = getattr(cfg, "eval_limit", None) or (
+        20 if getattr(cfg, "ptb_profile", "") == "smoke" else 200
+    )
+    return {
+        "budget_hours": budget_hours,
+        "gpus": gpus,
+        # the single PTB bench this run optimizes; lets a context block name it instead of
+        # carrying prose about benches this run will never touch
+        "bench": getattr(cfg, "target_bench", None) or "the target benchmark",
+        "eval_mode": "auto" if limit == -2 else ("full" if limit == -1 else "fixed"),
+        "eval_limit": limit,
+    }
 
 
 def system_prompt(role: str, cfg: AutoRunConfig) -> str:
-    """Compose the role's system prompt from src/dataos/prompt (skeleton + kb blocks)."""
+    """Compose the role's context prompt from src/dataos/prompt/<role>/context/."""
     if role not in _BLOCKS:
         raise ValueError(f"unknown role {role!r}; expected one of {sorted(_BLOCKS)}")
-    # only the leader skeleton takes render params; experimenter/investigator blocks are
-    # all static, so sparse test doubles (no budget/runtime_config) work for them
-    facts = _run_facts(cfg) if role == "leader" else {}
-    return "\n\n".join(
-        _prompt.render(b, **facts) if b == "system/leader" else _prompt.render(b)
-        for b in _BLOCKS[role]
-    )
+    # Every block gets the same facts: a template that ignores them renders identically, and
+    # any block is then free to reference a fact without a special case here.
+    facts = prompt_facts(cfg)
+    return "\n\n".join(_prompt.render(b, **facts) for b in _BLOCKS[role])
 
 
 class _StubMainAgent:
@@ -92,10 +131,8 @@ class _StubMainAgent:
             '"estimated_hours":0.01,'
             '"data":{},'
             '"train":{"mode":"stub"},'
-            '"eval_plan":"stub eval",'
             '"expected_signal":"completed stub report",'
-            f'"subagent_brief":"run {name}",'
-            '"rationale":"default stub plan"}'
+            f'"subagent_brief":"run {name}"}}'
         )
 
     def _default_review(self) -> str:
@@ -133,12 +170,12 @@ class _StubMainAgent:
 def make_agent(role: str, cfg: AutoRunConfig):
     """Build the agent for ``role`` ("leader" | "experimenter" | "investigator").
 
-    The leader produces no files directly, so its workspace lives outside the
-    project dir; otherwise Project.studies would mis-count it as a study."""
-    # kept OUTSIDE the project dir — Project.studies lists every subdir of the project
-    # dir, so an "_agent" dir there would be mis-counted as a study.
-    ws = str(Path(cfg.workspace) / "_agent" / cfg.project_id / role)
-    Path(ws).mkdir(parents=True, exist_ok=True)
+    The role's cwd and config root come from ``role_dirs`` (outside the repo, so the CLI
+    cannot auto-discover the repo's development-time AGENTS.md). Only the run record
+    stays here, under "_agent" — kept OUTSIDE the project dir because Project.studies
+    lists every subdir of the project dir and would mis-count it as a study."""
+    rec_dir = Path(cfg.workspace) / "_agent" / cfg.project_id / role
+    rec_dir.mkdir(parents=True, exist_ok=True)
 
     if cfg.backend == "stub":
         # Only the leader role is ever built (loop.py / tests pass "leader").
@@ -150,9 +187,9 @@ def make_agent(role: str, cfg: AutoRunConfig):
         # A code-agent CLI with its own local login — no API key handled here.
         return build_agent(
             cfg,
+            role=role,
             instructions=system_prompt(role, cfg),
-            workspace=ws,
-            transcript=str(Path(ws) / "transcript.jsonl"),  # the leader's run record
+            transcript=str(rec_dir / "transcript.jsonl"),  # the leader's run record
         )
 
     raise ValueError(f"unknown backend {cfg.backend!r}; use 'cli' or 'stub'")

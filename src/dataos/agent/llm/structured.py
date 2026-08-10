@@ -72,7 +72,7 @@ def run_structured(
             parse_left -= 1
             log.warning("%s: output parse failed (%s); %d parse-retry left, re-asking JSON-only",
                         name, e, parse_left)
-            prompt = _prompt.render("task/structured_json_only", task=task)
+            prompt = _prompt.render("_adapter/structured_json_only", task=task)
 
 
 def run_structured_dialog(
@@ -95,7 +95,7 @@ def run_structured_dialog(
 
     name = getattr(model, "__name__", str(model))
     schema = json.dumps(model.model_json_schema(), ensure_ascii=False)
-    base_prompt = _prompt.render("task/structured_schema", task=task, schema=schema)
+    base_prompt = _prompt.render("_adapter/structured_schema", task=task, schema=schema)
     prompt = base_prompt
     sid = session_id
     parse_left = parse_retries
@@ -126,4 +126,4 @@ def run_structured_dialog(
                 e,
                 parse_left,
             )
-            prompt = _prompt.render("task/structured_correction", error=e, schema=schema)
+            prompt = _prompt.render("_adapter/structured_correction", error=e, schema=schema)

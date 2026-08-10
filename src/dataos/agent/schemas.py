@@ -35,23 +35,24 @@ class ExperimentPlan(BaseModel):
         default_factory=dict,
         description="SFT hyperparameters; do not include model_name_or_path",
     )
-    eval_plan: str = Field(
-        default="",
-        description="short note about what signal to read from the frozen evaluator",
-    )
     eval_limit: int | None = Field(
         default=None,
         description="eval size for THIS experiment: -1 = full frozen benchmark, or a "
-        "positive subset size. REQUIRED when the run's eval mode is auto (-2) — pick by "
-        "the experiment's role: exploration probe -> a subset sized to the bench's eval "
-        "cost; a candidate-best confirmation -> -1 (full). Ignored in fixed-limit runs.",
+        "positive subset size no smaller than eval_policy.probe_floor. REQUIRED when the run's "
+        "eval mode is auto — exploration probe -> a subset at or above the floor; a "
+        "candidate-best confirmation -> -1 (full). Ignored in fixed-limit runs.",
     )
-    expected_signal: str = Field(default="", description="what outcome would be informative")
+    expected_signal: str = Field(
+        default="",
+        description="the concrete outcome that would confirm the hypothesis, in numbers where "
+        "you can — the review of this node is shown this prediction next to what actually "
+        "happened, so state something that can turn out wrong",
+    )
     subagent_brief: str = Field(
         default="",
-        description="concrete instruction for the experiment experimenter",
+        description="only what data/train cannot already say: the intent behind this recipe, and "
+        "any judgement call the experimenter has to make. Do not restate the recipe values",
     )
-    rationale: str = Field(default="", description="why this is the next tree growth")
 
 
 class ReviewOut(BaseModel):

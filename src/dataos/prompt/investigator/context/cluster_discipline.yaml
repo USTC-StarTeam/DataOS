@@ -1,0 +1,22 @@
+description: >
+  Investigator's cluster discipline block — login-node rules, no recursive scans, and how to
+  overlap the baseline eval with the pool profiling. Trimmed of the experimenter's training
+  discipline (this role never trains). No render params.
+template: |
+  - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
+    submit sbatch, poll sacct/squeue (sleep 30-60s between polls), and run BOUNDED internet steps
+    (the judge; `llm_*` scoring on a SMALL sample). The base-model eval runs INSIDE the GPU job,
+    NEVER on the login node. NEVER recursively scan the filesystem (no `grep -r` / `find` / `du`
+    over /data) — every path you need (keys, pool, models, the profiler script) is named in your
+    task prompt or in RUNTIME CONFIG, so you never have to search for anything.
+  - On the login node, do NOT run Python that imports `dataos`, `dataos_operator`, `datasets`,
+    or reads fixed-pool datasets — with ONE exception: loading a couple of rows of a single
+    source to check a `degraded` profile is allowed, and the deterministic profiler itself is
+    light CPU work you may run there.
+  - Retry ssh on transient network errors; never let a campus-net blip abort the pass.
+  - SUBMIT FIRST, THEN WORK — never idle-wait. The baseline eval takes tens of minutes and may
+    queue; submit it before you do anything else, and do the pool profiling, the scorer reading
+    and your notes WHILE it is pending or running, polling between steps. Queue time is not
+    something you can shorten, so the only thing that matters is that you are never blocked on
+    it. Keep waiting through a PENDING job — do NOT abandon it, do NOT resubmit, and never write
+    a failed baseline just because the queue was busy.

@@ -72,7 +72,7 @@ class OperatorToolbox:
     def invoke(self, resolved: dict) -> str:  # noqa: ARG002 — catalog is install-local
         import dataos_operator
 
-        return _prompt.render("kb/stage_data", catalog=dataos_operator.catalog())
+        return _prompt.render("experimenter/turn/stage_data", catalog=dataos_operator.catalog())
 
 
 class FrozenEvaluator:
@@ -100,7 +100,7 @@ class FrozenEvaluator:
         repo = run.get("deploy_root") or "<deploy_root>"
         task_config = run.get("task", "")
         return _prompt.render(
-            "kb/stage_eval",
+            "experimenter/turn/stage_eval",
             command=str(scoring.get("command", "")).strip(),
             eval_bin=eval_bin,
             repo=repo,
@@ -138,7 +138,7 @@ class DataosTrainCli:
             None,
         ) or "<train_cli_env>"
         return _prompt.render(
-            "kb/stage_train", frozen_command="", frozen_produces="",
+            "experimenter/turn/stage_train", frozen_command="", frozen_produces="",
             cli_path=f"{te_path}/bin/dataos-train",
         )
 

@@ -9,9 +9,11 @@ Two shapes:
 
 from __future__ import annotations
 
+import os
 from typing import AsyncIterator, Iterable
 
 from .._cli import run_cli
+from .._home import home_env
 from ..errors import UnknownProvider
 from ..types import AgentConfig, Event, Result
 
@@ -29,6 +31,11 @@ class CliSpec(ProviderSpec):
 
     bin: str = ""
 
+    # The egress this CLI's endpoint is reachable through. Declared PER PROVIDER —
+    # claude and codex talk to different vendors and need not share an egress.
+    # None -> leave the inherited proxy env alone.
+    proxy: str | None = None
+
     def build_argv(self, config: AgentConfig, prompt: str) -> list[str]:
         raise NotImplementedError
 
@@ -40,7 +47,21 @@ class CliSpec(ProviderSpec):
         (e.g. a session id some CLIs print there). Default: no-op."""
 
     def env(self, config: AgentConfig) -> dict | None:
-        return None
+        """The subprocess env. Precedence, lowest first: inherited ``os.environ`` ->
+        this provider's ``proxy`` -> the isolated config root (``config.home``) ->
+        ``extra["env"]`` (the caller always wins, e.g. a different egress per host).
+
+        The proxy OVERRIDES an inherited value on purpose: a stale or wrong ``*_PROXY``
+        exported in the shell would otherwise silently make the CLI unreachable."""
+        overrides: dict[str, str] = {}
+        if self.proxy:
+            overrides.update(
+                dict.fromkeys(("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"), self.proxy)
+            )
+        if config.home:
+            overrides.update(home_env(self.name, config.home))
+        overrides.update(config.extra.get("env") or {})
+        return {**os.environ, **overrides} if overrides else None
 
     async def stream(self, config: AgentConfig, prompt: str) -> AsyncIterator[Event]:
         async for ev in run_cli(

@@ -4,7 +4,7 @@ Each ``<name>.yaml`` in this folder has a ``template:`` string (Jinja2). Render 
 config / context params:
 
     from dataos import prompt
-    prompt.render("system/leader", budget_hours=2, gpus=1)
+    prompt.render("leader/context/role", budget_hours=2, gpus=1)
 
 Facts (budget, GPUs, the per-experiment context, …) are passed in as render params, so nothing
 run-specific is baked into the text. Loading is cached; templates use ``StrictUndefined`` so a

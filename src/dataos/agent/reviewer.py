@@ -12,7 +12,7 @@ from .schemas import ReviewOut
 
 def _build_prompt(*, context: dict) -> str:
     return _prompt.render(
-        "task/review",
+        "leader/turn/review",
         context_json=json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
     )
 

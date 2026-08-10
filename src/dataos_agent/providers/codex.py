@@ -5,35 +5,35 @@ Event shape:
   {"type":"item.started|item.completed","item":{"type":"agent_message"|"command_execution"|"file_change", ...}}
   {"type":"turn.completed","usage":{input_tokens, output_tokens, ...}}
 Resume: ``codex exec resume <thread_id> <prompt>``. Effort via ``-c model_reasoning_effort=<level>``.
-The OpenAI backend on this host is only reachable via the alternate proxy (the default
-192.168.1.99 gateway drops/stalls it — codex retries WebSocket->HTTPS then times out).
 """
 
 from __future__ import annotations
 
-import os
 from typing import Iterable
 
 from ..types import AgentConfig, Event, Result, Step
 from .base import CliSpec, register
 
-# the OpenAI-reachable proxy on the agent host (also used by the claude CLI settings);
-# the default gateway proxy stalls all chatgpt.com traffic
-_OPENAI_PROXY = "http://118.89.136.118:31094"
+# Codex silently truncates its global context file when it exceeds the project-doc
+# budget ("project doc exceeds remaining budget; truncating" — no error, no exit code),
+# which would eat the tail of a large AGENTS.md. Set the budget high enough to never hit it.
+_PROJECT_DOC_MAX_BYTES = 262144
 
 
 class CodexSpec(CliSpec):
     name = "codex"
     bin = "codex"
+    proxy = "http://192.168.1.99:8401"                # the OpenAI-reachable egress
 
     def build_argv(self, config: AgentConfig, prompt: str) -> list[str]:
-        if config.instructions:                       # no system-prompt flag -> prepend
-            prompt = f"{config.instructions}\n\n{prompt}"
         resume = config.extra.get("resume")
+        if config.instructions and not resume:        # no system-prompt flag -> prepend;
+            prompt = f"{config.instructions}\n\n{prompt}"   # a resumed thread already has it
         argv = ["exec"]
         if resume:
             argv += ["resume", resume]
-        argv += ["--json", "--skip-git-repo-check"]
+        argv += ["--json", "--skip-git-repo-check",
+                 "-c", f"project_doc_max_bytes={_PROJECT_DOC_MAX_BYTES}"]
         if config.model:
             argv += ["-m", config.model]
         if config.effort:
@@ -49,12 +49,6 @@ class CodexSpec(CliSpec):
         argv += list(config.extra.get("args", []))
         argv.append(prompt)
         return argv
-
-    def env(self, config: AgentConfig) -> dict | None:
-        env = dict(os.environ)
-        env.setdefault("HTTPS_PROXY", _OPENAI_PROXY)
-        env.setdefault("HTTP_PROXY", _OPENAI_PROXY)
-        return env
 
     def parse_line(self, raw: dict, acc: Result) -> Iterable[Event]:
         t = raw.get("type")

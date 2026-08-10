@@ -29,7 +29,6 @@ from dataos.agent.llm.config import build_agent
 
 log = logging.getLogger(__name__)
 
-_REPO_ROOT = str(Path(__file__).resolve().parents[3])
 _RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"  # legacy fallback; prefer runtime_config
 # Let the executor run FREE within its time budget. The real bound is the per-experiment
 # DEADLINE (the timeout on each agent.run); if the experimenter stops before writing report.json
@@ -374,7 +373,7 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         )
         train_spec_json = json.dumps(ts, ensure_ascii=False, indent=2)
     return _prompt.render(
-        "task/experimenter",
+        "experimenter/turn/experiment",
         exp_name=spec["name"],
         env_ops=env_ops,
         task_def=task_def,
@@ -401,7 +400,7 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
 
 def _continue_prompt(state: dict, last_text: str, remaining_minutes: int | None = None) -> str:
     return _prompt.render(
-        "task/experimenter_continue",
+        "experimenter/turn/experiment_continue",
         report_path=state["report_path"],
         state_path=state["state_path"],
         state_json=json.dumps(state, ensure_ascii=False),
@@ -439,8 +438,8 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
 
     agent = build_agent(
         cfg,
-        instructions=system_prompt("experimenter", cfg),
-        workspace=_REPO_ROOT,  # cwd at repo root so it can run .venv/ssh tooling
+        role="experimenter",  # cwd comes from role_dirs (outside the repo); the whole
+        instructions=system_prompt("experimenter", cfg),  # toolchain is ssh/scp + abs paths
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
         transcript=str(exp_dir / "agent.jsonl"),  # per-experiment run record (monitor + archive)
     )
@@ -531,7 +530,8 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
 
 
 _RECON_FILE = "recon.json"
-_RECON_TIMEOUT_S = 2 * 3600.0  # recon + the baseline eval (a full-benchmark GPU eval can take ~1h)
+# No separate clock on recon: the whole run plans over its output, so a thin recon costs far more
+# than the minutes it takes to finish. Only the run's own wall-clock ``deadline`` bounds it.
 
 
 def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None) -> dict:
@@ -565,7 +565,7 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         cfg, parent_model=cfg.h100_base_model, eval_limit=eval_limit,
     )
     prompt = _prompt.render(
-        "task/investigator",
+        "investigator/turn/recon",
         target_bench=cfg.target_bench,
         base_model=cfg.h100_base_model,
         fixed_pool=paths.get("fixed_pool", ""),
@@ -586,25 +586,25 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
     )
     agent = build_agent(
         cfg,
+        role="investigator",
         instructions=system_prompt("investigator", cfg),
-        workspace=_REPO_ROOT,
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
         transcript=str(Path(proj.project_dir) / "investigator.jsonl"),
     )
-    cap = _RECON_TIMEOUT_S
-    if deadline is not None:
-        cap = max(60.0, min(cap, deadline - time.monotonic()))
+    # bounded only by the run's own budget; no recon-specific cap
+    cap = float("inf") if deadline is None else max(60.0, deadline - time.monotonic())
     log.info("recon: starting reconnaissance (bench=%s, cap=%ss)", cfg.target_bench, int(cap))
     started = time.monotonic()
     session_id = None
     last_text = ""
     while time.monotonic() - started < cap:
-        remaining = cap - (time.monotonic() - started)
+        remaining = None if cap == float("inf") else cap - (time.monotonic() - started)
         try:
             res = agent.run(prompt, resume=session_id, timeout=remaining)
-        except Exception as e:  # noqa: BLE001 — recon must not crash the run; fall back to minimal
-            log.error("recon: agent error: %s", e)
-            break
+        except Exception as e:
+            # A dead investigator means the run has no pool intel and no baseline. Proceeding
+            # would hand the leader a hollow recon it cannot tell from a real one — fail loudly.
+            raise RuntimeError(f"recon: investigator failed: {e}") from e
         session_id = getattr(res, "session_id", None) or session_id
         last_text = (getattr(res, "text", "") or "").strip()
         recon = _read_json(recon_path)
@@ -622,15 +622,14 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
             "candidate_sources, source_profiles) and the baseline report.json."
             % (recon_path, baseline_report)
         )
-    # fallback: don't block the run — write a minimal recon so the loop can proceed (loosely).
-    log.warning("recon: incomplete (%s); writing minimal recon so the run can proceed", last_text[:200])
-    recon = _read_json(recon_path) if isinstance(_read_json(recon_path), dict) else {}
-    recon.setdefault("eval_format_contract", {"bench": cfg.target_bench, "summary": "recon incomplete"})
-    recon.setdefault("baseline_diagnosis", {"cause": "unknown", "evidence": "recon incomplete"})
-    recon.setdefault("candidate_sources", [])
-    recon.setdefault("source_profiles", [])
-    atomic_write_json(recon_path, recon)
-    return recon
+    # The run's wall-clock budget ran out first. NEVER synthesise a stand-in recon: an empty
+    # shortlist and empty profiles are indistinguishable from a real survey once the leader has
+    # them, so it would plan blind for the rest of the run and nothing would say why.
+    raise RuntimeError(
+        f"recon: incomplete when the run budget ran out — recon.json at {recon_path} and/or the "
+        f"baseline report at {baseline_report} never became complete. Last agent message: "
+        f"{last_text[:300]}"
+    )
 
 
 def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -> dict[str, dict]:
