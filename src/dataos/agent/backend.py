@@ -170,7 +170,7 @@ class _StubMainAgent:
 def make_agent(role: str, cfg: AutoRunConfig):
     """Build the agent for ``role`` ("leader" | "experimenter" | "investigator").
 
-    The role's cwd and config root come from ``role_dirs`` (outside the repo, so the CLI
+    The role's cwd comes from ``role_cwd`` (outside the repo, so the CLI
     cannot auto-discover the repo's development-time AGENTS.md). Only the run record
     stays here, under "_agent" — kept OUTSIDE the project dir because Project.studies
     lists every subdir of the project dir and would mis-count it as a study."""

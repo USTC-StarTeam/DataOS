@@ -438,7 +438,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
 
     agent = build_agent(
         cfg,
-        role="experimenter",  # cwd comes from role_dirs (outside the repo); the whole
+        role="experimenter",  # cwd comes from role_cwd (outside the repo); the whole
         instructions=system_prompt("experimenter", cfg),  # toolchain is ssh/scp + abs paths
         max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
         transcript=str(exp_dir / "agent.jsonl"),  # per-experiment run record (monitor + archive)

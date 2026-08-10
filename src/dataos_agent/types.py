@@ -28,11 +28,6 @@ class AgentConfig(BaseModel):
     effort: Optional[str] = None                    # thinking level (claude: low/medium/high/xhigh/max)
     tools: bool | list[str] = True                  # native-tool policy: True all / [..] allowlist / False none
     workspace: Optional[str] = None                 # cwd / work-dir; files land here
-    home: Optional[str] = None                      # isolated config root for the CLI
-                                                    # (CODEX_HOME / CLAUDE_CONFIG_DIR / ...):
-                                                    # ignores the machine's config, skills,
-                                                    # hooks, MCP and global context file.
-                                                    # None -> use the host's own config
     max_steps: Optional[int] = None                 # step cap (max-turns)
     permission: str = "auto"                        # auto (auto-approve) | ask | deny
     timeout: Optional[float] = None                 # wall-clock budget for the whole call,

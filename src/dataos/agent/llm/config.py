@@ -31,17 +31,16 @@ if TYPE_CHECKING:
 _AGENT_ROOT = Path.home() / ".cache" / "dataos-agent"
 
 
-def role_dirs(project_id: str, role: str) -> tuple[str, str]:
-    """``(cwd, config_root)`` for one role of one run.
+def role_cwd(project_id: str, role: str) -> str:
+    """The working directory for one role of one run.
 
-    Deterministic, so it is the same directory on a later call and after a process
-    restart — which is what resume needs, since the CLI keeps its sessions inside the
-    config root."""
-    base = _AGENT_ROOT / project_id / role
-    cwd, home = base / "cwd", base / "home"
-    for p in (cwd, home):
-        p.mkdir(parents=True, exist_ok=True)
-    return str(cwd), str(home)
+    Deterministic, so it is the same directory on a later call and after a process restart. It is
+    the ONLY isolation this layer does: the CLI's own config root stays shared with the host,
+    because that root holds an OAuth credential with a single-use refresh token which cannot be
+    replicated across concurrent runs (see ``dataos_agent._home`` for what that cost us)."""
+    cwd = _AGENT_ROOT / project_id / role / "cwd"
+    cwd.mkdir(parents=True, exist_ok=True)
+    return str(cwd)
 
 
 def build_agent(
@@ -66,7 +65,7 @@ def build_agent(
     compactable conversation — instead of being prepended to each turn's prompt. Rewritten
     unconditionally: the prompt source may have changed since the last run.
     """
-    cwd, home = role_dirs(cfg.project_id, role)
+    cwd = role_cwd(cfg.project_id, role)
     ctx_name = context_filename(cfg.agent_provider)
     if instructions and ctx_name:
         (Path(cwd) / ctx_name).write_text(instructions, encoding="utf-8")
@@ -74,7 +73,6 @@ def build_agent(
     return CliAgent(
         instructions=instructions,
         workspace=cwd,
-        home=home,
         provider=cfg.agent_provider,
         model=cfg.agent_model,
         max_steps=cfg.max_steps if max_steps is None else max_steps,
