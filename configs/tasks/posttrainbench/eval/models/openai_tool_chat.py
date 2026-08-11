@@ -105,7 +105,17 @@ class DataOSLocalToolChatCompletion(LocalChatCompletion):
         gen_kwargs = gen_kwargs or {}
         official_chat_payload = bool(gen_kwargs.pop("ptb_official_chat_payload", False))
         omit_seed = bool(gen_kwargs.pop("ptb_omit_seed", False))
-        if not official_chat_payload:
+        # A task may attach per-doc body fields to the CONTEXT rather than to gen_kwargs, because
+        # gen_kwargs is shared by a whole batch: lm-eval groups requests by gen_kwargs and sends
+        # the group with all_gen_kwargs[0], so a per-doc value placed there is replaced by the
+        # first doc's copy whenever num_concurrent > 1. bfcl's `tools` is such a field — every
+        # doc offers different functions. The context survives per request, so it arrives here
+        # as {"messages": [...], <body fields>} and the extras are merged back below.
+        request_fields: dict[str, Any] = {}
+        if isinstance(messages, dict):
+            request_fields = {k: v for k, v in messages.items() if k != "messages"}
+            messages = messages["messages"]
+        if not official_chat_payload or not generate:
             payload = super()._create_payload(
                 messages,
                 generate=generate,
@@ -116,19 +126,7 @@ class DataOSLocalToolChatCompletion(LocalChatCompletion):
             )
             if omit_seed:
                 payload.pop("seed", None)
-            return payload
-
-        if not generate:
-            payload = super()._create_payload(
-                messages,
-                generate=generate,
-                gen_kwargs=gen_kwargs,
-                seed=seed,
-                eos=eos,
-                **kwargs,
-            )
-            if omit_seed:
-                payload.pop("seed", None)
+            payload.update(request_fields)
             return payload
         if not isinstance(messages, list) or not all(isinstance(m, dict) for m in messages):
             raise TypeError("official chat payload expects messages as list[dict]")
@@ -147,6 +145,7 @@ class DataOSLocalToolChatCompletion(LocalChatCompletion):
             "model": self.model,
             "max_tokens": max_tokens,
             **gen_kwargs,
+            **request_fields,
         }
 
     async def get_batched_requests(

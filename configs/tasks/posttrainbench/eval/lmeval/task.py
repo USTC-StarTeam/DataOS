@@ -68,17 +68,30 @@ def _chat_instance(
     doc: dict[str, Any],
     messages: list[dict[str, Any]],
     gen_kwargs: dict[str, Any],
+    request_fields: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> Instance:
+    """One generate_until request.
+
+    ``request_fields`` are extra chat-completions body fields that belong to THIS doc (bfcl's
+    per-doc ``tools``). They must not travel in ``gen_kwargs``: lm-eval groups requests by
+    gen_kwargs and then sends the whole group with ``all_gen_kwargs[0]``, so anything per-doc
+    put there is silently replaced by the first doc's copy at any concurrency above 1. The
+    context, by contrast, is carried per request all the way to ``_create_payload``, so
+    per-doc fields ride inside it and ``DataOSLocalToolChatCompletion`` merges them into the
+    request body. Keeping gen_kwargs identical across docs also keeps them in ONE group, which
+    is what preserves concurrency.
+    """
     instance_kwargs = {
         key: kwargs[key]
         for key in ("metadata", "task_name", "doc_id", "repeats")
         if key in kwargs
     }
+    context: Any = messages if not request_fields else {"messages": messages, **request_fields}
     return Instance(
         request_type="generate_until",
         doc=doc,
-        arguments=(JsonChatStr(json.dumps(messages, ensure_ascii=False)), gen_kwargs),
+        arguments=(JsonChatStr(json.dumps(context, ensure_ascii=False)), gen_kwargs),
         idx=0,
         **instance_kwargs,
     )
@@ -552,11 +565,15 @@ class PostTrainBenchBFCL(ConfigurableTask):
         gen_kwargs = {
             "max_gen_toks": 16000,
             "until": ["<|im_end|>", "<|eot_id|>"],
-            "tools": [_openai_tool_spec(tool) for tool in doc["function"]],
         }
         for key, value in (self.config.generation_kwargs or {}).items():
             if key not in {"tools", "tool_choice"}:
                 gen_kwargs[key] = value
+        # THIS doc's functions — per-doc, so they go in the request, never in gen_kwargs
+        # (see _chat_instance). tool_choice is a run-level constant and stays shared.
+        request_fields: dict[str, Any] = {
+            "tools": [_openai_tool_spec(tool) for tool in doc["function"]]
+        }
         tool_choice = os.environ.get("POSTTRAINBENCH_BFCL_TOOL_CHOICE", "auto").strip()
         if tool_choice and tool_choice.lower() != "omit":
             gen_kwargs["tool_choice"] = tool_choice
@@ -564,6 +581,7 @@ class PostTrainBenchBFCL(ConfigurableTask):
             doc=doc,
             messages=_bfcl_messages(doc),
             gen_kwargs=gen_kwargs,
+            request_fields=request_fields,
             **kwargs,
         )
 
