@@ -383,3 +383,28 @@ def test_collect_failure(tmp_path: Path) -> None:
     res = LlamaFactoryBackend().collect(str(tmp_path))
     assert res.status == Status.FAILED and "HF model" in res.error
     assert res.log_tail == "boom"
+
+
+def test_checkpoint_saving_is_off_by_default_and_weights_only_when_on(tmp_path: Path) -> None:
+    """Sampling the training trajectory is opt-in, and when it is on the checkpoints must be
+    weights-only: the optimizer state is ~4x the weights and we never resume a run — a checkpoint
+    exists to be evaluated and to be continued from as a fresh run."""
+    def _cfg(**method_kwargs):
+        spec = TrainSpec(
+            name="e",
+            base_model="/m",
+            run_dir=str(tmp_path),
+            dataset=DatasetRef(path="/d"),
+            method=SFT(template="qwen3", finetuning_type="full", **method_kwargs),
+        )
+        return render_train_config(spec, spec.method, "/data", str(tmp_path), "ds")
+
+    off = _cfg()
+    assert off["save_strategy"] == "no"
+    assert "save_steps" not in off and "save_only_model" not in off
+
+    on = _cfg(save_steps=150, save_total_limit=4)
+    assert on["save_strategy"] == "steps"
+    assert on["save_steps"] == 150
+    assert on["save_total_limit"] == 4
+    assert on["save_only_model"] is True

@@ -80,3 +80,29 @@ def test_it_probes_an_existing_ancestor_of_run_dir(tmp_path, monkeypatch) -> Non
     )
     assert cli.precheck_disk(_spec(tmp_path, _model_dir(tmp_path, 8))) == []
     assert seen and seen[0].exists(), f"probed a path that does not exist: {seen}"
+
+
+def test_retained_checkpoints_raise_the_requirement(tmp_path, fake_space) -> None:
+    """save_steps keeps whole models on disk; the precheck has to count them or it green-lights
+    exactly the run most likely to fill the filesystem."""
+    fake_space(free_gib=20, model_gib=8)  # 1.5x = 12 GiB fits; 1.5+3 = 36 GiB does not
+    spec = _spec(tmp_path, _model_dir(tmp_path, 8))
+    assert cli.precheck_disk(spec) == []
+
+    spec.method.finetuning_type = "full"
+    spec.method.save_steps = 100
+    spec.method.save_total_limit = 3
+    errors = cli.precheck_disk(spec)
+    assert len(errors) == 1
+    assert "36.0 GiB" in errors[0] and "3 retained checkpoints" in errors[0]
+
+
+def test_lora_checkpoints_do_not_raise_the_requirement(tmp_path, fake_space) -> None:
+    """A LoRA checkpoint is an adapter, not a model — counting it as one would refuse runs that
+    fit comfortably."""
+    fake_space(free_gib=20, model_gib=8)
+    spec = _spec(tmp_path, _model_dir(tmp_path, 8))
+    spec.method.finetuning_type = "lora"
+    spec.method.save_steps = 100
+    spec.method.save_total_limit = 5
+    assert cli.precheck_disk(spec) == []

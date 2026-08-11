@@ -60,6 +60,19 @@ def render_train_config(
         "save_strategy": "no",  # final model saved at end; skip intermediate checkpoints
         "report_to": "none",
     }
+    if getattr(method, "save_steps", None):
+        # Sample the training trajectory. `save_only_model` is forced, not offered: the optimizer
+        # state is ~4x the weights (fp32 master + Adam m,v) and we never resume a run — a
+        # checkpoint here exists to be EVALUATED and to be continued from as a fresh run, both of
+        # which need weights alone. With it, a checkpoint costs one model's worth of disk.
+        cfg.update(
+            {
+                "save_strategy": "steps",
+                "save_steps": method.save_steps,
+                "save_total_limit": method.save_total_limit,
+                "save_only_model": True,
+            }
+        )
     if method.finetuning_type == "lora":
         cfg["lora_target"] = method.lora_target
         cfg["lora_rank"] = method.lora_rank

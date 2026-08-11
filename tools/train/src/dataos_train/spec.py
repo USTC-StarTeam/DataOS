@@ -112,6 +112,15 @@ class SFT(_Model):
     freeze_trainable_layers: int | None = None  # freeze-tuning: # of top blocks to train
     warmup_ratio: float = 0.0
     bf16: bool = True
+    #: Save a checkpoint every N optimizer steps. None (default) keeps ``save_strategy: "no"`` —
+    #: only the final model. Set it to sample the training TRAJECTORY: which point along one run
+    #: is best is a question no amount of data-recipe search can answer, and the hand-driven
+    #: gsm8k reference beat us by 11.2 points partly on "the midpoint at step 459 outperformed
+    #: the final checkpoint". Each retained checkpoint costs one model's worth of disk (weights
+    #: only — see save_only_model in the LF config), which ``cli.precheck_disk`` accounts for.
+    save_steps: int | None = None
+    #: How many checkpoints to keep (oldest deleted first). Ignored unless save_steps is set.
+    save_total_limit: int = 3
     extra: dict[str, Any] = Field(default_factory=dict)  # any extra LF training key, forwarded
 
 

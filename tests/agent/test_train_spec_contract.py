@@ -75,3 +75,20 @@ def test_cluster_nodelist_prefers_run_pin_then_env_pool():
     spec = build_train_spec(r, name="e0", plan_train={"finetuning_type": "lora"},
                             parent_model="/models/base", run_root="/rb/e0", time_h=2.0)
     assert spec["cluster"]["nodelist"] == "gpu01,gpu02,gpu03"
+
+
+def test_sft_field_mirror_matches_dataos_train():
+    """`_SFT_FIELDS` decides whether a plan key becomes a TYPED method field or rides in
+    `method.extra`. Both reach LLaMA-Factory, but only typed fields are visible to dataos-train's
+    own reasoning — `cli.precheck_disk` sizes a run from save_steps/save_total_limit, so a
+    checkpoint-saving plan that lands in `extra` would be green-lit on a disk that cannot hold it.
+    """
+    from dataos.agent.train_spec import _SFT_FIELDS
+    from dataos_train.spec import SFT
+
+    declared = set(SFT.model_fields) - {"kind", "extra"}
+    assert _SFT_FIELDS == declared, (
+        "dataos.agent.train_spec._SFT_FIELDS and dataos_train.spec.SFT disagree — "
+        f"missing here: {sorted(declared - _SFT_FIELDS)}; "
+        f"stale here: {sorted(_SFT_FIELDS - declared)}"
+    )

@@ -11,11 +11,18 @@ forwarded via ``method.extra`` (dataos-train validates them).
 from __future__ import annotations
 
 # SFT fields dataos-train's method schema knows natively; everything else -> extra.
+#: Plan keys that are TYPED fields of dataos-train's SFT method; anything else is forwarded
+#: through ``method.extra``. The distinction is not cosmetic — dataos-train reasons about the
+#: typed fields (``cli.precheck_disk`` sizes the run from ``save_steps``/``save_total_limit``,
+#: for one), and a key that lands in ``extra`` still reaches LLaMA-Factory but is invisible to
+#: that reasoning. This set mirrors ``dataos_train.spec.SFT``; ``tests/agent/
+#: test_train_spec_contract.py`` fails if the two drift apart.
 _SFT_FIELDS = {
     "finetuning_type", "template", "learning_rate", "num_train_epochs",
     "per_device_train_batch_size", "gradient_accumulation_steps", "cutoff_len",
     "lora_rank", "lora_alpha", "lora_target", "quantization_bit",
     "freeze_trainable_layers", "warmup_ratio", "bf16",
+    "save_steps", "save_total_limit",
 }
 # runtime-owned / redundant keys the planner must not smuggle into the method
 _STRIP = {"model_name_or_path", "stage", "do_train", "dataset", "dataset_dir",

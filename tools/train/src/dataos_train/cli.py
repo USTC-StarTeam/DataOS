@@ -55,10 +55,25 @@ def _persist_job(job: JobSpec) -> None:
 
 #: Free space required before a run is allowed to start, as a multiple of the base model's
 #: weight files. A full-SFT run writes back roughly one model (``final_model``); a LoRA run writes
-#: an adapter plus a merged export. The headroom covers the export and a little slack — it is a
-#: FLOOR, not a guarantee: checkpoint retention multiplies it, and nothing here reserves the space
-#: against another job filling the same filesystem in the meantime.
+#: an adapter plus a merged export. The headroom covers the export and a little slack. It is
+#: still a FLOOR, not a guarantee: nothing here reserves the space against another job filling
+#: the same filesystem in the meantime.
 _DISK_HEADROOM = 1.5
+
+
+def _retained_models(spec: TrainSpec) -> float:
+    """How many model-sized artifacts this run keeps on disk.
+
+    Trajectory checkpoints (``save_steps``) each cost one model's worth — ``save_only_model`` is
+    forced in the rendered config, so no optimizer state — but only for full/freeze tuning. A
+    LoRA checkpoint is an adapter, orders of magnitude smaller, so it does not move this number.
+    """
+    method = spec.method
+    if not getattr(method, "save_steps", None):
+        return _DISK_HEADROOM
+    if getattr(method, "finetuning_type", None) == "lora":
+        return _DISK_HEADROOM
+    return _DISK_HEADROOM + int(getattr(method, "save_total_limit", 0) or 0)
 
 
 def _model_bytes(path: str) -> int:
@@ -82,7 +97,8 @@ def precheck_disk(spec: TrainSpec) -> list[str]:
     which reads like a size bug rather than a space one. Checking before submit turns hours of
     wasted compute into one line of output.
     """
-    need = int(_model_bytes(spec.base_model) * _DISK_HEADROOM)
+    factor = _retained_models(spec)
+    need = int(_model_bytes(spec.base_model) * factor)
     if not need:  # unreadable base (e.g. a spec built off-cluster) — nothing to compare against
         return []
     probe = Path(spec.run_dir)
@@ -92,12 +108,14 @@ def precheck_disk(spec: TrainSpec) -> list[str]:
     if free >= need:
         return []
     gb = 1024**3
+    keep = getattr(spec.method, "save_steps", None) and getattr(spec.method, "save_total_limit", 0)
     return [
         f"not enough free space under {spec.run_dir}: {free / gb:.1f} GiB free, this run needs "
-        f"at least {need / gb:.1f} GiB ({_DISK_HEADROOM}x the base model's "
-        f"{_model_bytes(spec.base_model) / gb:.1f} GiB of weights) to write its output. "
-        "Free space or point run_dir at another filesystem — training to completion and then "
-        "failing on save wastes the whole allocation."
+        f"at least {need / gb:.1f} GiB ({factor}x the base model's "
+        f"{_model_bytes(spec.base_model) / gb:.1f} GiB of weights) to write its output"
+        + (f", including {keep} retained checkpoints" if keep else "")
+        + ". Free space, lower save_total_limit, or point run_dir at another filesystem — "
+        "training to completion and then failing on save wastes the whole allocation."
     ]
 
 
