@@ -75,7 +75,10 @@ class SFT(_Model):
 
     kind: Literal["sft"] = "sft"
     finetuning_type: Literal["lora", "full", "freeze"] = "lora"
-    template: str = "qwen3"
+    # None = derive from the model's config.json model_type (ext/templates.py).
+    # There is deliberately no default family: a wrong chat template is a silent
+    # failure — capped scores, nothing in any log.
+    template: str | None = None
     learning_rate: float = 1e-4
     num_train_epochs: float = 1.0
     per_device_train_batch_size: int = 1
@@ -95,7 +98,10 @@ class _LlamaFactoryTuning(_Model):
     """Common LLaMA-Factory tuning controls DataOS-train commits to exposing."""
 
     finetuning_type: Literal["lora", "full", "freeze"] = "lora"
-    template: str = "qwen3"
+    # None = derive from the model's config.json model_type (ext/templates.py).
+    # There is deliberately no default family: a wrong chat template is a silent
+    # failure — capped scores, nothing in any log.
+    template: str | None = None
     learning_rate: float = 5e-6
     num_train_epochs: float = 1.0
     per_device_train_batch_size: int = 1

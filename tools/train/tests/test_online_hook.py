@@ -77,7 +77,7 @@ def _spec(**kw) -> TrainSpec:  # noqa: ANN001
         "base_model": "/m",
         "run_dir": "/r",
         "dataset": DatasetRef(path="/d"),
-        "method": SFT(finetuning_type="full"),
+        "method": SFT(finetuning_type="full", template="qwen3"),
     }
     return TrainSpec(**(base | kw))
 
@@ -119,7 +119,7 @@ def test_backend_routes_online_to_ext_entry() -> None:
         LlamaFactoryBackend()
         .build(
             TrainSpec(
-                name="x", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=SFT()
+                name="x", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=SFT(template="qwen3")
             )
         )
         .assets["run_train.sh"]

@@ -16,7 +16,7 @@ from ...io import read_json
 from ...spec import DPO, KTO, ORPO, PPO, TrainSpec
 from ...types import Capabilities, JobSpec, LaunchPlan, SlurmExtras, Status, TrainResult
 from ..base import is_hf_model_dir, tail_text
-from .ext.templates import DATAOS_TEMPLATES
+from .ext.templates import DATAOS_TEMPLATES, resolve_template
 from .config import (
     SUPPORTED_METHODS,
     LlamaFactoryMethod,
@@ -65,8 +65,9 @@ class LlamaFactoryBackend:
             errors.append("dataset is required (path to canonical data)")
         if m.finetuning_type not in ("lora", "full", "freeze"):
             errors.append("finetuning_type must be 'lora', 'full', or 'freeze'")
-        if not m.template:
-            errors.append("template is required")
+        if m.template is not None and not str(m.template).strip():
+            errors.append("template must be a non-empty name, or omitted to derive it from "
+                          "the model's config.json model_type")
         if "model_name_or_path" in (m.extra or {}):
             errors.append("method.extra must not set model_name_or_path; code injects base_model")
         if isinstance(m, PPO):
@@ -176,6 +177,10 @@ class LlamaFactoryBackend:
         adapter_dir = f"{run_dir}/adapter"
         final_dir = f"{run_dir}/final_model"
         output_dir = adapter_dir if m.finetuning_type == "lora" else final_dir
+        # Resolve the chat template ONCE, here, and carry it on the method copy so the rendered
+        # config, the assets meta, the export command and the entry routing can never disagree.
+        if m.template is None:
+            m = m.model_copy(update={"template": resolve_template(spec.base_model)})
 
         cfg = render_train_config(spec, m, data_dir, output_dir, dataset_name)
         # LF 0.9.x only loads YAML correctly (JSON branch is buggy).
@@ -220,7 +225,7 @@ class LlamaFactoryBackend:
             f"--in {shlex.quote(spec.dataset.path)} --informat {shlex.quote(spec.dataset.format)} "
             f"--out {shlex.quote(data_dir)} --to {self._convert_target(m)} "
             f"--name {shlex.quote(dataset_name)}",
-            f"{self._train_entry(spec)} {shlex.quote(run_dir)}/train_config.yaml",
+            f"{self._train_entry(spec, m.template)} {shlex.quote(run_dir)}/train_config.yaml",
         ]
         if m.finetuning_type == "lora":
             steps.append(
@@ -257,7 +262,7 @@ class LlamaFactoryBackend:
             return "ppo"
         return "alpaca"
 
-    def _train_entry(self, spec: TrainSpec) -> str:
+    def _train_entry(self, spec: TrainSpec, template: str) -> str:
         # Online operators require the patched entrypoint (Milestone 3).
         if spec.online_ops:
             ops = json.dumps([op.model_dump() for op in spec.online_ops])
@@ -267,7 +272,7 @@ class LlamaFactoryBackend:
             )
         # Templates LF does not ship (see ext/templates.py) need our registering wrapper; every
         # other template keeps LF's own console script, so this path carries only what needs it.
-        if getattr(spec.method, "template", None) in DATAOS_TEMPLATES:
+        if template in DATAOS_TEMPLATES:
             return "python -m dataos_train.backends.llamafactory.ext.lf_entry train"
         return "llamafactory-cli train"
 

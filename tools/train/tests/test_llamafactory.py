@@ -104,7 +104,7 @@ def test_render_config_lora_vs_full() -> None:
         base_model="/m",
         run_dir="/r",
         dataset=DatasetRef(path="/d"),
-        method=SFT(finetuning_type="lora", learning_rate=1.5e-4, lora_rank=64),
+        method=SFT(finetuning_type="lora", learning_rate=1.5e-4, lora_rank=64, template="qwen3"),
         overrides={"flash_attn": "fa2"},
     )
     cfg = render_train_config(spec, spec.method, "/r/data/sft", "/r/adapter")
@@ -117,9 +117,9 @@ def test_render_config_lora_vs_full() -> None:
             base_model="/m",
             run_dir="/r",
             dataset=DatasetRef(path="/d"),
-            method=SFT(finetuning_type="full"),
+            method=SFT(finetuning_type="full", template="qwen3"),
         ),
-        SFT(finetuning_type="full"),
+        SFT(finetuning_type="full", template="qwen3"),
         "/r/data/sft",
         "/r/final_model",
     )
@@ -131,9 +131,9 @@ def test_render_config_lora_vs_full() -> None:
             base_model="/m",
             run_dir="/r",
             dataset=DatasetRef(path="/d"),
-            method=ORPO(extra={"stage": "sft", "dataset": "x"}),
+            method=ORPO(extra={"stage": "sft", "dataset": "x"}, template="qwen3"),
         ),
-        ORPO(extra={"stage": "sft", "dataset": "x"}),
+        ORPO(extra={"stage": "sft", "dataset": "x"}, template="qwen3"),
         "/r/data/orpo",
         "/r/adapter",
     )
@@ -144,7 +144,7 @@ def test_render_config_lora_vs_full() -> None:
 def test_validate() -> None:
     be = LlamaFactoryBackend()
     ok = TrainSpec(
-        name="a", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=SFT()
+        name="a", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=SFT(template="qwen3")
     )
     assert be.validate(ok) == []
     grpo = TrainSpec(
@@ -153,18 +153,18 @@ def test_validate() -> None:
     assert any("supports method.kind" in e for e in be.validate(grpo))
     assert any(
         "dataset is required" in e
-        for e in be.validate(TrainSpec(name="c", base_model="/m", run_dir="/r", method=SFT()))
+        for e in be.validate(TrainSpec(name="c", base_model="/m", run_dir="/r", method=SFT(template="qwen3")))
     )
     leak = TrainSpec(
         name="d",
         base_model="/m",
         run_dir="/r",
         dataset=DatasetRef(path="/d"),
-        method=SFT(extra={"model_name_or_path": "/x"}),
+        method=SFT(extra={"model_name_or_path": "/x"}, template="qwen3"),
     )
     assert any("model_name_or_path" in e for e in be.validate(leak))
     ppo = TrainSpec(
-        name="e", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=PPO()
+        name="e", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=PPO(template="qwen3")
     )
     assert any("reward_model" in e for e in be.validate(ppo))
     ppo_full_lora_reward = TrainSpec(
@@ -172,7 +172,7 @@ def test_validate() -> None:
         base_model="/m",
         run_dir="/r",
         dataset=DatasetRef(path="/d"),
-        method=PPO(finetuning_type="full", reward_model="/rm", reward_model_type="lora"),
+        method=PPO(finetuning_type="full", reward_model="/rm", reward_model_type="lora", template="qwen3"),
     )
     assert any("reward_model_type='lora'" in e for e in be.validate(ppo_full_lora_reward))
 
@@ -187,7 +187,7 @@ def test_ppo_env_domain() -> None:
             base_model="/m",
             run_dir="/r",
             dataset=DatasetRef(path="/d"),
-            method=PPO(reward_model="/rm"),
+            method=PPO(reward_model="/rm", template="qwen3"),
             env=env,
         )
 
@@ -211,7 +211,7 @@ def test_ppo_env_domain() -> None:
         base_model="/m",
         run_dir="/r",
         dataset=DatasetRef(path="/d"),
-        method=SFT(),
+        method=SFT(template="qwen3"),
         env=EnvSpec(backends={"llamafactory": "Llama", "llamafactory:ppo": "LlamaPPO"}),
     )
     assert be.build(sft).conda_env == "Llama"
@@ -241,11 +241,11 @@ def test_build_lora(tmp_path: Path) -> None:
 
 def test_build_preference_rlhf_methods(tmp_path: Path) -> None:
     cases = [
-        (DPO(), "dpo", "stage: dpo", "--to preference --name dataos_dpo", "pref_loss: sigmoid"),
-        (ORPO(), "orpo", "stage: dpo", "--to preference --name dataos_orpo", "pref_loss: orpo"),
-        (KTO(), "kto", "stage: kto", "--to kto --name dataos_kto", "kto_chosen_weight: 1"),
+        (DPO(template="qwen3"), "dpo", "stage: dpo", "--to preference --name dataos_dpo", "pref_loss: sigmoid"),
+        (ORPO(template="qwen3"), "orpo", "stage: dpo", "--to preference --name dataos_orpo", "pref_loss: orpo"),
+        (KTO(template="qwen3"), "kto", "stage: kto", "--to kto --name dataos_kto", "kto_chosen_weight: 1"),
         (
-            PPO(reward_model="/rm"),
+            PPO(reward_model="/rm", template="qwen3"),
             "ppo",
             "stage: ppo",
             "--to ppo --name dataos_ppo",
@@ -281,7 +281,7 @@ def test_build_full_no_merge(tmp_path: Path) -> None:
         base_model="/m",
         run_dir=str(tmp_path),
         dataset=DatasetRef(path="/d"),
-        method=SFT(finetuning_type="full"),
+        method=SFT(finetuning_type="full", template="qwen3"),
     )
     job = LlamaFactoryBackend().build(spec)
     assert "llamafactory-cli export" not in job.assets["run_train.sh"]
@@ -299,7 +299,7 @@ def test_lora_export_only_for_lora_and_qlora(tmp_path: Path) -> None:
         base_model="/m",
         run_dir=str(tmp_path / "q"),
         dataset=DatasetRef(path="/d"),
-        method=DPO(quantization_bit=4),
+        method=DPO(quantization_bit=4, template="qwen3"),
     )
     qjob = LlamaFactoryBackend().build(qlora)
     assert "quantization_bit: 4" in qjob.assets["train_config.yaml"]
@@ -310,7 +310,7 @@ def test_lora_export_only_for_lora_and_qlora(tmp_path: Path) -> None:
         base_model="/m",
         run_dir=str(tmp_path / "f"),
         dataset=DatasetRef(path="/d"),
-        method=ORPO(finetuning_type="full"),
+        method=ORPO(finetuning_type="full", template="qwen3"),
     )
     fjob = LlamaFactoryBackend().build(full)
     assert "llamafactory-cli export" not in fjob.assets["run_train.sh"]
@@ -320,7 +320,7 @@ def test_lora_export_only_for_lora_and_qlora(tmp_path: Path) -> None:
         base_model="/m",
         run_dir=str(tmp_path / "z"),
         dataset=DatasetRef(path="/d"),
-        method=KTO(finetuning_type="freeze"),
+        method=KTO(finetuning_type="freeze", template="qwen3"),
     )
     zjob = LlamaFactoryBackend().build(freeze)
     assert "llamafactory-cli export" not in zjob.assets["run_train.sh"]

@@ -29,9 +29,51 @@ that calls :func:`register_all` asserts single-process before relying on it.)
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 #: Template names this module adds to LF's registry. The LF backend routes training/export
 #: through ``ext.lf_entry`` instead of ``llamafactory-cli`` when a spec asks for one of these.
 DATAOS_TEMPLATES: tuple[str, ...] = ("smollm3", "smollm3_nothink")
+
+#: HF ``model_type`` -> LLaMA-Factory template. The training half of the pair the eval side
+#: builds with ``resolve_chat_template`` (configs/tasks/posttrainbench/eval/scripts/
+#: run_lmeval_eval.py) — both must render the same turn tokens or the score is capped by
+#: protocol instead of capability. Keyed on ``model_type`` rather than a path substring
+#: because a continuation node's model path is the PARENT's ``final_model`` dir and carries no
+#: family name, while a saved model always keeps its ``model_type``.
+MODEL_TYPE_TEMPLATES: dict[str, str] = {
+    "qwen3": "qwen3",
+    "smollm3": "smollm3",  # registered below; LF's own `smollm` is the SmolLM1/2 format
+    "gemma3": "gemma",
+}
+
+
+def resolve_template(model_path: str | Path) -> str:
+    """The LF template for the model at ``model_path``, from its own ``config.json``.
+
+    Raises rather than guessing. A wrong template is a SILENT failure — the model learns turn
+    tokens the scorer never sends and every score is capped, with nothing in any log. The
+    previous behaviour was a hardcoded ``template: str = "qwen3"`` default in ``spec.py``,
+    which no plan ever overrode (68/68 in the 2026-08-11 smol3 batch): right for Qwen,
+    accidentally right for SmolLM3 (also ChatML), and silently wrong for Gemma.
+    """
+    cfg = Path(model_path) / "config.json"
+    try:
+        model_type = json.loads(cfg.read_text(encoding="utf-8")).get("model_type")
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            f"cannot derive the chat template: {cfg} is unreadable ({exc}). Set "
+            "method.template explicitly, or run build where the model path is visible."
+        ) from exc
+    template = MODEL_TYPE_TEMPLATES.get(str(model_type))
+    if not template:
+        raise ValueError(
+            f"no chat template known for model_type {model_type!r} ({model_path}). Add it to "
+            "MODEL_TYPE_TEMPLATES together with the matching eval-side jinja, or set "
+            "method.template explicitly — do NOT let it fall back to another family's format."
+        )
+    return template
 
 _CHATML = {
     "format_user": ["<|im_start|>user\n{{content}}<|im_end|>\n<|im_start|>assistant\n"],
