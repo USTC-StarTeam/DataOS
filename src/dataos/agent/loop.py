@@ -228,11 +228,16 @@ def _recent_reviews(proj, *, limit: int = 5) -> list[dict]:
 
 
 def _remaining_hours(started: float, cfg: AutoRunConfig, now: float) -> float | None:
-    cap = cfg.budget.max_wall_clock_s
-    if cap is None:
+    """What the leader is told it has left — off the SAME deadline the stop check and the
+    experiment launcher use, so the three can never disagree. Reading it off an uncapped
+    credit is how the leader kept planning experiments the launcher would refuse to run."""
+    if cfg.budget.max_wall_clock_s is None:
         return None
     credit = subagent_executor._queue_wait_s(cfg)
-    return max(0.0, (cap - (now - started - credit)) / 3600.0)
+    deadline = _budget.credited_deadline(
+        started_at=started, budget=cfg.budget, queue_credit_s=credit
+    )
+    return max(0.0, (deadline - now) / 3600.0)
 
 
 def _effective_eval_limit(cfg: AutoRunConfig) -> int:
@@ -747,7 +752,14 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             node_trains=bool((node.get("plan") or {}).get("train")),
         )
 
-        deadline = started + cfg.budget.max_wall_clock_s if cfg.budget.max_wall_clock_s else None
+        # The SAME deadline the stop check above used — including this round's queue credit.
+        # Computing it here without the credit is what produced the smol3 batch's 77 zombie
+        # rounds (see budget.credited_deadline).
+        deadline = (
+            _budget.credited_deadline(started_at=started, budget=cfg.budget, queue_credit_s=credit)
+            if cfg.budget.max_wall_clock_s
+            else None
+        )
         subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)
 
         exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"

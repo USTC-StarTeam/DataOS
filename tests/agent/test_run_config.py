@@ -175,10 +175,16 @@ def test_budget_ideal_time_excludes_queue_credit():
     from dataos.agent.config import Budget
 
     b = Budget(max_wall_clock_s=100.0)
-    # 150s elapsed but 80s was queue wait -> ideal 70s < 100 -> no stop
-    assert stop_reason(started_at=0, budget=b, now=150.0, queue_credit_s=80.0) is None
+    # 130s elapsed but 30s was queue wait -> ideal 100s, deadline 130 -> stop exactly there
+    assert stop_reason(started_at=0, budget=b, now=129.0, queue_credit_s=30.0) is None
+    assert stop_reason(started_at=0, budget=b, now=130.0, queue_credit_s=30.0) == "budget:wall_clock"
     # 150s elapsed with 40s queue -> ideal 110s >= 100 -> stop
     assert stop_reason(started_at=0, budget=b, now=150.0, queue_credit_s=40.0) == "budget:wall_clock"
+    # The exemption is CAPPED at half the budget: 80s of queue wait credits only 50s, so a run
+    # whose ideal time is 70s still stops at 150. Uncapped, a congested cluster turned a 10h
+    # budget into 11.5h (smol3 gsm8k) — and, worse, into 36 rounds that could not launch
+    # anything because fan_out's deadline was computed without the credit at all.
+    assert stop_reason(started_at=0, budget=b, now=150.0, queue_credit_s=80.0) == "budget:wall_clock"
 
 
 def test_eval_samples_auto_mode(tmp_path):
