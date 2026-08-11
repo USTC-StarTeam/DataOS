@@ -1,27 +1,22 @@
-"""Cross-repo contract: DataOS's build_train_spec output must pass dataos-train's
-own validate() — the two repos' schemas must never drift apart.
+"""Contract: DataOS's build_train_spec output must pass dataos-train's own validate() —
+the spec crosses the tool boundary as data, and the two schemas must never drift apart.
 
-dataos-train is NOT a DataOS dependency (the spec crosses the boundary as data);
-locally it is importable via a sibling checkout (../DataOS-train) or an installed
-package — the test skips when neither is available.
+dataos-train lives in this repo (``tools/train``) and is imported from there. It used to be a
+separate repo, and this module used to prepend a sibling checkout (``../DataOS-train/src``) to
+``sys.path`` as a fallback. That fallback outlived the move and became a hazard: a stale sibling
+directory SHADOWED the in-repo package, so running ``pytest tests/ tools/train/tests/`` in one
+process collected an old ``dataos_train`` and died on imports of modules added since. Same shape
+as the defects in audit batch 12 — an outdated external copy silently beating the declared one.
 """
-
-import sys
-from pathlib import Path
 
 import pytest
 
 from dataos.agent.train_spec import build_train_spec
 
-_SIBLING = Path(__file__).resolve().parents[3] / "DataOS-train" / "src"
-
 try:
-    if _sibling := (_SIBLING if _SIBLING.is_dir() else None):
-        sys.path.insert(0, str(_sibling))
-    from dataos_train import TrainSpec, get_backend  # type: ignore
-except ImportError:  # pragma: no cover
-    pytest.skip("dataos_train not importable (no package, no ../DataOS-train checkout)",
-                allow_module_level=True)
+    from dataos_train import TrainSpec, get_backend
+except ImportError:  # pragma: no cover - dataos-train is installed in the dev venv
+    pytest.skip("dataos_train not importable", allow_module_level=True)
 
 
 def _resolved() -> dict:

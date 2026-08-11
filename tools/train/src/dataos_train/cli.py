@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -52,16 +53,75 @@ def _persist_job(job: JobSpec) -> None:
     # (build IS the render step)
 
 
+#: Free space required before a run is allowed to start, as a multiple of the base model's
+#: weight files. A full-SFT run writes back roughly one model (``final_model``); a LoRA run writes
+#: an adapter plus a merged export. The headroom covers the export and a little slack — it is a
+#: FLOOR, not a guarantee: checkpoint retention multiplies it, and nothing here reserves the space
+#: against another job filling the same filesystem in the meantime.
+_DISK_HEADROOM = 1.5
+
+
+def _model_bytes(path: str) -> int:
+    """Size of the model's weight files, or 0 when the path is not a readable model dir."""
+    root = Path(path)
+    if not root.is_dir():
+        return 0
+    return sum(
+        f.stat().st_size
+        for f in root.iterdir()
+        if f.is_file() and f.suffix in {".safetensors", ".bin", ".pt"}
+    )
+
+
+def precheck_disk(spec: TrainSpec) -> list[str]:
+    """Refuse a run that cannot fit its own output.
+
+    The 4b2 v5 batch exhausted ``/data2`` mid-run: training finished, then ``save_pretrained``
+    died writing the weights, so the GPU hours were spent and nothing came back. The signature is
+    unhelpful too — a full filesystem surfaces as safetensors' "File too large (os error 27)",
+    which reads like a size bug rather than a space one. Checking before submit turns hours of
+    wasted compute into one line of output.
+    """
+    need = int(_model_bytes(spec.base_model) * _DISK_HEADROOM)
+    if not need:  # unreadable base (e.g. a spec built off-cluster) — nothing to compare against
+        return []
+    probe = Path(spec.run_dir)
+    while not probe.exists() and probe != probe.parent:  # run_dir is created by the job
+        probe = probe.parent
+    free = shutil.disk_usage(probe).free
+    if free >= need:
+        return []
+    gb = 1024**3
+    return [
+        f"not enough free space under {spec.run_dir}: {free / gb:.1f} GiB free, this run needs "
+        f"at least {need / gb:.1f} GiB ({_DISK_HEADROOM}x the base model's "
+        f"{_model_bytes(spec.base_model) / gb:.1f} GiB of weights) to write its output. "
+        "Free space or point run_dir at another filesystem — training to completion and then "
+        "failing on save wastes the whole allocation."
+    ]
+
+
 def _looks_like_jobspec(data: dict) -> bool:
     return all(k in data for k in ("command", "run_dir", "backend", "job_name"))
+
+
+def _build_or_die(spec: TrainSpec) -> JobSpec:
+    """Validate (schema + disk) then build. The single funnel for ``build`` and ``submit``:
+    submit used to skip validation entirely, so a spec the backend rejected at build time was
+    still submitted when the caller passed a TrainSpec straight to ``submit``."""
+    backend = get_backend(spec.backend)
+    errors = backend.validate(spec) + precheck_disk(spec)
+    if errors:
+        _emit({"ok": False, "errors": errors})
+        raise SystemExit(1)
+    return backend.build(spec)
 
 
 def _load_jobspec_or_build(arg: str) -> JobSpec:
     data = _read_input(arg)
     if isinstance(data, dict) and _looks_like_jobspec(data):
         return JobSpec.model_validate(data)
-    spec = TrainSpec.model_validate(data)
-    return get_backend(spec.backend).build(spec)
+    return _build_or_die(TrainSpec.model_validate(data))
 
 
 def _backend_for_run(run_dir: str, fallback: str) -> str:
@@ -121,19 +181,18 @@ def cmd_schema(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     spec = TrainSpec.model_validate(_read_input(args.spec))
-    errors = get_backend(spec.backend).validate(spec)
+    # same checks build/submit apply, so `validate` cannot report ok on a spec they will reject
+    errors = get_backend(spec.backend).validate(spec) + precheck_disk(spec)
     _emit({"ok": not errors, "errors": errors})
     return 0 if not errors else 1
 
 
 def cmd_build(args: argparse.Namespace) -> int:
     spec = TrainSpec.model_validate(_read_input(args.spec))
-    backend = get_backend(spec.backend)
-    errors = backend.validate(spec)
-    if errors:
-        _emit({"ok": False, "errors": errors})
+    try:
+        job = _build_or_die(spec)
+    except SystemExit:
         return 1
-    job = backend.build(spec)
     _persist_job(job)
     _emit(job.model_dump())
     return 0
