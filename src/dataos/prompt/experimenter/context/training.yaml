@@ -19,3 +19,14 @@ template: |
     `llamafactory-cli export --model_name_or_path <PARENT> --adapter_name_or_path $RUN_ROOT/adapter
     --finetuning_type lora --export_dir $RUN_ROOT/final_model`. Deterministic artifact layout either
     way: `$RUN_ROOT/{data/sft, adapter, final_model, eval/<bench>_limit<N>, logs}`.
+  - TRAJECTORY CHECKPOINTS — if the plan's train knobs carry `save_steps`, this experiment is
+    sampling its own training curve, and that changes what you deliver: not "the final model" but
+    "the best point on this run". dataos-train renders `save_strategy: steps` plus
+    `save_only_model: True` (no optimizer state — a checkpoint here exists to be EVALUATED and to
+    be continued from as a fresh run, both of which need weights alone), and full-parameter
+    checkpoints land in `$RUN_ROOT/final_model/checkpoint-<step>/`, each a COMPLETE HF model dir
+    you can point an eval at directly. `save_total_limit` keeps the most recent K and deletes the
+    oldest DURING training, so what survives to the end is the last K, not a spread — if fewer
+    checkpoints exist than the plan implies, say so in the report rather than silently scoring
+    what is left. A LoRA checkpoint is NOT this: it holds `adapter_model.safetensors` and no
+    `config.json`, so it is a delta with no model to load — never point an eval at one.

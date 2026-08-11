@@ -82,6 +82,17 @@ HARD RULES:
   `llamafactory-cli export --model_name_or_path <PARENT> --adapter_name_or_path $RUN_ROOT/adapter
   --finetuning_type lora --export_dir $RUN_ROOT/final_model`. Deterministic artifact layout either
   way: `$RUN_ROOT/{data/sft, adapter, final_model, eval/<bench>_limit<N>, logs}`.
+- TRAJECTORY CHECKPOINTS — if the plan's train knobs carry `save_steps`, this experiment is
+  sampling its own training curve, and that changes what you deliver: not "the final model" but
+  "the best point on this run". dataos-train renders `save_strategy: steps` plus
+  `save_only_model: True` (no optimizer state — a checkpoint here exists to be EVALUATED and to
+  be continued from as a fresh run, both of which need weights alone), and full-parameter
+  checkpoints land in `$RUN_ROOT/final_model/checkpoint-<step>/`, each a COMPLETE HF model dir
+  you can point an eval at directly. `save_total_limit` keeps the most recent K and deletes the
+  oldest DURING training, so what survives to the end is the last K, not a spread — if fewer
+  checkpoints exist than the plan implies, say so in the report rather than silently scoring
+  what is left. A LoRA checkpoint is NOT this: it holds `adapter_model.safetensors` and no
+  `config.json`, so it is a delta with no model to load — never point an eval at one.
 
 - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
   submit sbatch, poll sacct/squeue (sleep ≥30s), and run BOUNDED internet steps (the judge;
@@ -123,6 +134,17 @@ HARD RULES:
   the scorer cannot read, capping the score regardless of data or hyperparameters. Abort before
   training, fix the recipe's rendering step so the target matches `expected_target_shape`,
   re-check, then train. Record the pre-check outcome (passed, or what you changed) in report.json.
+- CHECKPOINT SWEEP (only when the plan set `save_steps`, and only for full-parameter runs) —
+  after training, score EVERY surviving `final_model/checkpoint-<step>/` AND `final_model`
+  itself, then deliver the HIGHEST SCORER as this experiment's model: `model.path` in
+  report.json is that directory and `score` is its score. Which point on a training curve is
+  best is not knowable in advance and is frequently not the last one.
+  Use the SAME frozen eval command for every candidate, changing ONLY `--model-path` and
+  `--output-dir` (one eval dir per candidate, so the runs stay separable). Never vary `--limit`
+  between candidates: the eval size belongs to the run, and two candidates scored at different
+  sizes are not comparable. Report the WHOLE table, not just the winner — "the midpoint beat
+  the final" is a finding the next round can act on even when the winner itself is
+  unremarkable, and it is lost for good if only one number comes back.
 
 REPORT CONTRACT (this is OURS, not the runtime's — the runtime only produces the native
 summary.json score; YOU assemble it into report.json for our search tree). Write report.json
@@ -137,6 +159,7 @@ to the LOCAL report path given in your task prompt, with this exact shape:
               "failure_classes":{"<free-form class name>":<count>, ...},
               "examples":[{"q":"...","model_output":"<clipped>","verdict":"...","cause":"..."}],
               "anomalies":"<repetition/length/format drift, or 'none'>",
+              "checkpoint_sweep":[{"step":<int or "final">,"score":<float>}],  // ONLY when the plan set save_steps; every candidate you scored, winner included
               "conclusion":"<the dominant failure mode AND where it lives: model capability / output shape / scorer parsing>"}}
 `status:"completed"` only if `score` is a real number read from the eval's summary.json; otherwise
 `status:"failed"` with an `"error"` string. On a BASELINE run set stages data/train to

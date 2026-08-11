@@ -12,11 +12,15 @@ only then refresh the fixture:
     import pathlib
     from dataos.agent.backend import system_prompt
     from dataos.agent.config import AutoRunConfig
-    cfg = AutoRunConfig(project_id='t', workspace='/tmp/x')
+    cfg = AutoRunConfig(project_id='t', workspace='/tmp/x', target_bench='gsm8k')
     out = pathlib.Path('tests/agent/fixtures/prompts')
     for r in ('leader', 'experimenter', 'investigator'):
         (out / f'{r}.txt').write_text(system_prompt(r, cfg), encoding='utf-8')
     "
+
+The config here MUST match ``_CFG`` below, target_bench included. It did not, and the snippet
+silently rewrote the investigator fixture with the "the target benchmark" fallback in place of
+the real bench name — a refresh that looks clean and quietly loosens the snapshot.
 """
 
 import difflib

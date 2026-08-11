@@ -15,6 +15,7 @@ template: |
                 "failure_classes":{"<free-form class name>":<count>, ...},
                 "examples":[{"q":"...","model_output":"<clipped>","verdict":"...","cause":"..."}],
                 "anomalies":"<repetition/length/format drift, or 'none'>",
+                "checkpoint_sweep":[{"step":<int or "final">,"score":<float>}],  // ONLY when the plan set save_steps; every candidate you scored, winner included
                 "conclusion":"<the dominant failure mode AND where it lives: model capability / output shape / scorer parsing>"}}
   `status:"completed"` only if `score` is a real number read from the eval's summary.json; otherwise
   `status:"failed"` with an `"error"` string. On a BASELINE run set stages data/train to

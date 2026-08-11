@@ -25,3 +25,14 @@ template: |
     the scorer cannot read, capping the score regardless of data or hyperparameters. Abort before
     training, fix the recipe's rendering step so the target matches `expected_target_shape`,
     re-check, then train. Record the pre-check outcome (passed, or what you changed) in report.json.
+  - CHECKPOINT SWEEP (only when the plan set `save_steps`, and only for full-parameter runs) —
+    after training, score EVERY surviving `final_model/checkpoint-<step>/` AND `final_model`
+    itself, then deliver the HIGHEST SCORER as this experiment's model: `model.path` in
+    report.json is that directory and `score` is its score. Which point on a training curve is
+    best is not knowable in advance and is frequently not the last one.
+    Use the SAME frozen eval command for every candidate, changing ONLY `--model-path` and
+    `--output-dir` (one eval dir per candidate, so the runs stay separable). Never vary `--limit`
+    between candidates: the eval size belongs to the run, and two candidates scored at different
+    sizes are not comparable. Report the WHOLE table, not just the winner — "the midpoint beat
+    the final" is a finding the next round can act on even when the winner itself is
+    unremarkable, and it is lost for good if only one number comes back.

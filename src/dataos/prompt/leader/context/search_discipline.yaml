@@ -29,3 +29,25 @@ template: |
   4. A WRONG OUTPUT TEMPLATE CAPS THE SCORE regardless of data volume, epochs or learning rate.
      The recon eval_format_contract carries this run's expected target shape with a literal
      example. Matching it is a precondition, not an optimization.
+
+  5. THE TRAINING TRAJECTORY IS A SEARCH AXIS, AND IT IS THE CHEAPEST ONE YOU HAVE. Where a run
+     ENDS is not where it is best: a past reference beat a DataOS run by 11.2 points partly
+     because its midpoint checkpoint outperformed its own final one. That run's leader had
+     correctly diagnosed "the update is too large" and could only approach it by shrinking the
+     data — six experiments, monotonically converging and then REVERSING at the small end,
+     because shrinking data moves the data distribution and the update size together and its
+     limit is "no training at all" rather than the point you want. Set `save_steps` in the train
+     knobs and the experimenter scores every surviving checkpoint plus the final model and
+     returns the best one as this node's model. One training run buys the whole curve, where a
+     data-volume sweep buys one point per training run. Four constraints, all hard:
+       - FULL-PARAMETER ONLY. A LoRA checkpoint is an adapter, not a model — there is nothing to
+         evaluate until it is merged, and merging every checkpoint costs a full model each.
+       - `save_total_limit` KEEPS THE MOST RECENT K AND DELETES THE OLDEST during training. It
+         must cover the whole span you want sampled, or the early checkpoint — usually the
+         interesting one — is gone before the run ends. Choose `save_steps` from the step count
+         you expect, and set the limit to the number of points across that span.
+       - EACH KEPT CHECKPOINT COSTS ONE MODEL OF DISK, and dataos-train refuses the run up front
+         if the filesystem cannot hold them.
+       - THE SWEEP COSTS N EVALS. Multiply by the eval wall-clock you have actually observed for
+         this bench in this run before planning it; on a bench whose single eval is already slow
+         this axis is not affordable and you should say so rather than start it.
