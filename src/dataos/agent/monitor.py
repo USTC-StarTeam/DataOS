@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import threading
 import time
@@ -281,14 +282,20 @@ def stage_snapshot(run_root: str) -> dict:
     cached = _STAGE_CACHE.get(run_root)
     if cached and now - cached[0] < _STAGE_TTL:
         return cached[1]
-    # one ssh: count the marker dirs that mark data-built / training-started / model-merged
+    # one ssh: count the marker dirs that mark data-built / training-started / model-merged.
+    # QUOTE the path, both at assignment and at every expansion: a run_root routinely contains
+    # "(N)" — dataos appends it when a workspace name is taken, so most real runs are
+    # ptb-<bench>-4b2(1)/(2) — and an unquoted `RR=...(2)...` is a bash SYNTAX error. The probe
+    # then dies before printing PROBE_END, `_parse_stage` reads that as reachable=False, and the
+    # UI shows "cannot probe" indistinguishably from a down cluster. The node name in the path
+    # is also leader-chosen, so this is an injection surface as well.
     probe = (
-        f"RR={run_root}; "
-        f"echo DATA=$(ls $RR/data/sft 2>/dev/null | wc -l); "
-        f"echo TRLOG=$(ls $RR/adapter/trainer_log.jsonl $RR/final_model/trainer_log.jsonl "
-        f"2>/dev/null | wc -l); "
-        f"echo MODEL=$(ls $RR/final_model 2>/dev/null | wc -l); "
-        f"echo PROBE_END"
+        f'RR={shlex.quote(run_root)}; '
+        f'echo DATA=$(ls "$RR"/data/sft 2>/dev/null | wc -l); '
+        f'echo TRLOG=$(ls "$RR"/adapter/trainer_log.jsonl "$RR"/final_model/trainer_log.jsonl '
+        f'2>/dev/null | wc -l); '
+        f'echo MODEL=$(ls "$RR"/final_model 2>/dev/null | wc -l); '
+        f'echo PROBE_END'
     )
     data = _parse_stage(_ssh_read(probe))
     _STAGE_CACHE[run_root] = (now, data)
