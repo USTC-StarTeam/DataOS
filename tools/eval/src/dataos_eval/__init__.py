@@ -8,4 +8,8 @@ on the login node at collect time.
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib import metadata as _metadata
+
+# Read from the installed distribution, not a second hand-maintained literal: this had
+# drifted to 0.1.0 while pyproject said 0.1.4.
+__version__ = _metadata.version("dataos-eval")
