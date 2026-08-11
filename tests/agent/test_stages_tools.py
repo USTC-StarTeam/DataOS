@@ -137,6 +137,25 @@ def test_train_spec_injects_the_full_env_menu():
     assert spec["env"]["backends"] == {"llamafactory": "/envs/Llama", "verl": "/envs/verl"}
 
 
+def test_train_spec_scopes_the_menu_by_declared_model_family():
+    """An env that lists `model_families` claims ONLY those families' domains. Nothing here
+    knows what a family is — it expands the environment's declaration, and dataos-train
+    matches it against the model's own model_type. An undeclared family then fails at build
+    instead of at model load, which is where the 2026-08-11 SmolLM3 batch lost 146 jobs."""
+    from dataos.agent.train_spec import build_train_spec
+
+    res = _resolved()
+    res["environment"]["tools"]["sft_env"]["model_families"] = ["qwen3", "smollm3"]
+    spec = build_train_spec(
+        res, name="e0", plan_train={}, parent_model="/m", run_root="/rb/e0", time_h=2.0,
+    )
+    assert spec["env"]["backends"] == {
+        "llamafactory@qwen3": "/envs/Llama",
+        "llamafactory@smollm3": "/envs/Llama",
+        "verl": "/envs/verl",  # declares no families -> unscoped, as before
+    }
+
+
 def test_train_spec_clamps_time_to_the_partition_max():
     from dataos.agent.train_spec import build_train_spec
 

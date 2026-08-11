@@ -126,30 +126,44 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 
-def protocol_tokenizer(model_path: str, chat_template: Path, output_dir: Path) -> str | None:
-    """A tokenizer dir carrying the protocol template, or None if the model already has one.
+def protocol_tokenizer(model_path: str, chat_template: Path, output_dir: Path) -> tuple[str, bool]:
+    """A tokenizer dir carrying the protocol template. Returns (dir, displaced_model_template).
 
     The in-process vLLM backend takes no chat template (only ``vllm serve`` does), so lm-eval
-    falls back to ``tokenizer.apply_chat_template`` — and a -Base checkpoint often ships none.
-    SmolLM3-3B-Base does not (upstream ships the template only on the instruct variant), so
-    gpqamain's baseline died at 0/448 while every trained node self-healed: the training
-    fallback saved its tokenizer under transformers 4.57, which writes chat_template.jinja.
-    The baseline is the one node a run cannot do without, so the platform does this now
-    instead of leaving each agent to invent a "protocol mirror" of its own.
+    falls back to ``tokenizer.apply_chat_template`` — whatever that tokenizer happens to carry.
+    Two ways that goes wrong, both observed:
 
-    Weights are untouched: this is a tokenizer-only copy (a few MB) passed to lm-eval as
-    ``tokenizer=``. A model that DOES ship a template keeps using it, so runs on such models
-    are byte-for-byte unchanged.
+    * The model ships NO template: SmolLM3-3B-Base does not (upstream ships it only on the
+      instruct variant), so gpqamain's baseline died at 0/448 while trained nodes self-healed,
+      and one agent invented a private "protocol mirror" to get a baseline at all.
+    * The model ships ITS OWN, and every trained node inherits one. Which one depends on the
+      base, because LF only writes a template when the tokenizer has none
+      (``data/template.py::fix_jinja_template``): Qwen3-4B-Base carries one, so save_pretrained
+      just copies it through (verified — the 4b2 v5 nodes' chat_template.jinja is byte-identical
+      to the base's 4116 bytes); SmolLM3-3B-Base carries none, so LF writes its OWN
+      reconstruction, and that reconstruction is LOSSY: ``_get_jinja_template`` rebuilds only
+      system/user/assistant from the slots and drops tools and reasoning entirely. A bfcl node's
+      final_model carried 559 bytes without the word "tools" in it, against the protocol
+      template's 5942. None of this is version-dependent — 4.52.3 writes the file too.
+
+    The model dir's template is therefore never the declared one — it is a copy of the base's,
+    a lossy rebuild, or absent, and which of the three you get depends on the base model. So the
+    protocol wins unconditionally: what renders the prompt is a protocol decision, not a property
+    of an artifact the training step happened to write. Weights are untouched — this is a
+    tokenizer-only copy (a few MB) passed to lm-eval as ``tokenizer=``.
     """
     from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(model_path)
-    if tok.chat_template:
-        return None
-    tok.chat_template = chat_template.read_text(encoding="utf-8")
+    protocol = chat_template.read_text(encoding="utf-8")
+    # "carried one" would be true for nearly every node and say nothing; "carried a DIFFERENT
+    # one" is the signal — false for a Qwen node (its inherited template renders identically),
+    # true for a SmolLM3 node (LF's 559-byte rebuild).
+    displaced = bool(tok.chat_template) and tok.chat_template != protocol
+    tok.chat_template = protocol
     dst = output_dir / "protocol_tokenizer"
     tok.save_pretrained(dst)
-    return str(dst)
+    return str(dst), displaced
 
 
 def protocol_digest(*paths: Path) -> str:
@@ -378,7 +392,7 @@ def direct_vllm_model_args(
         "gpu_memory_utilization": DIRECT_GPU_MEMORY[task],
         "max_model_len": 32768,
         "generation_config": "vllm",
-        # only when the model itself ships no chat template (see protocol_tokenizer)
+        # the protocol's tokenizer copy, always (see protocol_tokenizer)
         **({"tokenizer": tokenizer} if tokenizer else {}),
     }
 
@@ -488,9 +502,8 @@ def main() -> None:
     chat_template = Path(args.chat_template).resolve()
     if not chat_template.is_file():
         raise FileNotFoundError(f"chat template does not exist: {chat_template}")
-    # Only fires for a model that ships no template of its own; a model that has one is
-    # evaluated exactly as before.
-    protocol_tok = protocol_tokenizer(args.model_path, chat_template, output_dir)
+    # Unconditional: the protocol decides what renders the prompt, not the model dir.
+    protocol_tok, displaced_template = protocol_tokenizer(args.model_path, chat_template, output_dir)
 
     # The OpenAI-compatible model must be importable/registered before
     # simple_evaluate resolves the model string.
@@ -603,7 +616,10 @@ def main() -> None:
     }
     summary["runner"] = {
         "path": "direct" if is_direct else "server",
-        "protocol_tokenizer": bool(protocol_tok),  # the model shipped no template of its own
+        # True = the model dir carried a chat template that renders DIFFERENTLY from the
+        # protocol's. This is the field that separates "harmless inherited copy" from
+        # "silently scored under a lossy rebuild".
+        "displaced_model_template": displaced_template,
         **(
             {"gpu_memory_utilization": DIRECT_GPU_MEMORY[task]}
             if is_direct

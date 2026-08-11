@@ -22,7 +22,8 @@ model_families:
     train_template: qwen3            # LF 内建
   smollm3:
     eval_template: smollm.jinja
-    train_template: smollm3          # dataos-train 注册（LF 内建的 `smollm` 是 SmolLM1/2 的 <|eot_id|> 格式，不可用）
+    train_template: smollm3          # dataos-train 注册：LF 至今没有 smollm3（0.9.4/0.9.5/main 都没有），
+                                     # 内建 `smollm`/`smollm2` 同为 ChatML，但 replace_eos=False + tool_format=default 不可用
   gemma3:
     eval_template: gemma3.jinja
     eval_template_bfcl: gemma3_tool_calling.jinja   # 仅 bfcl 用带 tool-calling 的变体

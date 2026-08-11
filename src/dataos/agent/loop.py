@@ -267,17 +267,23 @@ def _full_eval_size(cfg: AutoRunConfig) -> int | None:
 
 
 def _probe_floor(full: int | None) -> int | None:
-    """Smallest subset worth spending an exploration probe on.
+    """Smallest subset worth spending an exploration probe on: a third of the benchmark.
 
-    A third of the benchmark, never under 100 items: below that the noise (~50/sqrt(N)) is larger
-    than any effect worth chasing, so the probe cannot answer its own question. When that floor
-    would already eat two thirds of the benchmark the subset saves nothing worth having, and the
-    floor becomes the full size — i.e. use the full benchmark. ``None`` = size unknown, no
-    numeric guidance to give."""
+    There used to be a ``max(..., 100)`` under this, justified as "below 100 items the noise
+    (~50/sqrt(N)) exceeds any effect worth chasing". That floor, not the fraction, was what
+    actually bound 5 of the 7 benches — it lifted arena/healthbench to ~40% and humaneval to
+    61% of their sets, and for bfcl (100 items) and aime2025 (30) it equalled the full size,
+    disabling subsetting outright. It bought no safety either: every pathology it was meant to
+    stop (v4's ``eval_limit=1`` x16 and ``=32`` x23) is already caught by the fraction alone —
+    gsm8k's floor is 439, healthbench's 81. And "a probe must have at least 100 items" is
+    incoherent for a benchmark that only HAS 30. ``None`` = size unknown, no numeric guidance.
+
+    With the constant gone, the old "if the floor would eat two thirds, use the full set"
+    branch became dead code: a third is never at least two thirds.
+    """
     if not full or full <= 0:
         return None
-    floor = max(full // 3, 100)
-    return full if floor >= full * 2 // 3 else floor
+    return full // 3
 
 
 _RECON_FILE = "recon.json"
@@ -421,7 +427,7 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
             if floor is not None and el != -1 and el < floor:
                 errors.append(
                     f"eval_limit {el} is below the probe floor {floor} for this benchmark "
-                    f"(a third of it, never under 100 items): a subset that small is noise. "
+                    f"(a third of it): a subset that small is noise. "
                     f"Use -1 (full) or at least {floor}"
                 )
 

@@ -7,6 +7,8 @@ Agents emit a :class:`~dataos_train.spec.TrainSpec` and get back a
 
 from __future__ import annotations
 
+from importlib import metadata as _metadata
+
 from .registry import (
     backend_names,
     get_backend,
@@ -45,4 +47,6 @@ __all__ = [
     "register_launcher",
     "backend_names",
 ]
-__version__ = "0.1.0a0"
+# Read from the installed distribution, not a second hand-maintained literal: this had
+# drifted to 0.1.0a0 while pyproject said 0.1.2. Same fix as dataos-operator/-eval.
+__version__ = _metadata.version("dataos-train")

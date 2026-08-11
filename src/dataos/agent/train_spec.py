@@ -49,12 +49,23 @@ def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_mode
     if max_time:
         time_h = min(time_h, _slurm_time_hours(max_time))
     backend = "llamafactory"  # code default (plan-driven backend selection: verl work)
-    env_backends = {
-        b: (tools.get(name, {}).get("path") if isinstance(tools.get(name), dict) else tools.get(name))
-        for name in tools
-        for b in ("llamafactory", "verl")
-        if b in ((tools.get(name) or {}).get("provides") or [])
-    }
+    env_backends: dict[str, str] = {}
+    for name in tools:
+        tool = tools.get(name)
+        tool = tool if isinstance(tool, dict) else {"path": tool}
+        for b in ("llamafactory", "verl"):
+            if b not in (tool.get("provides") or []):
+                continue
+            # An env that lists `model_families` claims ONLY those families' domains — the
+            # architectures it can actually train are a property of its transformers pin, and
+            # falling back to the unscoped domain for an undeclared family is how a job dies
+            # at model load instead of at build. dataos-train reads the model's own
+            # model_type and resolves the domain; this side only expands the declaration.
+            families = tool.get("model_families") or []
+            for family in families:
+                env_backends[f"{b}@{family}"] = tool.get("path")
+            if not families:
+                env_backends[b] = tool.get("path")
     resource = run.get("resource", {}) or {}
     gpus = int(resource.get("gpus") or 1)
     cpus = int(resource.get("cpus") or 8)

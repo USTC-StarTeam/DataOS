@@ -55,6 +55,32 @@ def test_train_and_eval_templates_are_declared_together():
         assert spec.get("train_template"), family
 
 
+def test_every_evaluable_family_has_an_env_that_can_train_it():
+    """A family the protocol can score but no env can train is a run that dies at model load.
+
+    That is what SmolLM3 was: declared on the eval side, unsupported by the sft env's
+    transformers 4.52.3 pin, and the mismatch only surfaced as 112 architecture errors inside
+    agent transcripts. Both halves are declarations now, so they can be compared here instead.
+    """
+    families = set(_protocol()["model_families"])
+    for env_yaml in (REPO / "configs" / "environments").glob("*/env.yaml"):
+        tools = yaml.safe_load(env_yaml.read_text(encoding="utf-8")).get("tools") or {}
+        trainable = {
+            family
+            for tool in tools.values()
+            if isinstance(tool, dict) and "llamafactory" in (tool.get("provides") or [])
+            for family in (tool.get("model_families") or [])
+        }
+        if not trainable:  # env declares no scoping — every family resolves to its one env
+            continue
+        missing = families - trainable
+        assert not missing, (
+            f"{env_yaml.relative_to(REPO)} can train {sorted(trainable)} but the protocol "
+            f"declares {sorted(missing)} too — add them to a `model_families` list, or drop "
+            "them from protocol.yaml"
+        )
+
+
 def test_the_eval_tool_owns_no_bench_knowledge():
     """The acceptance criterion for the refactor: the TOOL is a pure executor. Bench names
     belong to the task config, not to dataos-eval."""

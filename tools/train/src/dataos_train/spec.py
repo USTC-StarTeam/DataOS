@@ -31,8 +31,12 @@ class EnvSpec(_Model):
     ``backends`` maps an **env domain** to its conda env (name or prefix path). A domain is
     usually just the backend name (``"llamafactory"``, ``"verl"``); a method whose dependency
     set conflicts with the backend default gets a method-scoped domain such as
-    ``"llamafactory:ppo"``, which takes precedence when that method runs. Backends advertise
-    their non-default domains in ``Capabilities.env_domains``.
+    ``"llamafactory:ppo"``, and a model family whose architecture needs a different
+    transformers gets a family-scoped one such as ``"llamafactory@smollm3"``. Both take
+    precedence over the plain backend domain; see :meth:`env_for` for the order. Backends
+    advertise their non-default method domains in ``Capabilities.env_domains``; family domains
+    come from the environment config alone, because the set of trainable families is a
+    property of the machine's envs, not of the backend.
     """
 
     conda_sh: str | None = None
@@ -43,13 +47,30 @@ class EnvSpec(_Model):
     pythonpath: list[str] = Field(default_factory=list)
     extra: dict[str, str] = Field(default_factory=dict)
 
-    def env_for(self, backend: str, method_kind: str | None = None) -> str | None:
-        """Resolve the conda env for a (backend, method); the method-scoped domain wins."""
-        if method_kind:
-            scoped = self.backends.get(f"{backend}:{method_kind}")
-            if scoped:
-                return scoped
-        return self.backends.get(backend)
+    def env_for(
+        self,
+        backend: str,
+        method_kind: str | None = None,
+        model_family: str | None = None,
+    ) -> str | None:
+        """Resolve the env for a (backend, method, model family); most specific wins.
+
+        ``model_family`` is the model's HF ``model_type``. It selects an env because
+        architecture support is a *dependency* fact: SmolLM3 needs transformers >= 4.53, so an
+        env pinned below that cannot train it no matter what the spec says. Declaring that in
+        the environment config keeps the tool free of a model table — it only reads
+        ``model_type`` off the model itself and asks this method.
+        """
+        keys = [
+            f"{backend}:{method_kind}@{model_family}" if method_kind and model_family else "",
+            f"{backend}:{method_kind}" if method_kind else "",
+            f"{backend}@{model_family}" if model_family else "",
+            backend,
+        ]
+        for key in keys:
+            if key and self.backends.get(key):
+                return self.backends[key]
+        return None
 
 
 class OnlineOpSpec(_Model):

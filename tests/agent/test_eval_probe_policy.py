@@ -46,10 +46,11 @@ def test_full_size_is_none_for_a_pre_field_baseline(tmp_path):
     [
         (1319, 439),   # a third of a large benchmark: a probe saves two thirds of the cost
         (500, 166),
-        (300, 100),    # a third would be 100, exactly the ceiling on noise we accept
-        (164, 100),    # a third (54) is too noisy, so the floor lifts to 100
-        (30, 30),      # floor would eat the whole thing -> use the full benchmark
-        (60, 60),      # same
+        (300, 100),
+        (164, 54),     # was lifted to 100 (61% of the set) by the old constant floor
+        (100, 33),     # bfcl: the old floor equalled the full size, disabling subsetting
+        (30, 10),      # aime2025: same, and "at least 100 items" is incoherent for 30
+        (60, 20),
     ],
 )
 def test_probe_floor(full, floor):

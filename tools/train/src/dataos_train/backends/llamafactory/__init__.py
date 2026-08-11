@@ -16,7 +16,7 @@ from ...io import read_json
 from ...spec import DPO, KTO, ORPO, PPO, TrainSpec
 from ...types import Capabilities, JobSpec, LaunchPlan, SlurmExtras, Status, TrainResult
 from ..base import is_hf_model_dir, tail_text
-from .ext.templates import DATAOS_TEMPLATES, resolve_template
+from .ext.templates import DATAOS_TEMPLATES, model_family, resolve_template
 from .config import (
     SUPPORTED_METHODS,
     LlamaFactoryMethod,
@@ -80,7 +80,12 @@ class LlamaFactoryBackend:
             if m.reward_model_type == "lora" and m.finetuning_type != "lora":
                 errors.append("PPO reward_model_type='lora' requires finetuning_type='lora'")
             ppo_domain = ENV_DOMAINS["ppo"]
-            if spec.env.backends.get(self.name) and not spec.env.backends.get(ppo_domain):
+            # A family-scoped domain counts as "an env is configured" — otherwise this check
+            # silently stops firing for environments that scope by model family.
+            configured = any(
+                key == self.name or key.startswith(f"{self.name}@") for key in spec.env.backends
+            )
+            if configured and not any(k.startswith(ppo_domain) for k in spec.env.backends):
                 errors.append(
                     f"PPO runs in its own env domain {ppo_domain!r} (its TRL pin conflicts "
                     "with the standard llamafactory env); set "
@@ -93,6 +98,30 @@ class LlamaFactoryBackend:
             self._check_online_op_resolvable(op.op, errors)
         self._warn_cutoff_vs_data(spec)
         return errors
+
+    def _family_scoped(self, spec: TrainSpec) -> bool:
+        """Whether the environment declares family-scoped env domains for this backend."""
+        return any(key.startswith(f"{self.name}@") for key in spec.env.backends)
+
+    def _env_for(self, spec: TrainSpec, method_kind: str, family: str | None) -> str | None:
+        """The env this job runs in — and a hard error when the config covers no such family.
+
+        An env whose transformers predates the architecture fails at model load, so the
+        alternative to erroring here is 100+ dead jobs plus agents hand-rolling scripts that
+        borrow another env to train in (2026-08-11 smol3 batch). Falling back to the unscoped
+        domain would reproduce exactly that, so once the config opts into family scoping an
+        undeclared family stops the build instead.
+        """
+        if self._family_scoped(spec) and f"{self.name}@{family}" not in spec.env.backends:
+            declared = sorted(k for k in spec.env.backends if k.startswith(f"{self.name}@"))
+            raise ValueError(
+                f"no env declares model family {family!r}: env.backends has {declared} but "
+                f"nothing for {self.name}@{family}. Add {family!r} to the `model_families` "
+                "list of the env that can train it (the environment's env.yaml), or point a "
+                "new env at it — an env whose transformers does not know this architecture "
+                "fails at model load."
+            )
+        return spec.env.env_for(self.name, method_kind, family)
 
     @staticmethod
     def _warn_cutoff_vs_data(spec: TrainSpec) -> None:
@@ -177,10 +206,15 @@ class LlamaFactoryBackend:
         adapter_dir = f"{run_dir}/adapter"
         final_dir = f"{run_dir}/final_model"
         output_dir = adapter_dir if m.finetuning_type == "lora" else final_dir
-        # Resolve the chat template ONCE, here, and carry it on the method copy so the rendered
-        # config, the assets meta, the export command and the entry routing can never disagree.
+        # The model's own model_type drives BOTH halves of "how this model runs": which chat
+        # template LF renders, and — when the environment declares family-scoped env domains —
+        # which env it trains in. Resolve it ONCE, here, and carry the template on the method
+        # copy so the rendered config, the assets meta, the export command and the entry
+        # routing can never disagree.
+        needs_family = self._family_scoped(spec) or m.template is None
+        family = model_family(spec.base_model) if needs_family else None
         if m.template is None:
-            m = m.model_copy(update={"template": resolve_template(spec.base_model)})
+            m = m.model_copy(update={"template": resolve_template(spec.base_model, family)})
 
         cfg = render_train_config(spec, m, data_dir, output_dir, dataset_name)
         # LF 0.9.x only loads YAML correctly (JSON branch is buggy).
@@ -211,7 +245,7 @@ class LlamaFactoryBackend:
         # script is also run on its own (by hand, or from a helper job). Without activation
         # the convert step falls through to /usr/bin/python and dies on
         # "No module named 'dataos_train'" — seen in 4b2 v5, gsm8k round-0002.
-        train_env = spec.env.env_for(self.name, m.kind)
+        train_env = self._env_for(spec, m.kind, family)
         steps = ["#!/bin/bash", "set -euo pipefail"]
         if spec.env.conda_sh and train_env:
             steps.append(
@@ -246,7 +280,7 @@ class LlamaFactoryBackend:
             resources=spec.resources,
             launch=LaunchPlan(kind="direct"),  # llamafactory-cli manages its own distribution
             conda_sh=spec.env.conda_sh,
-            conda_env=spec.env.env_for(self.name, m.kind),
+            conda_env=train_env,
             pythonpath=pythonpath,
             assets=assets,
             slurm=_slurm_from_cluster(spec),

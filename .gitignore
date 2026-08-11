@@ -222,3 +222,8 @@ run-dataos/harnesses/posttrainbench/_ptb_*
 ._*
 resources/code/posttrainbench/sbatch_*.sh
 configs/runs/ptb-smoke-*.json
+
+# Claude/agent 会话 transcript —— 不是源码，8MB 级别，且含对话内容
+*.jsonl
+!configs/**/*.jsonl
+!tools/**/tests/**/*.jsonl

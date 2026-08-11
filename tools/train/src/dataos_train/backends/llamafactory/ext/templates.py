@@ -8,28 +8,47 @@ side picks a jinja template by model family (``configs/tasks/posttrainbench/eval
 templates/``), so for each family LF has to offer a training template that emits the same turn
 tokens. It does for Qwen (``qwen3``) and Gemma. It does NOT for SmolLM3:
 
-* LF 0.9.4 ships ``smollm`` / ``smollm2`` — the SmolLM1/2 Llama-style format
-  (``stop_words=["<|eot_id|>", "<|eom_id|>"]``).
-* SmolLM3's official template (``smollm.jinja``) is ChatML: ``<|im_start|>`` / ``<|im_end|>``.
+LF has no ``smollm3`` template — not in 0.9.4, not in 0.9.5, not on ``main`` (checked
+2026-08-11; upstream simply has not added SmolLM3). Its similarly-named ``smollm`` / ``smollm2``
+are ChatML and their turn slots are byte-identical to ``qwen3``'s, so the reason they are unusable
+is NOT the turn framing (an earlier version of this note claimed they were the Llama-style
+``<|eot_id|>`` format — that was wrong). The two real blockers, both measured:
 
-So the template whose NAME matches the model is the one that breaks it, while the correct choice
-(``qwen3``) is named for a different family — a trap the Qwen batch never had to walk past. These
-registrations remove the asymmetry: ``smollm3`` / ``smollm3_nothink`` mirror LF's own ``qwen3`` /
-``qwen3_nothink`` pair, with SmolLM3's stop token.
+* ``replace_eos=False`` — SmolLM3-3B-Base's ``eos_token`` is ``<|end_of_text|>``, while
+  ``<|im_end|>`` is merely present in the vocab (id 128012). Without the swap the saved
+  ``generation_config.eos_token_id`` still points at ``<|end_of_text|>``, so nothing stops
+  generation when the model emits ``<|im_end|>``.
+* ``tool_format="default"`` — LF's default tool format is ReAct prose
+  (``Action: ... / Action Input: ...``), while SmolLM3 asks for ``<tools>`` XML plus
+  ``<tool_call>{"name":..,"arguments":..}</tool_call>``, which is LF's ``qwen`` format. Training
+  bfcl under the default format teaches a call syntax the scorer cannot parse at all.
 
-``default_system`` is deliberately EMPTY. ``smollm.jinja`` injects a ``## Metadata`` block that
-contains TODAY'S DATE, so no static constant can match it; whether to mirror that preamble in the
-data's ``system`` field is a recipe decision, not a template constant.
+LF exposes no per-run override for either, so registering our own IS the mechanism for setting
+them. ``smollm3`` / ``smollm3_nothink`` therefore mirror LF's ``qwen3`` / ``qwen3_nothink`` pair
+(same slots, same ``ReasoningTemplate`` / ``Template`` split) with those two blockers fixed.
 
-``replace_eos=True`` matters for the -Base checkpoint: its ``eos_token`` is ``<|end_of_text|>``
-while the instruct variant terminates turns with ``<|im_end|>``, so the turn token has to be
-taught. (Registration happens in-process, so it is lost across LF's torchrun re-exec — the entry
-that calls :func:`register_all` asserts single-process before relying on it.)
+WHY ``default_system`` IS NOT EMPTY
+-----------------------------------
+``smollm.jinja`` ALWAYS emits a system turn, even when the request carries no system message, and
+with ``enable_thinking`` defaulting to true that turn is a ``## Metadata`` block plus a long
+"answer as ``<think> Thought </think> Solution``" instruction. The eval harness sends no system
+message for gsm8k / humaneval / gpqamain / aime2025, so every one of those prompts carries it.
+Leaving ``default_system`` empty made the training prompt 55 bytes against the scorer's 1360 —
+the model was trained without an instruction it was then evaluated under. The constants below are
+a hand translation of both branches of that header; ``tests/test_train_eval_template_parity.py``
+renders the jinja and this template on the same messages and fails if they drift apart.
+
+The one field that cannot match is ``Today Date``: the jinja renders it at eval time, so this side
+renders it at registration time. Same day → identical; different day → one line differs.
+
+(Registration happens in-process, so it is lost across LF's torchrun re-exec — the entry that
+calls :func:`register_all` asserts single-process before relying on it.)
 """
 
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 #: Template names this module adds to LF's registry. The LF backend routes training/export
@@ -52,7 +71,29 @@ MODEL_TYPE_TEMPLATES: dict[str, str] = {
 }
 
 
-def resolve_template(model_path: str | Path) -> str:
+def model_family(model_path: str | Path) -> str:
+    """The model's own HF ``model_type`` — the key everything about a family hangs off.
+
+    Read from the model rather than taken from a caller's string: an agent-supplied name can
+    be wrong (or absent, for a continuation node whose path is the parent's ``final_model``),
+    and both things it selects — the chat template below, and the training env when the
+    environment declares family-scoped env domains — fail SILENTLY or expensively when they
+    are wrong.
+    """
+    cfg = Path(model_path) / "config.json"
+    try:
+        model_type = json.loads(cfg.read_text(encoding="utf-8")).get("model_type")
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            f"cannot derive the model family: {cfg} is unreadable ({exc}). Run build where "
+            "the model path is visible."
+        ) from exc
+    if not model_type:
+        raise ValueError(f"{cfg} declares no model_type; cannot derive the model family.")
+    return str(model_type)
+
+
+def resolve_template(model_path: str | Path, family: str | None = None) -> str:
     """The LF template for the model at ``model_path``, from its own ``config.json``.
 
     Raises rather than guessing. A wrong template is a SILENT failure — the model learns turn
@@ -60,15 +101,10 @@ def resolve_template(model_path: str | Path) -> str:
     previous behaviour was a hardcoded ``template: str = "qwen3"`` default in ``spec.py``,
     which no plan ever overrode (68/68 in the 2026-08-11 smol3 batch): right for Qwen,
     accidentally right for SmolLM3 (also ChatML), and silently wrong for Gemma.
+
+    ``family`` short-circuits the ``config.json`` read for callers that already resolved it.
     """
-    cfg = Path(model_path) / "config.json"
-    try:
-        model_type = json.loads(cfg.read_text(encoding="utf-8")).get("model_type")
-    except (OSError, ValueError) as exc:
-        raise ValueError(
-            f"cannot derive the chat template: {cfg} is unreadable ({exc}). Set "
-            "method.template explicitly, or run build where the model path is visible."
-        ) from exc
+    model_type = family or model_family(model_path)
     template = MODEL_TYPE_TEMPLATES.get(str(model_type))
     if not template:
         raise ValueError(
@@ -79,15 +115,76 @@ def resolve_template(model_path: str | Path) -> str:
     return template
 
 
-_CHATML = {
-    "format_user": ["<|im_start|>user\n{{content}}<|im_end|>\n<|im_start|>assistant\n"],
-    "format_assistant": ["{{content}}<|im_end|>\n"],
-    "format_system": ["<|im_start|>system\n{{content}}<|im_end|>\n"],
-    "format_observation": [
-        "<|im_start|>user\n<tool_response>\n{{content}}\n</tool_response>"
-        "<|im_end|>\n<|im_start|>assistant\n"
-    ],
-}
+#: Hand translation of ``smollm.jinja``'s system header. The jinja emits it for EVERY request,
+#: so the training side has to emit it too or the model never sees the instruction it is scored
+#: under. Kept as three pieces because the two reasoning modes differ only in the mode line and
+#: the persona; the parity test is what proves the reassembly still matches the jinja.
+_SMOLLM3_SYSTEM = (
+    "## Metadata\n\n"
+    "Knowledge Cutoff Date: June 2025\n"
+    "Today Date: {today}\n"
+    "Reasoning Mode: {mode}\n\n"
+    "## Custom Instructions\n\n"
+    "{persona}\n\n"
+)
+_SMOLLM3_PERSONA = "You are a helpful AI assistant named SmolLM, trained by Hugging Face."
+_SMOLLM3_PERSONA_THINK = _SMOLLM3_PERSONA + (
+    " Your role as an assistant involves thoroughly exploring questions through a systematic "
+    "thinking process before providing the final precise and accurate solutions. This requires "
+    "engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, "
+    "reflection, backtracking, and iteration to develop well-considered thinking process. Please "
+    "structure your response into two main sections: Thought and Solution using the specified "
+    "format: <think> Thought section </think> Solution section. In the Thought section, detail "
+    "your reasoning process in steps. Each step should include detailed considerations such as "
+    "analysing questions, summarizing relevant findings, brainstorming new ideas, verifying the "
+    "accuracy of the current steps, refining any errors, and revisiting previous steps. In the "
+    "Solution section, based on various attempts, explorations, and reflections from the Thought "
+    "section, systematically present the final solution that you deem correct. The Solution "
+    "section should be logical, accurate, and concise and detail necessary steps needed to reach "
+    "the conclusion."
+)
+
+_MONTHS = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def _today() -> str:
+    """``strftime("%d %B %Y")`` without the locale dependence.
+
+    The eval side renders this field through the template's ``strftime_now``, i.e. the C locale on
+    the cluster. Spelling the month out here means the training side cannot desync just because a
+    job inherited a different ``LC_TIME``.
+    """
+    t = time.localtime()
+    return f"{t.tm_mday:02d} {_MONTHS[t.tm_mon - 1]} {t.tm_year}"
+
+
+def smollm3_default_system(reasoning_mode: str = "/think") -> str:
+    """The system turn ``smollm.jinja`` injects when the request carries no system message."""
+    persona = _SMOLLM3_PERSONA_THINK if reasoning_mode == "/think" else _SMOLLM3_PERSONA
+    return _SMOLLM3_SYSTEM.format(today=_today(), mode=reasoning_mode, persona=persona)
+
+
+#: ``smollm.jinja``'s ``/no_think`` branch prefills an empty thought block after the generation
+#: prompt, so a run that evaluates with ``enable_thinking=False`` must train with it too. LF's own
+#: ``qwen3_nothink`` does NOT model this (it reuses the thinking variant's slots) — the jinja is
+#: the protocol here, not LF's convention, and the parity test is what says so.
+_NOTHINK_PREFILL = "<think>\n\n</think>\n"
+
+
+def chatml_slots(reasoning_mode: str = "/think") -> dict[str, list[str]]:
+    """SmolLM3's ChatML slots for one reasoning mode — the hand translation of ``smollm.jinja``."""
+    prompt = "<|im_start|>assistant\n" + (_NOTHINK_PREFILL if reasoning_mode == "/no_think" else "")
+    return {
+        "format_user": [f"<|im_start|>user\n{{{{content}}}}<|im_end|>\n{prompt}"],
+        "format_assistant": ["{{content}}<|im_end|>\n"],
+        "format_system": ["<|im_start|>system\n{{content}}<|im_end|>\n"],
+        "format_observation": [
+            f"<|im_start|>user\n<tool_response>\n{{{{content}}}}\n</tool_response><|im_end|>\n{prompt}"
+        ],
+    }
 
 
 def register_all() -> tuple[str, ...]:
@@ -98,18 +195,25 @@ def register_all() -> tuple[str, ...]:
     from llamafactory.data.formatter import FunctionFormatter, StringFormatter, ToolFormatter
     from llamafactory.data.template import TEMPLATES, ReasoningTemplate, Template, register_template
 
-    for name, template_class in (("smollm3", ReasoningTemplate), ("smollm3_nothink", Template)):
+    for name, template_class, mode in (
+        ("smollm3", ReasoningTemplate, "/think"),
+        ("smollm3_nothink", Template, "/no_think"),
+    ):
         if name in TEMPLATES:  # an LF upgrade may ship its own — never shadow it
             continue
+        slots = chatml_slots(mode)
         register_template(
             name=name,
-            format_user=StringFormatter(slots=_CHATML["format_user"]),
-            format_assistant=StringFormatter(slots=_CHATML["format_assistant"]),
-            format_system=StringFormatter(slots=_CHATML["format_system"]),
+            # the header smollm.jinja injects for every request; empty here meant the model was
+            # trained without the instruction it is scored under (55 bytes vs the scorer's 1360)
+            default_system=smollm3_default_system(mode),
+            format_user=StringFormatter(slots=slots["format_user"]),
+            format_assistant=StringFormatter(slots=slots["format_assistant"]),
+            format_system=StringFormatter(slots=slots["format_system"]),
             # SmolLM3 asks for calls as {"name":..,"arguments":..} inside <tool_call></tool_call>
             # (smollm.jinja's Tools section) — byte-identical to LF's "qwen" tool format.
-            format_function=FunctionFormatter(slots=_CHATML["format_assistant"], tool_format="qwen"),
-            format_observation=StringFormatter(slots=_CHATML["format_observation"]),
+            format_function=FunctionFormatter(slots=slots["format_assistant"], tool_format="qwen"),
+            format_observation=StringFormatter(slots=slots["format_observation"]),
             format_tools=ToolFormatter(tool_format="qwen"),
             stop_words=["<|im_end|>"],
             replace_eos=True,
