@@ -1,0 +1,69 @@
+# PostTrainBench 评估协议 —— 配置，不是代码。
+#
+# 为什么存在：这些表原先散在 run_lmeval_eval.py 和 dataos-eval 的 cli.py 里，于是
+#   (a) 工具持有 bench 知识（`JUDGE_BENCHES` 在 cli.py 里硬编码）；
+#   (b) 更糟：模板选择靠 `f"{model_name} {model_path}"` 找子串，而 `--model-name` 是
+#       agent 填的（task.yaml 的 `ctx.label`）——**agent 因此能改评估协议**。
+#       2026-08-11 的 smol3 批次实证：humaneval 的 agent 把 --model-path 指向自建的
+#       "protocol mirror" 于是拿到了 baseline，gpqamain 的 agent 没想到这一步，
+#       baseline 永久缺失；两组 bench 最终用了不同模板评分而无人察觉。
+#
+# 规则：协议决策只能读这份配置 + 模型自己的 config.json，绝不读 agent 传的字符串。
+
+version: 1
+
+# model_type（模型 config.json 里的那个字段）-> 该族的两侧模板。
+# 一行同时声明评估与训练两半，是"训练模板必须与评估 chat template 同构"这条约束的
+# 唯一声明处。按 model_type 而不是路径子串来键：续训节点的模型路径是父节点的
+# final_model 目录，不含任何族名，而存下来的模型永远保留 model_type。
+model_families:
+  qwen3:
+    eval_template: qwen3.jinja
+    train_template: qwen3            # LF 内建
+  smollm3:
+    eval_template: smollm.jinja
+    train_template: smollm3          # dataos-train 注册（LF 内建的 `smollm` 是 SmolLM1/2 的 <|eot_id|> 格式，不可用）
+  gemma3:
+    eval_template: gemma3.jinja
+    eval_template_bfcl: gemma3_tool_calling.jinja   # 仅 bfcl 用带 tool-calling 的变体
+    train_template: gemma             # LF 内建
+
+# per-bench：judge 与否 + 跑法。跑法（路径/显存/并发/超时）放在配置里而不是工具里，
+# 因为它们该由配置决定；而且它们会被写进 summary.json 的 runner 段，于是
+# "num_concurrent 不影响分数"这类断言从注释变成两份报告一比就能证伪的东西。
+benches:
+  gsm8k:
+    judge: false
+    runner: server
+    num_concurrent: 32
+    timeout: 300
+  bfcl:
+    judge: false
+    runner: server
+    num_concurrent: 32
+    timeout: 1800
+  aime2025:
+    judge: false
+    runner: server
+    num_concurrent: 32
+    timeout: 18000000            # aime 的 repeats=32 让单题成本极高
+  healthbench:
+    judge: true                  # GPU 作业只生成 predictions，collect 时在 login 节点补分
+    runner: server
+    num_concurrent: 32
+    timeout: 1800
+  arenahardwriting:
+    judge: true
+    runner: server
+    num_concurrent: 32
+    timeout: 1800
+  humaneval:
+    judge: false
+    runner: direct               # lm-eval 的 in-process vLLM
+    gpu_memory_utilization: 0.3
+    timeout: 900
+  gpqamain:
+    judge: false
+    runner: direct
+    gpu_memory_utilization: 0.8
+    timeout: 1800

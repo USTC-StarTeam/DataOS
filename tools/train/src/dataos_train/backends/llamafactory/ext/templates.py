@@ -36,10 +36,13 @@ from pathlib import Path
 #: through ``ext.lf_entry`` instead of ``llamafactory-cli`` when a spec asks for one of these.
 DATAOS_TEMPLATES: tuple[str, ...] = ("smollm3", "smollm3_nothink")
 
-#: HF ``model_type`` -> LLaMA-Factory template. The training half of the pair the eval side
-#: builds with ``resolve_chat_template`` (configs/tasks/posttrainbench/eval/scripts/
-#: run_lmeval_eval.py) — both must render the same turn tokens or the score is capped by
-#: protocol instead of capability. Keyed on ``model_type`` rather than a path substring
+#: HF ``model_type`` -> LLaMA-Factory template. THE DECLARATION lives in the task config
+#: (``configs/tasks/<task>/eval/protocol.yaml`` -> ``model_families[*].train_template``), which
+#: declares both halves of the pair on one line; this dict mirrors its train half because this
+#: package runs in a venv that has no access to that file at import time.
+#: ``tests/agent/test_eval_protocol_config.py`` fails if the two drift.
+#: Both halves must render the same turn tokens or the score is capped by protocol instead of
+#: capability. Keyed on ``model_type`` rather than a path substring
 #: because a continuation node's model path is the PARENT's ``final_model`` dir and carries no
 #: family name, while a saved model always keeps its ``model_type``.
 MODEL_TYPE_TEMPLATES: dict[str, str] = {
@@ -74,6 +77,7 @@ def resolve_template(model_path: str | Path) -> str:
             "method.template explicitly — do NOT let it fall back to another family's format."
         )
     return template
+
 
 _CHATML = {
     "format_user": ["<|im_start|>user\n{{content}}<|im_end|>\n<|im_start|>assistant\n"],

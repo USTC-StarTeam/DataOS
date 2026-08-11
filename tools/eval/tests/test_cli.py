@@ -10,10 +10,21 @@ from dataos_eval.cli import main
 REPO = Path(__file__).resolve().parents[3]  # the DataOS repo root (configs/ lives there)
 
 
+def _model_dir(tmp_path, model_type: str = "qwen3") -> str:
+    """A minimal HF model dir. The chat template is resolved from THIS file's model_type — not
+    from --model-name/--model-path substrings, which the caller controls."""
+    import json
+
+    d = tmp_path / f"model-{model_type}"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "config.json").write_text(json.dumps({"model_type": model_type}), encoding="utf-8")
+    return str(d)
+
+
 def _submit_args(tmp_path, **over):
     argv = {
         "repo": str(REPO), "environment": "PTB_H100_slurm", "task_config": "posttrainbench",
-        "task": "gsm8k", "model_path": "/models/base", "model_name": "baseline",
+        "task": "gsm8k", "model_path": _model_dir(tmp_path), "model_name": "baseline",
         "output_dir": str(tmp_path / "eval" / "gsm8k_limit-1"),
         "run_root": str(tmp_path), "limit": -1, "gpus": 1, "cpus": 8, "time": "12:00:00",
         "dry_run": False,
@@ -138,3 +149,39 @@ def test_render_quotes_paren_paths(tmp_path, capsys):
     import subprocess as sp
     r = sp.run(["bash", "-n"], input=script, text=True, capture_output=True)
     assert r.returncode == 0, r.stderr  # the script parses
+
+
+# --- protocol resolution: config + the model itself, never the caller's label ----------------
+
+
+def test_chat_template_comes_from_the_models_model_type(tmp_path, capsys):
+    """smol3 showed why: --model-name is filled by the experimenter, so guessing the template
+    from it let an agent change the eval protocol by choosing a label."""
+    args = _submit_args(tmp_path, model_path=_model_dir(tmp_path, "smollm3"),
+                        model_name="totally-misleading-qwen-name", dry_run=True)
+    assert _run_cli(["submit", *_argv(args)]) == 0
+    out = capsys.readouterr().out
+    assert "--chat-template" in out
+    assert "smollm.jinja" in out            # from model_type, not from the qwen-ish label
+    assert "qwen3.jinja" not in out
+
+
+def test_unknown_model_family_is_refused(tmp_path):
+    rc = _run_cli(["submit", *_argv(_submit_args(
+        tmp_path, model_path=_model_dir(tmp_path, "llama"), dry_run=True))])
+    assert isinstance(rc, str) and "no chat template declared" in rc
+
+
+def test_judge_flag_comes_from_the_protocol_not_a_tool_table(tmp_path):
+    """`JUDGE_BENCHES` used to be hardcoded in cli.py — bench knowledge inside the tool."""
+    import yaml
+
+    from dataos_eval.cli import _load
+
+    _, _, protocol = _load(REPO, "PTB_H100_slurm", "posttrainbench")
+    declared = {b for b, c in protocol["benches"].items() if c["judge"]}
+    assert declared == {"healthbench", "arenahardwriting"}
+    assert "JUDGE_BENCHES" not in (
+        (REPO / "tools" / "eval" / "src" / "dataos_eval" / "cli.py").read_text(encoding="utf-8")
+    )
+    del yaml

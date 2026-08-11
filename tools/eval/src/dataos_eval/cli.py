@@ -1,9 +1,8 @@
 """dataos-eval CLI: submit / status / collect for the frozen PostTrainBench evaluator.
 
 Runs ON the H100 login node (agents call it over ssh). The sbatch header is written by
-THIS tool from env.yaml facts — agents never see a schedulable knob. Judge benches
-(healthbench/arenahardwriting) generate on the GPU node and are scored at collect time
-on the login node (the only place with internet).
+THIS tool from env.yaml facts — agents never see a schedulable knob. Judge benches (declared in the task's eval/protocol.yaml) generate on the GPU node and
+are scored at collect time on the login node — the only place with internet.
 """
 
 from __future__ import annotations
@@ -17,18 +16,50 @@ from pathlib import Path
 
 import yaml
 
-JUDGE_BENCHES = ("healthbench", "arenahardwriting")
 _HANDLE = "eval_handle.json"
 
 
-def _load(repo: Path, environment: str, task: str) -> tuple[dict, dict]:
+def _load(repo: Path, environment: str, task: str) -> tuple[dict, dict, dict]:
     env = yaml.safe_load(
         (repo / "configs" / "environments" / environment / "env.yaml").read_text()
     )
     task_cfg = yaml.safe_load(
         (repo / "configs" / "tasks" / task / "task.yaml").read_text()
     )
-    return env, task_cfg
+    protocol = yaml.safe_load(
+        (repo / "configs" / "tasks" / task / "eval" / "protocol.yaml").read_text()
+    )
+    return env, task_cfg, protocol
+
+
+def resolve_eval_template(repo: Path, task_config: str, bench: str, model_path: str,
+                          protocol: dict) -> Path:
+    """The protocol chat template for this model, from the MODEL's own config.json.
+
+    Never from ``--model-name``/``--model-path`` substrings: that label is filled by the
+    experimenter (task.yaml's ``ctx.label``), so guessing from it let an agent change the eval
+    protocol by choosing a name. Keyed on ``model_type`` because a continuation node's model
+    path is the parent's ``final_model`` dir and carries no family name, while a saved model
+    always keeps its ``model_type``. Raises rather than guessing — a wrong chat template caps
+    every score with nothing in any log.
+    """
+    cfg = Path(model_path) / "config.json"
+    try:
+        model_type = json.loads(cfg.read_text(encoding="utf-8")).get("model_type")
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"cannot read {cfg} to resolve the chat template: {exc}") from exc
+    family = (protocol.get("model_families") or {}).get(str(model_type))
+    if not family:
+        raise SystemExit(
+            f"no chat template declared for model_type {model_type!r}; add it to "
+            f"configs/tasks/{task_config}/eval/protocol.yaml model_families "
+            "(together with the matching train_template)"
+        )
+    name = family.get(f"eval_template_{bench}") or family.get("eval_template")
+    path = repo / "configs" / "tasks" / task_config / "eval" / "lmeval" / "templates" / name
+    if not path.is_file():
+        raise SystemExit(f"declared chat template does not exist: {path}")
+    return path
 
 
 def _render_job(args, env: dict) -> str:
@@ -43,6 +74,7 @@ def _render_job(args, env: dict) -> str:
     model_name = shlex.quote(args.model_name)
     output_dir = shlex.quote(args.output_dir)
     bench = shlex.quote(args.task)
+    chat_template = shlex.quote(str(args.chat_template))
     eval_py = f"{env['tools']['eval_env']['path']}/bin/python"
     bridge = Path(args.repo) / "configs" / "tasks" / args.task_config / "eval" / "scripts"
     benchmarks = Path(args.repo) / "configs" / "tasks" / args.task_config / "benchmarks"
@@ -69,6 +101,7 @@ export HF_DATASETS_OFFLINE=1
   --task {bench} \\
   --model-path {model_path} \\
   --model-name {model_name} \\
+  --chat-template {chat_template} \\
   --output-dir {output_dir} \\
   --limit {args.limit}
 """
@@ -116,7 +149,18 @@ def _sbatch_argv(args, env: dict) -> list[str]:
 
 def cmd_submit(args) -> int:
     repo = Path(args.repo)
-    env, _ = _load(repo, args.environment, args.task_config)
+    env, _, protocol = _load(repo, args.environment, args.task_config)
+    bench_cfg = (protocol.get("benches") or {}).get(args.task)
+    if bench_cfg is None:
+        raise SystemExit(
+            f"bench {args.task!r} is not declared in configs/tasks/{args.task_config}/eval/"
+            "protocol.yaml benches"
+        )
+    # Resolved HERE, by the tool, from config + the model itself — not by the evaluator from
+    # a caller-supplied label.
+    args.chat_template = resolve_eval_template(
+        repo, args.task_config, args.task, args.model_path, protocol
+    )
     run_root = Path(args.run_root)
     (run_root / "logs").mkdir(parents=True, exist_ok=True)
     script = run_root / "eval_job.sh"
@@ -143,7 +187,8 @@ def cmd_submit(args) -> int:
         "output_dir": args.output_dir,
         "model_path": args.model_path,
         "model_name": args.model_name,
-        "needs_judge": args.task in JUDGE_BENCHES,
+        "needs_judge": bool(bench_cfg.get("judge")),
+        "chat_template": str(args.chat_template),
         "script": str(script),
         "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
@@ -193,7 +238,7 @@ def cmd_status(args) -> int:
 
 def cmd_collect(args) -> int:
     repo = Path(args.repo)
-    env, task_cfg = _load(repo, args.environment, args.task_config)
+    env, task_cfg, _protocol = _load(repo, args.environment, args.task_config)
     handle = json.loads(Path(args.handle).read_text())
     summary_path = Path(handle["output_dir"]) / "summary.json"
     summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}

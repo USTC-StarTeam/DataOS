@@ -103,9 +103,12 @@ def parse_args() -> argparse.Namespace:
         help="lm-eval TaskManager include_path (the posttrainbench task package).",
     )
     parser.add_argument(
-        "--templates-dir",
-        default=str(TEMPLATES_DIR),
-        help="Directory containing the PostTrainBench chat-template jinja files.",
+        "--chat-template",
+        required=True,
+        help="The resolved protocol chat template (a jinja file). REQUIRED and explicit: it "
+        "used to be guessed from --model-name/--model-path substrings, which let the caller "
+        "(an agent) change the eval protocol by choosing a label. dataos-eval resolves it "
+        "from the model's own config.json model_type + eval/protocol.yaml.",
     )
     parser.add_argument(
         "--num-concurrent",
@@ -123,22 +126,45 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 
-def resolve_chat_template(task: str, model_name: str, model_path: str, templates_dir: Path) -> Path:
-    lowered = f"{model_name} {model_path}".lower()
-    if "qwen" in lowered:
-        name = "qwen3.jinja"
-    elif "smollm" in lowered:
-        name = "smollm.jinja"
-    elif "gemma" in lowered:
-        name = "gemma3_tool_calling.jinja" if task == "bfcl" else "gemma3.jinja"
-    else:
-        raise ValueError(
-            f"Cannot auto-select PostTrainBench chat template for model: {model_name} / {model_path}"
-        )
-    template = templates_dir / name
-    if not template.exists():
-        raise FileNotFoundError(f"Chat template does not exist: {template}")
-    return template.resolve()
+def protocol_tokenizer(model_path: str, chat_template: Path, output_dir: Path) -> str | None:
+    """A tokenizer dir carrying the protocol template, or None if the model already has one.
+
+    The in-process vLLM backend takes no chat template (only ``vllm serve`` does), so lm-eval
+    falls back to ``tokenizer.apply_chat_template`` — and a -Base checkpoint often ships none.
+    SmolLM3-3B-Base does not (upstream ships the template only on the instruct variant), so
+    gpqamain's baseline died at 0/448 while every trained node self-healed: the training
+    fallback saved its tokenizer under transformers 4.57, which writes chat_template.jinja.
+    The baseline is the one node a run cannot do without, so the platform does this now
+    instead of leaving each agent to invent a "protocol mirror" of its own.
+
+    Weights are untouched: this is a tokenizer-only copy (a few MB) passed to lm-eval as
+    ``tokenizer=``. A model that DOES ship a template keeps using it, so runs on such models
+    are byte-for-byte unchanged.
+    """
+    from transformers import AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(model_path)
+    if tok.chat_template:
+        return None
+    tok.chat_template = chat_template.read_text(encoding="utf-8")
+    dst = output_dir / "protocol_tokenizer"
+    tok.save_pretrained(dst)
+    return str(dst)
+
+
+def protocol_digest(*paths: Path) -> str:
+    """Content hash of the protocol artifacts, stamped into every summary.json.
+
+    Makes "did a tool upgrade change what we measure?" answerable instead of assumed: same
+    digest = same protocol, so the scores are comparable no matter which runner produced them.
+    """
+    import hashlib
+
+    h = hashlib.sha256()
+    for path in sorted(paths):
+        h.update(path.name.encode())
+        h.update(path.read_bytes() if path.is_file() else b"")
+    return h.hexdigest()[:16]
 
 
 def tool_call_parser_name(model_path: str, model_name: str) -> str:
@@ -338,7 +364,9 @@ def stop_vllm_server(process: subprocess.Popen) -> None:
 # ---------------------------------------------------------------------------
 
 
-def direct_vllm_model_args(task: str, model_path: str, chat_template: Path) -> dict[str, Any]:
+def direct_vllm_model_args(
+    task: str, model_path: str, chat_template: Path, tokenizer: str | None = None
+) -> dict[str, Any]:
     # vLLM 0.13's in-process ``LLM``/``EngineArgs`` rejects ``chat_template`` as a
     # kwarg (only ``vllm serve`` takes ``--chat-template``). The in-process path
     # relies on apply_chat_template=True + the tokenizer's own template instead.
@@ -350,6 +378,8 @@ def direct_vllm_model_args(task: str, model_path: str, chat_template: Path) -> d
         "gpu_memory_utilization": DIRECT_GPU_MEMORY[task],
         "max_model_len": 32768,
         "generation_config": "vllm",
+        # only when the model itself ships no chat template (see protocol_tokenizer)
+        **({"tokenizer": tokenizer} if tokenizer else {}),
     }
 
 
@@ -451,12 +481,16 @@ def main() -> None:
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     include_path = str(Path(args.include_path).resolve())
-    templates_dir = Path(args.templates_dir).resolve()
     limit = None if args.limit < 0 else args.limit
     is_judge = task in JUDGE_TASKS
 
     configure_env(task, output_dir)
-    chat_template = resolve_chat_template(task, args.model_name, args.model_path, templates_dir)
+    chat_template = Path(args.chat_template).resolve()
+    if not chat_template.is_file():
+        raise FileNotFoundError(f"chat template does not exist: {chat_template}")
+    # Only fires for a model that ships no template of its own; a model that has one is
+    # evaluated exactly as before.
+    protocol_tok = protocol_tokenizer(args.model_path, chat_template, output_dir)
 
     # The OpenAI-compatible model must be importable/registered before
     # simple_evaluate resolves the model string.
@@ -473,7 +507,9 @@ def main() -> None:
     try:
         if task in DIRECT_VLLM_TASKS:
             model = "vllm"
-            model_args = direct_vllm_model_args(task, args.model_path, chat_template)
+            model_args = direct_vllm_model_args(
+                task, args.model_path, chat_template, tokenizer=protocol_tok
+            )
         else:
             server, port = start_vllm_server(
                 task, args.model_path, chat_template, args.model_name, output_dir
@@ -553,6 +589,27 @@ def main() -> None:
         }
         if metric_key is not None:
             summary["metric_key"] = metric_key
+
+    # What produced this number. `protocol` answers "is it comparable?" (same digest = same
+    # thing measured, whatever the runner version); `runner` records the settings that are
+    # ASSERTED not to affect the score, so the assertion becomes falsifiable by comparing two
+    # reports instead of being taken on faith.
+    is_direct = task in DIRECT_VLLM_TASKS
+    summary["protocol"] = {
+        "digest": protocol_digest(
+            chat_template, Path(__file__).resolve(), POSTTRAINBENCH_DIR / "task.py"
+        ),
+        "template": chat_template.name,
+    }
+    summary["runner"] = {
+        "path": "direct" if is_direct else "server",
+        "protocol_tokenizer": bool(protocol_tok),  # the model shipped no template of its own
+        **(
+            {"gpu_memory_utilization": DIRECT_GPU_MEMORY[task]}
+            if is_direct
+            else {"num_concurrent": args.num_concurrent or DEFAULT_NUM_CONCURRENT}
+        ),
+    }
 
     summary_text = json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=False, default=str)
     (output_dir / "summary.json").write_text(summary_text, encoding="utf-8")
