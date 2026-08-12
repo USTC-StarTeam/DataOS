@@ -53,6 +53,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("config", help="path to the LF train config (json/yaml)")
     args = ap.parse_args(argv)
 
+    # Register the templates LF does not ship, exactly as ext/lf_entry does. This entry point is
+    # the ONLY one an online-ops run reaches, and omitting the registration made every such node
+    # die on "Template smollm3 does not exist" — after which the experimenter's only way forward
+    # was another family's template, which silently broke train/eval parity and produced the
+    # 2026-08-11 gsm8k batch's top score under a prompt carrying no system turn at all.
+    from .templates import register_all
+
+    register_all()
+
     specs = json.loads(args.online_ops)
     hooks = resolve_online_ops(specs)
     for hook in hooks:

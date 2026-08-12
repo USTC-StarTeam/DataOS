@@ -211,10 +211,23 @@ class LlamaFactoryBackend:
         # which env it trains in. Resolve it ONCE, here, and carry the template on the method
         # copy so the rendered config, the assets meta, the export command and the entry
         # routing can never disagree.
-        needs_family = self._family_scoped(spec) or m.template is None
-        family = model_family(spec.base_model) if needs_family else None
-        if m.template is None:
-            m = m.model_copy(update={"template": resolve_template(spec.base_model, family)})
+        family = model_family(spec.base_model)
+        derived = resolve_template(spec.base_model, family)
+        # The template is DERIVED, never accepted. It is a function of the model, so a caller that
+        # names a different one is asking for the failure this refuses: training under one family's
+        # turn framing while the frozen scorer sends another's. That is not hypothetical — the
+        # 2026-08-11 gsm8k batch produced its top score that way (audit 13.2), because the
+        # online-ops entry point could not register `smollm3` and switching template was the only
+        # way past the crash. Both halves are fixed: the entry registers, and this refuses.
+        if m.template is not None and m.template != derived:
+            raise ValueError(
+                f"method.template={m.template!r} contradicts the model: {spec.base_model} is "
+                f"model_type {family!r}, whose declared template is {derived!r}. The chat "
+                "template is not a knob — it is derived from the model so training and the frozen "
+                "scorer cannot diverge. Remove the field."
+            )
+        if m.template != derived:
+            m = m.model_copy(update={"template": derived})
 
         cfg = render_train_config(spec, m, data_dir, output_dir, dataset_name)
         # LF 0.9.x only loads YAML correctly (JSON branch is buggy).

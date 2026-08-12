@@ -18,15 +18,20 @@ from __future__ import annotations
 #: that reasoning. This set mirrors ``dataos_train.spec.SFT``; ``tests/agent/
 #: test_train_spec_contract.py`` fails if the two drift apart.
 _SFT_FIELDS = {
-    "finetuning_type", "template", "learning_rate", "num_train_epochs",
+    "finetuning_type", "learning_rate", "num_train_epochs",
     "per_device_train_batch_size", "gradient_accumulation_steps", "cutoff_len",
     "lora_rank", "lora_alpha", "lora_target", "quantization_bit",
     "freeze_trainable_layers", "warmup_ratio", "bf16",
     "save_steps", "save_total_limit",
 }
-# runtime-owned / redundant keys the planner must not smuggle into the method
+# runtime-owned / redundant keys the planner must not smuggle into the method.
+# `template` is here because the chat template is NOT a knob: it is a function of the model, and
+# the model comes from the run config. A plan that could name it could break train/eval parity,
+# and one did — the 2026-08-11 gsm8k batch's top score was produced under another family's
+# template (see docs/audit-2026-08-08.md 13.2). dataos-train derives it from the model's own
+# model_type; nothing on this side may express it.
 _STRIP = {"model_name_or_path", "stage", "do_train", "dataset", "dataset_dir",
-          "output_dir", "overwrite_output_dir"}
+          "output_dir", "overwrite_output_dir", "template"}
 
 
 def _slurm_time_hours(v: str) -> float:

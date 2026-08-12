@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from conftest import MODEL_DIR
+
 import json
 import warnings
 
@@ -14,7 +16,7 @@ from dataos_train.spec import SFT, DatasetRef, TrainSpec
 def _spec_with_data(path, cutoff) -> TrainSpec:  # noqa: ANN001
     return TrainSpec(
         name="exp",
-        base_model="/m",
+        base_model=MODEL_DIR,
         run_dir="/r",
         dataset=DatasetRef(path=str(path)),
         method=SFT(finetuning_type="lora", template="qwen3", cutoff_len=cutoff),

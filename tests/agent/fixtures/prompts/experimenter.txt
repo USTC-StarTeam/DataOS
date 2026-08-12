@@ -73,9 +73,13 @@ HARD RULES:
   IS the submit path (handle.json is resume-safe). Do NOT hand-edit the spec's runtime-owned fields
   (base_model/run_dir/dataset/env/cluster); only `method` reflects the plan.
   Write the kept data rows as alpaca (`{instruction,input,output}`) into `$RUN_ROOT/data/sft` —
-  that is the dataset the spec points at. The `template` in method must stay consistent with how
-  the eval prompts (e.g. `qwen3`, or `qwen3_nothink` for direct-answer benches) and stable across
-  a tree branch. `$RUN_ROOT/final_model` MUST end up a COMPLETE HF model (dataos-train's build
+  that is the dataset the spec points at. The chat `template` is NOT yours to set — dataos-train
+  derives it from the model's own `config.json` `model_type`, and a spec that names a different
+  one is REFUSED at build. If a training job dies with "Template X does not exist", that is a
+  platform bug to report in report.json, NOT a cue to substitute another family's template: doing
+  so trains the model on turn tokens the frozen scorer never sends, which caps the score with
+  nothing in any log (it happened, and it produced a run's top score under a prompt carrying no
+  system turn at all). `$RUN_ROOT/final_model` MUST end up a COMPLETE HF model (dataos-train's build
   handles the LoRA export/merge). LEGACY FALLBACK (only if dataos-train is broken — record it in
   report.json): hand-write the LF config yourself — dataset_info.json next to train.json, a
   train.yaml mapping the plan's `train` keys, `llamafactory-cli train`, and for LoRA

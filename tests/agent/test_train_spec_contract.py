@@ -86,7 +86,10 @@ def test_sft_field_mirror_matches_dataos_train():
     from dataos.agent.train_spec import _SFT_FIELDS
     from dataos_train.spec import SFT
 
-    declared = set(SFT.model_fields) - {"kind", "extra"}
+    # `template` is deliberately NOT plan-settable: it is derived from the model at build
+    # (audit 13.2 — an accepted template let a run train under another family's turn framing
+    # while the frozen scorer sent this family's). It lives in _STRIP, not _SFT_FIELDS.
+    declared = set(SFT.model_fields) - {"kind", "extra", "template"}
     assert _SFT_FIELDS == declared, (
         "dataos.agent.train_spec._SFT_FIELDS and dataos_train.spec.SFT disagree — "
         f"missing here: {sorted(declared - _SFT_FIELDS)}; "

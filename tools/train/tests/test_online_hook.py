@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from conftest import MODEL_DIR
+
 import sys
 
 import pytest
@@ -74,7 +76,7 @@ def test_resolve_online_ops() -> None:
 def _spec(**kw) -> TrainSpec:  # noqa: ANN001
     base = {
         "name": "exp",
-        "base_model": "/m",
+        "base_model": MODEL_DIR,
         "run_dir": "/r",
         "dataset": DatasetRef(path="/d"),
         "method": SFT(finetuning_type="full", template="qwen3"),
@@ -119,7 +121,7 @@ def test_backend_routes_online_to_ext_entry() -> None:
         LlamaFactoryBackend()
         .build(
             TrainSpec(
-                name="x", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=SFT(template="qwen3")
+                name="x", base_model=MODEL_DIR, run_dir="/r", dataset=DatasetRef(path="/d"), method=SFT(template="qwen3")
             )
         )
         .assets["run_train.sh"]

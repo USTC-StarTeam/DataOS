@@ -79,10 +79,26 @@ def test_an_undeclared_family_stops_the_build(tmp_path: Path) -> None:
 
 
 def test_an_environment_without_scoping_is_unchanged(tmp_path: Path) -> None:
-    """Declaring no families keeps the old single-env behaviour — and keeps build working for
-    a spec whose model dir is not readable here, which is what an explicit template is for."""
-    spec = _spec(tmp_path, "/not/on/this/host", {"llamafactory": "/envs/Llama"}, template="qwen3")
+    """Declaring no families keeps the old single-env behaviour: the unscoped domain still wins."""
+    spec = _spec(tmp_path, _model_dir(tmp_path, "qwen3"), {"llamafactory": "/envs/Llama"})
     assert LlamaFactoryBackend().build(spec).conda_env == "/envs/Llama"
+
+
+def test_the_template_is_derived_never_accepted(tmp_path: Path) -> None:
+    """Two halves of one rule: build needs a readable model, and refuses a contradicting template.
+
+    Naming a template explicitly used to make an unreadable model workable — and that affordance
+    is what let the 2026-08-11 gsm8k batch train under another family's turn framing while the
+    frozen scorer sent this family's, producing the run's top score that way (audit 13.2).
+    """
+    with pytest.raises(ValueError, match="cannot derive the model family"):
+        LlamaFactoryBackend().build(_spec(tmp_path, "/not/on/this/host", {"llamafactory": "/e"}))
+
+    contradicting = _spec(
+        tmp_path, _model_dir(tmp_path, "smollm3"), {"llamafactory": "/e"}, template="qwen3"
+    )
+    with pytest.raises(ValueError, match="contradicts the model"):
+        LlamaFactoryBackend().build(contradicting)
 
 
 def test_the_family_also_drives_the_template(tmp_path: Path) -> None:

@@ -283,14 +283,30 @@ def to_ppo(records: list[dict], source_fmt: str = "auto") -> list[dict]:
     return out
 
 
+#: LLaMA-Factory only indexes the optional alpaca columns it was TOLD about: its own
+#: ``DatasetAttr`` defaults ``system`` and ``history`` to None, so an undeclared column is dropped
+#: no matter that the rows carry it. This writer used to omit the map while the DPO/KTO/PPO writers
+#: below all declared theirs — and :func:`_with_lf_optional_prompt_columns` deliberately
+#: materialises ``system`` into every row, so the field landed on disk and vanished in training.
+#: The 2026-08-11
+#: bfcl batch paid 33 points for that (85 -> 52/49/51 once the recipe moved its tool schema from
+#: ``instruction`` into ``system``), and the leader attributed it to sampling, lr and randomness.
+#: A row whose ``system`` is empty still falls back to the template's ``default_system`` — LF does
+#: ``system = system or self.default_system``, replace not append, so declaring this cannot
+#: double up the system turn.
+_ALPACA_COLUMNS = {
+    "prompt": "instruction",
+    "query": "input",
+    "response": "output",
+    "system": "system",
+    "history": "history",
+}
+
+
 def write_alpaca_dataset(records: list[dict], out_dir: str, name: str = "dataos_sft") -> int:
-    d = Path(out_dir)
-    d.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(d / "train.json", json.dumps(records, ensure_ascii=False))
-    atomic_write_text(
-        d / "dataset_info.json", json.dumps({name: {"file_name": "train.json"}}, ensure_ascii=False)
+    return _write_dataset(
+        records, out_dir, name, {"file_name": "train.json", "columns": dict(_ALPACA_COLUMNS)}
     )
-    return len(records)
 
 
 def _write_dataset(records: list[dict], out_dir: str, name: str, info: dict[str, Any]) -> int:

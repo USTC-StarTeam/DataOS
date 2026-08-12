@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from conftest import MODEL_DIR
+
 from dataos_train.backends.llamafactory import LlamaFactoryBackend
 from dataos_train.backends.llamafactory.config import render_train_config
 from dataos_train.data import convert
@@ -46,7 +48,20 @@ def test_convert_writes_dataset(tmp_path: Path) -> None:
     n = convert.write_alpaca_dataset(recs, str(tmp_path / "sft"))
     assert n == 1
     info = json.loads((tmp_path / "sft" / "dataset_info.json").read_text())
-    assert info == {"dataos_sft": {"file_name": "train.json"}}
+    # The columns map is load-bearing: LF drops any optional alpaca column it was not told about,
+    # so omitting it silently discarded the `system` field that convert writes into every row.
+    assert info == {
+        "dataos_sft": {
+            "file_name": "train.json",
+            "columns": {
+                "prompt": "instruction",
+                "query": "input",
+                "response": "output",
+                "system": "system",
+                "history": "history",
+            },
+        }
+    }
 
 
 def test_convert_preference_kto_ppo(tmp_path: Path) -> None:
@@ -101,20 +116,20 @@ def test_schema_and_capabilities_include_rlhf_methods() -> None:
 def test_render_config_lora_vs_full() -> None:
     spec = TrainSpec(
         name="e",
-        base_model="/m",
+        base_model=MODEL_DIR,
         run_dir="/r",
         dataset=DatasetRef(path="/d"),
         method=SFT(finetuning_type="lora", learning_rate=1.5e-4, lora_rank=64, template="qwen3"),
         overrides={"flash_attn": "fa2"},
     )
     cfg = render_train_config(spec, spec.method, "/r/data/sft", "/r/adapter")
-    assert cfg["model_name_or_path"] == "/m"
+    assert cfg["model_name_or_path"] == MODEL_DIR
     assert cfg["lora_rank"] == 64 and cfg["learning_rate"] == 1.5e-4
     assert cfg["flash_attn"] == "fa2"
     full = render_train_config(
         TrainSpec(
             name="f",
-            base_model="/m",
+            base_model=MODEL_DIR,
             run_dir="/r",
             dataset=DatasetRef(path="/d"),
             method=SFT(finetuning_type="full", template="qwen3"),
@@ -128,7 +143,7 @@ def test_render_config_lora_vs_full() -> None:
     orpo = render_train_config(
         TrainSpec(
             name="o",
-            base_model="/m",
+            base_model=MODEL_DIR,
             run_dir="/r",
             dataset=DatasetRef(path="/d"),
             method=ORPO(extra={"stage": "sft", "dataset": "x"}, template="qwen3"),
@@ -144,32 +159,32 @@ def test_render_config_lora_vs_full() -> None:
 def test_validate() -> None:
     be = LlamaFactoryBackend()
     ok = TrainSpec(
-        name="a", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=SFT(template="qwen3")
+        name="a", base_model=MODEL_DIR, run_dir="/r", dataset=DatasetRef(path="/d"), method=SFT(template="qwen3")
     )
     assert be.validate(ok) == []
     grpo = TrainSpec(
-        name="b", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=GRPO()
+        name="b", base_model=MODEL_DIR, run_dir="/r", dataset=DatasetRef(path="/d"), method=GRPO()
     )
     assert any("supports method.kind" in e for e in be.validate(grpo))
     assert any(
         "dataset is required" in e
-        for e in be.validate(TrainSpec(name="c", base_model="/m", run_dir="/r", method=SFT(template="qwen3")))
+        for e in be.validate(TrainSpec(name="c", base_model=MODEL_DIR, run_dir="/r", method=SFT(template="qwen3")))
     )
     leak = TrainSpec(
         name="d",
-        base_model="/m",
+        base_model=MODEL_DIR,
         run_dir="/r",
         dataset=DatasetRef(path="/d"),
         method=SFT(extra={"model_name_or_path": "/x"}, template="qwen3"),
     )
     assert any("model_name_or_path" in e for e in be.validate(leak))
     ppo = TrainSpec(
-        name="e", base_model="/m", run_dir="/r", dataset=DatasetRef(path="/d"), method=PPO(template="qwen3")
+        name="e", base_model=MODEL_DIR, run_dir="/r", dataset=DatasetRef(path="/d"), method=PPO(template="qwen3")
     )
     assert any("reward_model" in e for e in be.validate(ppo))
     ppo_full_lora_reward = TrainSpec(
         name="f",
-        base_model="/m",
+        base_model=MODEL_DIR,
         run_dir="/r",
         dataset=DatasetRef(path="/d"),
         method=PPO(finetuning_type="full", reward_model="/rm", reward_model_type="lora", template="qwen3"),
@@ -184,7 +199,7 @@ def test_ppo_env_domain() -> None:
     def ppo_spec(env: EnvSpec) -> TrainSpec:
         return TrainSpec(
             name="p",
-            base_model="/m",
+            base_model=MODEL_DIR,
             run_dir="/r",
             dataset=DatasetRef(path="/d"),
             method=PPO(reward_model="/rm", template="qwen3"),
@@ -208,7 +223,7 @@ def test_ppo_env_domain() -> None:
     # non-PPO methods keep resolving the backend-level env
     sft = TrainSpec(
         name="s",
-        base_model="/m",
+        base_model=MODEL_DIR,
         run_dir="/r",
         dataset=DatasetRef(path="/d"),
         method=SFT(template="qwen3"),
@@ -220,7 +235,7 @@ def test_ppo_env_domain() -> None:
 def test_build_lora(tmp_path: Path) -> None:
     spec = TrainSpec(
         name="exp",
-        base_model="/models/base",
+        base_model=MODEL_DIR,
         run_dir=str(tmp_path),
         dataset=DatasetRef(path="/data/canon", format="messages"),
         method=SFT(finetuning_type="lora", template="qwen3"),
@@ -256,7 +271,7 @@ def test_build_preference_rlhf_methods(tmp_path: Path) -> None:
         run_dir = tmp_path / name
         spec = TrainSpec(
             name=name,
-            base_model="/m",
+            base_model=MODEL_DIR,
             run_dir=str(run_dir),
             dataset=DatasetRef(path="/d"),
             method=method,
@@ -265,20 +280,20 @@ def test_build_preference_rlhf_methods(tmp_path: Path) -> None:
         cfg = job.assets["train_config.yaml"]
         script = job.assets["run_train.sh"]
         meta = json.loads(job.assets["dataos_meta.json"])
-        assert "model_name_or_path: /m" in cfg
+        assert f"model_name_or_path: {MODEL_DIR}" in cfg
         assert stage in cfg
         assert f"dataset: dataos_{name}" in cfg
         assert method_key in cfg
         assert convert_arg in script
         assert "llamafactory-cli export" in script
         assert meta["mode"] == name and meta["method"] == name
-        assert meta["base_model"] == "/m"
+        assert meta["base_model"] == MODEL_DIR
 
 
 def test_build_full_no_merge(tmp_path: Path) -> None:
     spec = TrainSpec(
         name="exp",
-        base_model="/m",
+        base_model=MODEL_DIR,
         run_dir=str(tmp_path),
         dataset=DatasetRef(path="/d"),
         method=SFT(finetuning_type="full", template="qwen3"),
@@ -296,7 +311,7 @@ def test_build_full_no_merge(tmp_path: Path) -> None:
 def test_lora_export_only_for_lora_and_qlora(tmp_path: Path) -> None:
     qlora = TrainSpec(
         name="q",
-        base_model="/m",
+        base_model=MODEL_DIR,
         run_dir=str(tmp_path / "q"),
         dataset=DatasetRef(path="/d"),
         method=DPO(quantization_bit=4, template="qwen3"),
@@ -307,7 +322,7 @@ def test_lora_export_only_for_lora_and_qlora(tmp_path: Path) -> None:
 
     full = TrainSpec(
         name="f",
-        base_model="/m",
+        base_model=MODEL_DIR,
         run_dir=str(tmp_path / "f"),
         dataset=DatasetRef(path="/d"),
         method=ORPO(finetuning_type="full", template="qwen3"),
@@ -317,7 +332,7 @@ def test_lora_export_only_for_lora_and_qlora(tmp_path: Path) -> None:
 
     freeze = TrainSpec(
         name="z",
-        base_model="/m",
+        base_model=MODEL_DIR,
         run_dir=str(tmp_path / "z"),
         dataset=DatasetRef(path="/d"),
         method=KTO(finetuning_type="freeze", template="qwen3"),
@@ -392,7 +407,7 @@ def test_checkpoint_saving_is_off_by_default_and_weights_only_when_on(tmp_path: 
     def _cfg(**method_kwargs):
         spec = TrainSpec(
             name="e",
-            base_model="/m",
+            base_model=MODEL_DIR,
             run_dir=str(tmp_path),
             dataset=DatasetRef(path="/d"),
             method=SFT(template="qwen3", finetuning_type="full", **method_kwargs),
@@ -408,3 +423,28 @@ def test_checkpoint_saving_is_off_by_default_and_weights_only_when_on(tmp_path: 
     assert on["save_steps"] == 150
     assert on["save_total_limit"] == 4
     assert on["save_only_model"] is True
+
+
+def test_system_survives_the_round_trip_to_llamafactory(tmp_path: Path) -> None:
+    """A row's `system` must reach training, not just the disk.
+
+    convert materialises `system` into every alpaca row, but LLaMA-Factory only indexes optional
+    columns declared in dataset_info.json — so for one batch the field was written and then
+    ignored, and bfcl lost 33 points when a recipe moved its tool schema from `instruction` into
+    `system` (audit 13.4). This pins both halves: the value is in the row AND the column is
+    declared, which is what makes LF read it.
+    """
+    recs = convert.to_alpaca(
+        [{"messages": [
+            {"role": "system", "content": "TOOLS: [get_weather]"},
+            {"role": "user", "content": "weather?"},
+            {"role": "assistant", "content": "<tool_call>"},
+        ]}],
+        "auto",
+    )
+    assert recs[0]["system"] == "TOOLS: [get_weather]"
+    convert.write_alpaca_dataset(recs, str(tmp_path / "sft"))
+    info = json.loads((tmp_path / "sft" / "dataset_info.json").read_text())["dataos_sft"]
+    assert info["columns"]["system"] == "system"
+    rows = json.loads((tmp_path / "sft" / "train.json").read_text())
+    assert rows[0]["system"] == "TOOLS: [get_weather]"
