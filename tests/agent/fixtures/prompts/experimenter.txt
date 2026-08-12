@@ -150,35 +150,62 @@ HARD RULES:
   the final" is a finding the next round can act on even when the winner itself is
   unremarkable, and it is lost for good if only one number comes back.
 
-REPORT CONTRACT (this is OURS, not the runtime's — the runtime only produces the native
-summary.json score; YOU assemble it into report.json for our search tree). Write report.json
-to the LOCAL report path given in your task prompt, with this exact shape:
-  {"id":"<node_id>","name":"<name>","status":"completed",
-   "score":<float native % from summary.json, or null>,
-   "stages":{"data":{"status":"completed"},"train":{"status":"completed"},"eval":{"status":"completed"}},
-   "dataset":{"rows":<int>},
-   "model":{"path":"<the scored model dir>","base_model":"<BASE>"},
-   "eval":{"score":<float>,"per_task":{"<BENCH>":<float>},"path":"<eval_dir>"},
-   "analysis":{"rollout_summary":"<total correct/wrong from summary.json; SAMPLED k correct + k wrong outputs read>",
-              "failure_classes":{"<free-form class name>":<count>, ...},
-              "examples":[{"q":"...","model_output":"<clipped>","verdict":"...","cause":"..."}],
-              "anomalies":"<repetition/length/format drift, or 'none'>",
-              "checkpoint_sweep":[{"step":<int or "final">,"score":<float>}],  // ONLY when the plan set save_steps; every candidate you scored, winner included
-              "conclusion":"<the dominant failure mode AND where it lives: model capability / output shape / scorer parsing>"}}
-`status:"completed"` only if `score` is a real number read from the eval's summary.json; otherwise
-`status:"failed"` with an `"error"` string. On a BASELINE run set stages data/train to
-`{"status":"skipped"}`.
+REPORT CONTRACT. report.json is your ONE output and the leader reads it WHOLE — there is no
+digest in between, so a field you leave out is a fact the next round plans without. Write it to
+the LOCAL report path in your task prompt. It is shaped by the four stages you just ran, and each
+stage answers for itself:
+
+  {"id":"<node_id>",
+   "stages":{
+     "data":  {"status":"completed","rows":<int actually written to data/sft>,
+               "requested_rows":<int the recipe asked for>,
+               "fingerprint":"<content hash of train.json>"},
+     "train": {"status":"completed","model_path":"<the model dir you scored>",
+               "template":"<the chat template LF ACTUALLY used, read back from train_config.yaml>",
+               "actual_epochs":<float completed>,"train_loss":<float final>},
+     "eval":  {"status":"completed","score":<float native % from summary.json>,
+               "limit":<int items evaluated; -1 = the full frozen benchmark>,
+               "stderr":<float from summary.json>,"elapsed_s":<float wall clock>,
+               "checkpoint_sweep":[{"step":<int or "final">,"score":<float>}]},
+     "review":{"status":"completed","failure_classes":{"<your class name>":<count>},
+               "sampled":<true if the counts come from a SAMPLE, false for a full census>,
+               "anomalies":"<repetition/length/format drift, or 'none'>",
+               "conclusion":"<one sentence: the dominant failure mode AND where it lives — model capability / output shape / scorer parsing>",
+               "dominant_evidence":"<ONE quoted comparison: what the parser wanted vs what the model emitted>"}}}
+
+Every stage also accepts, and SHOULD carry when true:
+  - `"error"`: only with status "failed" — say WHICH gate or tool refused, and why.
+  - `"fixes"`: the mechanical workarounds THIS stage needed. Put them on the stage that needed
+    them, never in one run-level list: a train-stage `max_steps` added to fit the budget and a
+    data-format cast mean completely different things, and a flat list is how a 0.40-epoch node
+    was once read as a completed epochs comparison.
+  - `"script"`: `{"path":"<abs path>","sha256":"<sha256sum>"}` for a script YOU wrote for that
+    stage, or omit it when the tool did all the work. Never `""` — a path with no hash is not
+    identification, and the recipe's real identity is the hash.
+
+RULES
+- Do NOT write `status` or `score` at the top level. The score lives in exactly one place
+  (`stages.eval.score`) and the node's status is DERIVED from it: a real number means completed.
+- `limit` is required. A subset score is not comparable with a full-benchmark score, and it is
+  also systematically noisier — the leader is the one who decides what to do about that, so it
+  has to be able to see it. If the run's eval limit is AUTO (-2), record the count you actually
+  used, not -2.
+- `requested_rows` vs `rows`: a selector with `strict=false` silently returns whatever the pool
+  had. If they differ by more than 10%, say so in the data stage's `fixes`.
+- On a BASELINE run omit `data` and `train` entirely (a baseline has no data and no training),
+  or write them as `{"status":"skipped"}`.
+- Extra fields are welcome. If you learned something the shape above has no slot for — where the
+  parser lives, what target format it wants, what your pre-check found — add it. The leader sees
+  everything in this file.
 
 WRITE INCREMENTALLY — the score must never be hostage to later steps:
-  1. the moment the eval's summary.json exists, IMMEDIATELY write report.json with
-     status/score/stages/dataset/model/eval (everything above except `analysis`);
-  2. only then do the REVIEW stage and REWRITE report.json adding the `analysis` block.
-A completed report without `analysis` is acceptable (the loop salvages it if you are cut
-off); an `analysis` written before the score is on disk is a contract violation. If you
-fail BEFORE any score exists, still write a `status:"failed"` report with an `"error"`
-string — never crash without one. Record any compatibility fixes / format-pre-check
-outcome in report.json. If the run's eval limit is AUTO (-2), also record the actual
-limit you used as `eval.limit`.
+  1. the moment the eval's summary.json exists, IMMEDIATELY write report.json with the data,
+     train and eval stages;
+  2. only then do the REVIEW stage and REWRITE report.json adding `stages.review`.
+A completed report with no `review` is acceptable (the loop salvages it if you are cut off); a
+`review` written before the score is on disk is a contract violation. If you fail BEFORE any
+score exists, still write the report with `stages.eval` at `{"status":"failed","score":null,
+"limit":0,"error":"..."}` — never exit without one.
 
 - Execute the stages end to end (data+train fold into ONE Slurm job — the compute node has the
   pool AND the GPU; use the submit/poll ops). Self-heal execution failures (operator-port/

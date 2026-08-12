@@ -304,8 +304,25 @@ _ALPACA_COLUMNS = {
 
 
 def write_alpaca_dataset(records: list[dict], out_dir: str, name: str = "dataos_sft") -> int:
+    """Write the alpaca dataset LF will read, guaranteeing every column it is told about.
+
+    THE INVARIANT: whatever is declared here is present in every row. LF's alpaca converter
+    indexes an optional column unconditionally once it is mapped — ``if self.dataset_attr.history
+    and isinstance(example[self.dataset_attr.history], list)`` short-circuits on the column NAME
+    being set, then subscripts the row — so declaring a column the rows may lack turns
+    ``dataset_info.json`` into a landmine. Declaring and guaranteeing therefore have to live in one
+    function, which is what this is. Getting only the declaring half done cost the Gemma3 bfcl run
+    its last round to ``KeyError: 'history'`` 12 seconds into every job.
+
+    Neither column is optional in the sense of "unused": ``to_alpaca`` emits ``history`` for
+    multi-turn records and omits it for single-turn ones, so a MIXED dataset is the worst case
+    (some rows carry the key, some do not); and ``system`` is where the frozen bfcl scorer puts the
+    tool schema, which is why it is declared at all (audit 13.4 — 85 -> 52 when LF silently dropped
+    it). Materializing is the only way to keep both without the landmine.
+    """
+    rows = [_with_lf_optional_prompt_columns(rec) for rec in records]
     return _write_dataset(
-        records, out_dir, name, {"file_name": "train.json", "columns": dict(_ALPACA_COLUMNS)}
+        rows, out_dir, name, {"file_name": "train.json", "columns": dict(_ALPACA_COLUMNS)}
     )
 
 

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from dataos.core.io import atomic_write_json
+from dataos.agent import report as report_schema
 from dataos.agent.eval_freeze import freeze_eval
 
 from . import budget as _budget
@@ -111,42 +112,41 @@ def _better(a: dict | None, b: dict | None) -> dict | None:
 
 
 def _report_score(report: dict) -> float | None:
-    score = report.get("score")
-    if isinstance(score, (int, float)):
-        return float(score)
-    evaluation = report.get("eval") or {}
-    macro = evaluation.get("macro_average")
-    if isinstance(macro, (int, float)):
-        return float(macro)
-    score = evaluation.get("score")
-    return float(score) if isinstance(score, (int, float)) else None
+    """This report's score, via the schema — which single-sources it.
 
-
-def _report_eval_limit(report: dict) -> int | None:
-    """How many eval items produced this report's score. ``-1`` = the full benchmark, ``None`` =
-    the report didn't record it. The leader must see this next to every score: a subset score and
-    a full score are not comparable, and it is the leader that decides what to do about that."""
-    limit = (report.get("eval") or {}).get("limit")
-    return int(limit) if isinstance(limit, (int, float)) else None
+    The three-place fallback this replaces (``score`` → ``eval.macro_average`` → ``eval.score``)
+    was not defensive, it was ambiguity: nothing said which of the three a report SHOULD write, so
+    each place was authoritative somewhere and every consumer had to re-implement the precedence.
+    """
+    return report_schema.read(report).score
 
 
 def _read_report(exp_root: Path, name: str):
-    """Read one experiment report as score/eval_limit/model/artifacts/scripts/status."""
+    """Read one experiment report as score/eval_limit/model/scripts/status/path.
+
+    ``eval_limit`` is how many items produced the score (``-1`` = the full benchmark). The leader
+    must see it next to every score: a subset score and a full score are not comparable, and it is
+    the leader that decides what to do about that.
+    """
     from dataos.core.study import _slug
 
     path = exp_root / _slug(name) / "report.json"
     try:
-        report = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
-        return None, None, None, {}, {}, None, str(path)
-    model = report.get("model") or {}
+        return None, None, None, {}, None, str(path)
+    parsed = report_schema.read(raw)
+    scripts = {
+        stage: ref.model_dump()
+        for stage in ("data", "train", "eval", "review")
+        if (ref := getattr(getattr(parsed.stages, stage, None), "script", None)) is not None
+    }
     return (
-        _report_score(report),
-        _report_eval_limit(report),
-        model.get("path"),
-        report.get("artifacts") or {},
-        report.get("scripts") or {},
-        report.get("status"),
+        parsed.score,
+        parsed.stages.eval.limit,
+        parsed.model_path,
+        scripts,
+        parsed.status,
         str(path),
     )
 
@@ -769,7 +769,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)
 
         exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
-        score, eval_limit, mpath, artifacts, scripts, status, report_path = _read_report(
+        score, eval_limit, mpath, scripts, status, report_path = _read_report(
             exp_root,
             spec["name"],
         )
@@ -780,7 +780,6 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             score=score,
             eval_limit=eval_limit,
             model_path=mpath,
-            artifacts=artifacts,
             scripts=scripts,
         )
         tree.save()

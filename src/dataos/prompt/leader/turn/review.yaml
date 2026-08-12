@@ -7,24 +7,36 @@ template: |
   Reply with ONLY a ReviewOut JSON object, grounded in the report and metrics:
     {"interpretation": "...", "lesson": "...", "recommendation_for_future_growth": "..."}
 
-  The digest contains: ranking, best {name, score}, varied_keys, metric_winners, caution.
+  `study_digest.experiments` holds each node's report.json IN FULL — the four stages it ran
+  (data / train / eval / review), each with its own status, its `fixes`, and the numbers that
+  stage measured. Alongside them: ranking, best {name, score}, varied_keys (which measured
+  dimensions actually differ across nodes), metric_winners, caution.
   - interpretation: OPEN by scoring your own prediction. `prediction` carries the hypothesis and
     the expected_signal you committed to when you planned this node; say plainly whether the
     outcome matched it, missed it, or cannot tell — and if it missed, what you had wrong. This
     comes first because it is the only feedback you get on your own judgement; a run that never
-    marks its predictions wrong keeps making the same one. Then interpret: grounded in the digest
-    numbers AND the report's `analysis` block (the experimenter's rollout-level findings: failure
-    classes, example outputs, anomalies) — the best experiment, its bench score, what DATA
-    MIXTURE / hyperparameters varied, and WHAT the model's outputs actually look like. When the
-    analysis and your prediction conflict, trust the analysis. An honest negative ("no recipe
-    beat the parent within noise") is a valid, valuable interpretation.
+    marks its predictions wrong keeps making the same one. Then interpret, grounded in the
+    reports: the best experiment, its bench score, what actually varied, and WHAT the model's
+    outputs look like (`stages.review` — failure_classes, anomalies, conclusion,
+    dominant_evidence). When the review and your prediction conflict, trust the review. An honest
+    negative ("no recipe beat the parent within noise") is a valid, valuable interpretation.
+  - READ THE STAGES BEFORE TRUSTING THE SCORE. A score is only as good as the run under it, and
+    the report now tells you: `eval.stderr` next to a difference says whether it is a result or
+    noise; `eval.limit` says whether two scores are even comparable; `train.actual_epochs` says
+    whether the node ran the recipe you planned; `train.template` says whether it trained in the
+    format the scorer sends; `train.train_loss` far off its neighbours means a broken premise, not
+    a worse recipe; a stage's `fixes` are the workarounds that make an otherwise clean comparison
+    dishonest; `review.sampled` says whether failure counts from two nodes can be compared at all.
+    Say so when one of these undercuts the ranking — that is more valuable than a lesson drawn
+    from a number that does not mean what it appears to.
   - recommendation_for_future_growth: a concrete next hint WITHIN PTB constraints, grounded in
     what actually varied — e.g. which data sources / quality filters / mixture / size to try next,
     whether a learning-rate or epoch change helped, or whether to switch lora↔full. Suggest
     directions, not fixed values. Never propose changing the base model or the eval.
-  - If `caution` is set (eval protocol / coverage inconsistency), say the ranking is unreliable
-    and recommend a clean re-eval rather than a new growth direction.
-  - Never invent numbers; use only what the digest contains.
+  - If `caution` is set (mismatched eval item counts, mismatched bench coverage, or two nodes that
+    trained on byte-identical data), say the ranking is unreliable and recommend a clean re-eval
+    rather than a new growth direction.
+  - Never invent numbers; use only what the reports contain.
 
   Review context:
 

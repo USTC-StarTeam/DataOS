@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import json
 import logging
+import shlex
 import time
 from pathlib import Path
 
 from dataos.core.ids import _make_id
 from dataos.core.io import atomic_write_json
 from dataos.core.study import _slug
+
+from dataos.agent import report as report_schema
 
 from dataos import prompt as _prompt
 from dataos.agent.backend import system_prompt
@@ -186,17 +189,24 @@ def _queue_wait_s(cfg) -> float:
     return _queue_credit_s(rows, since=_INVOCATION_WALL_START or 0.0)
 
 
-def _artifacts(cfg, study_id: str, name, exp_dir: Path, eval_limit: int) -> dict:
+def _paths(cfg, study_id: str, name, exp_dir: Path) -> dict:
     """The DETERMINISTIC artifact layout for one experiment (H100 RUN_ROOT + local report).
-    Fixed by the runtime, recorded on the tree node — not left to the experimenter's whim."""
+
+    Recorded in ``state.json`` for monitoring and resume, NOT in report.json: seven paths the
+    leader cannot open were 19.3% of every report's bytes.
+
+    The eval dir is deliberately absent. It used to be built here as
+    ``eval/{bench}_limit{"auto" if eval_limit == -2 else eval_limit}``, and ``auto`` is a tag no
+    eval has ever written — so the one consumer that resolved a real directory from it (score
+    salvage) looked in a path that does not exist. Naming a directory you did not create is a
+    guess; :func:`_remote_eval_dirs` asks instead.
+    """
     rr = _run_root(cfg, study_id, name)
-    limit_tag = "auto" if eval_limit == -2 else str(eval_limit)
     return {
         "run_root": rr,
         "data": f"{rr}/data/sft",
         "adapter": f"{rr}/adapter",
         "model": f"{rr}/final_model",
-        "eval": f"{rr}/eval/{cfg.target_bench}_limit{limit_tag}",
         "logs": f"{rr}/logs",
         "report": str(exp_dir / "report.json"),
     }
@@ -221,18 +231,29 @@ def _report_from_disk(path: Path) -> dict | None:
 
 def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
                   report: dict) -> dict:
-    """Attach runtime-owned provenance to any report the experimenter wrote."""
+    """Attach runtime-owned provenance to any report the experimenter wrote.
+
+    Deliberately thin. It used to stamp seven guessed paths under ``artifacts`` (19.3% of every
+    report's bytes, and the leader opens none of them) and to seed ``scripts`` with empty strings,
+    which is how the previous batch reported 17 scripts as ``""`` — a key whose value the runtime
+    invents is not provenance. Paths live in ``state.json`` now; a script the experimenter actually
+    wrote is declared per stage, with a hash.
+
+    The one thing still worth stamping is the model path: the tree continues nodes from it, and an
+    experimenter that trained into the standard location often does not bother repeating it. Both
+    report shapes are filled during the transition — the prompt contract now asks for
+    ``stages.train.model_path``, but a report written by an older cached prompt is still legal input.
+    """
     name = spec["name"]
     report.setdefault("id", _make_id("exp"))
-    report.setdefault("name", name)
-    report["artifacts"] = _artifacts(cfg, study_id, name, exp_dir, eval_limit)
-    # The experimenter writes its own training (LLaMA-Factory) and may record the commands it used
-    # under report["scripts"]; the runtime only guarantees the keys exist for provenance.
-    scripts = report.setdefault("scripts", {})
-    scripts.setdefault("train", "")
-    scripts.setdefault("data", "")
-    # the experimenter writes report.json freeform; "model" may be a bare path string,
-    # a dict, or missing — normalize to {"path": ...} before stamping.
+    default_model = _paths(cfg, study_id, name, exp_dir)["model"]
+    stages = report.get("stages")
+    train = stages.get("train") if isinstance(stages, dict) else None
+    if isinstance(train, dict):
+        if not train.get("model_path"):
+            train["model_path"] = default_model
+        return report
+    # legacy shape: `model` arrives as a bare path string, a dict, or missing
     model = report.get("model")
     if isinstance(model, str):
         model = {"path": model}
@@ -240,7 +261,7 @@ def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: 
         model = {}
     report["model"] = model
     if not model.get("path"):
-        model["path"] = report["artifacts"]["model"]
+        model["path"] = default_model
     return report
 
 
@@ -248,11 +269,11 @@ def _failed_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit:
                    error: str) -> dict:
     report = {
         "id": _make_id("exp"),
-        "name": spec["name"],
-        "status": "failed",
-        "score": None,
-        "error": error,
-        "stages": {"train": {"status": "failed"}, "eval": {"status": "failed"}},
+        "stages": {
+            # `limit` is required by the contract and 0 is the honest value here: nothing was
+            # scored. Writing the requested eval_limit would claim a caliber this node never had.
+            "eval": {"status": "failed", "score": None, "limit": 0, "error": error},
+        },
     }
     return _stamp_report(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
@@ -265,6 +286,28 @@ def _numeric_score(data: dict) -> float | None:
     return float(score) if isinstance(score, (int, float)) else None
 
 
+def _remote_eval_summaries(cfg, study_id: str, name) -> list[tuple[str, dict]]:
+    """Every ``summary.json`` under this run's ``eval/``, newest first.
+
+    Asks the exec host what is there rather than reconstructing the directory name. A checkpoint
+    sweep leaves several eval dirs, an AUTO-sized eval leaves one whose tag nobody can predict from
+    ``eval_limit``, and salvage only has to find A real score — newest is the best guess at the one
+    the experimenter was writing when it was cut off.
+    """
+    rr = _run_root(cfg, study_id, name)
+    out = _ssh_text(cfg, f"ls -1dt {shlex.quote(rr)}/eval/*/summary.json 2>/dev/null")
+    found: list[tuple[str, dict]] = []
+    for path in (out or "").split():
+        text = _ssh_text(cfg, f"cat {shlex.quote(path)} 2>/dev/null")
+        try:
+            summary = json.loads(text) if text else None
+        except json.JSONDecodeError:
+            summary = None
+        if isinstance(summary, dict):
+            found.append((str(Path(path).parent), summary))
+    return found
+
+
 def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
                     partial: dict | None, error: str) -> dict | None:
     """Rescue a COMPLETED score when the experimenter died after the eval produced one
@@ -275,30 +318,46 @@ def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit
     Returns None when no real score exists anywhere (caller falls back to failed)."""
     source = None
     report = None
-    if partial is not None and _numeric_score(partial) is not None:
+    if partial is not None and report_schema.read(partial).score is not None:
         report, source = dict(partial), "partial report.json"
     else:
-        eval_dir = (_artifacts(cfg, study_id, spec["name"], exp_dir, eval_limit))["eval"]
-        import shlex
-
-        out = _ssh_text(cfg, f"cat {shlex.quote(eval_dir)}/summary.json 2>/dev/null")
-        try:
-            summary = json.loads(out) if out else {}
-        except json.JSONDecodeError:
-            summary = {}
-        if isinstance(summary, dict) and _numeric_score(summary) is not None:
-            report, source = {
-                "score": _numeric_score(summary),
-                "stages": {"eval": {"status": "completed"}},
-                "eval": {"score": _numeric_score(summary), "path": eval_dir},
-            }, "remote summary.json"
+        for eval_dir, summary in _remote_eval_summaries(cfg, study_id, spec["name"]):
+            if _numeric_score(summary) is not None:
+                report, source = {
+                    "stages": {
+                        "eval": {
+                            "status": "completed",
+                            "score": _numeric_score(summary),
+                            "limit": summary.get("limit")
+                            if isinstance(summary.get("limit"), int)
+                            else eval_limit,
+                        }
+                    },
+                }, f"remote summary.json ({eval_dir})"
+                break
     if report is None:
         return None
-    report["status"] = "completed"  # the score IS real; the cut was operational
+    # The score IS real; the cut was operational — so the EVAL stage completed even though the
+    # experiment did not. Salvage cannot invent the review that was never written, and a report
+    # with no review would read as mid-run to the resume check, so say plainly why it stops here.
+    stages = report.setdefault("stages", {})
+    if isinstance(stages, dict):
+        eval_stage = stages.setdefault("eval", {})
+        if isinstance(eval_stage, dict):
+            eval_stage["status"] = "completed"
+        stages["review"] = {
+            "status": "skipped",
+            "failure_classes": {},
+            "sampled": False,
+            "anomalies": "unknown",
+            "conclusion": f"no review: the experimenter was cut off after the eval scored ({error})",
+        }
+    if isinstance(report.get("status"), str):  # legacy partial — keep its own dialect consistent
+        report["status"] = "completed"
     report["salvaged"] = True
     report["error"] = f"salvaged from {source}; the experimenter was cut off: {error}"
     log.warning("subagent[%s]: salvaged score=%s from %s",
-                spec["name"], report.get("score"), source)
+                spec["name"], report_schema.read(report).score, source)
     return report
 
 
@@ -312,7 +371,7 @@ def _state_seed(*, cfg, study_id: str, spec: dict, exp_dir: Path, report_path: P
         "session_id": None,
         "report_path": str(report_path),
         "state_path": str(exp_dir / _STATE_FILE),
-        "artifacts": _artifacts(cfg, study_id, name, exp_dir, eval_limit),
+        "artifacts": _paths(cfg, study_id, name, exp_dir),
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -426,14 +485,15 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
     if eval_limit is None:
         eval_limit = 20 if cfg.ptb_profile == "smoke" else 200
     existing_report = _report_from_disk(report_path)
-    if existing_report is not None and existing_report.get("status") in {"completed", "failed"}:
+    if existing_report is not None and report_schema.is_terminal(existing_report):
         report = _stamp_report(
             cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
             eval_limit=eval_limit, report=existing_report,
         )
         atomic_write_json(report_path, report)
+        _parsed = report_schema.read(report)
         log.info("subagent[%s]: existing terminal report status=%s score=%s",
-                 name, report.get("status"), report.get("score"))
+                 name, _parsed.status, _parsed.score)
         return name, report
 
     agent = build_agent(
@@ -449,7 +509,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
         report_path=report_path, eval_limit=eval_limit,
     )
-    state.setdefault("artifacts", _artifacts(cfg, study_id, name, exp_dir, eval_limit))
+    state.setdefault("artifacts", _paths(cfg, study_id, name, exp_dir))
     state.setdefault("report_path", str(report_path))
     state.setdefault("state_path", str(state_path))
     _write_state(state_path, state)
@@ -488,8 +548,8 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
                  state.get("session_id"), last_text[:800] + ("…" if len(last_text) > 800 else ""))
 
         report = _report_from_disk(report_path)
-        if report is not None and report.get("status") in {"completed", "failed"}:
-            state["status"] = report.get("status")
+        if report is not None and report_schema.is_terminal(report):
+            state["status"] = report_schema.read(report).status
             _write_state(state_path, state)
             break
 
@@ -506,7 +566,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         )
 
     report = _report_from_disk(report_path)
-    if report is None or report.get("status") not in {"completed", "failed"}:
+    if report is None or not report_schema.is_terminal(report):
         err = "experimenter produced no terminal report.json before the PTB/experiment deadline"
         if state.get("last_error"):
             err = f"{err}: {state['last_error']}"
@@ -524,8 +584,9 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         eval_limit=eval_limit, report=report,
     )
     atomic_write_json(report_path, report)
-    log.info("subagent[%s]: status=%s score=%s artifacts.run_root=%s",
-             name, report.get("status"), report.get("score"), report["artifacts"]["run_root"])
+    _parsed = report_schema.read(report)
+    log.info("subagent[%s]: status=%s score=%s run_root=%s",
+             name, _parsed.status, _parsed.score, _run_root(cfg, study_id, name))
     return name, report
 
 

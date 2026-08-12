@@ -185,4 +185,7 @@ def test_templates_render_with_declared_params():
     assert minimal.startswith("run the eval through the `dataos-eval` CLI")
     assert "1. submit: `cmd`" in minimal
     assert "`/env/bin/dataos-eval status --repo /deploy <handle>`" in minimal
-    assert "model family name" in minimal  # the label->template selection rule
+    # the label no longer selects the template (the runner reads the model's config.json), and the
+    # prompt must say so: the old rule told the experimenter its label WAS the protocol
+    assert "the eval label is yours to name freely" in minimal
+    assert "stages.train.template" in minimal

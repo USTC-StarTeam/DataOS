@@ -18,6 +18,7 @@ template: |
   {% if format_contract_loc %}
   want a high score? read how the scorer parses output first: {{ format_contract_loc }}
   {% endif %}
-  the eval model label MUST start with the model family name (e.g. `Qwen3-...`): the frozen
-  runner picks the chat template by matching the label string — an unrecognized label scores
-  the model with the wrong template.
+  the eval label is yours to name freely — it is a label, nothing more. It used to select the chat
+  template by substring match, which meant the label you passed could change the protocol you were
+  scored under; the runner now reads the template from the model's own `config.json`, so no label
+  can move it. Record the template the eval reports back in `stages.train.template`.

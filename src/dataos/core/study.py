@@ -21,7 +21,6 @@ On-disk layout::
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -29,6 +28,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from dataos.agent import report as report_schema
 from dataos.core.experiment import Experiment
 from dataos.core.ids import _make_id, _utc_now_iso
 from dataos.core.io import atomic_write_json
@@ -144,85 +144,51 @@ class Study:
 
         Reads from disk (not in-memory state), so it works regardless of how the
         experiments were run. Tolerates missing/partial reports.
+
+        ``experiments`` carries each report VERBATIM rather than a hand-picked projection. The
+        projection it replaces was measured against all 1232 reports on disk and three of its
+        columns had never held a value: it read ``spec.train`` (0/1232) so ``varied_keys`` was
+        permanently empty, ``dataset.fingerprint`` (0/1232), and ``stages.eval.config`` (0/1232) so
+        the protocol-comparability caution had never once fired. It also read ``compat_fixes``
+        while 700 reports wrote ``compatibility_fixes``. A projection whose key names can silently
+        stop matching the contract is the bug; passing the report through removes the class.
+        The aggregates below are the ones that survive that measurement — every input they read is
+        a field reports actually write.
         """
         rows: list[dict[str, Any]] = []
-        for report in self._read_reports():
-            evaluation = report.get("eval") or {}
-            spec = report.get("spec") or {}
-            dataset = report.get("dataset") or {}
+        for raw in self._read_reports():
+            parsed = report_schema.read(raw)
+            stages = parsed.stages
             # an invalidated/failed/re-running eval's old numbers are forensics, not scores:
             # letting them rank (while the guards exclude them as not-completed) would crown
             # exactly the least trustworthy row
-            _stages = report.get("stages")
-            if isinstance(_stages, dict):
-                _eval_entry = _stages.get("eval")
-                if isinstance(_eval_entry, dict):
-                    eval_current = _eval_entry.get("status") == "completed"
-                else:
-                    # experimenter wrote bare string value e.g. "completed"
-                    eval_current = _eval_entry == "completed"
-            else:
-                # experimenter wrote stages as a name-list or other non-dict — fall back to score presence
-                eval_current = evaluation.get("score") is not None or evaluation.get("macro_average") is not None
+            eval_current = stages.eval.status == "completed"
+            evaluation = raw.get("eval") if isinstance(raw.get("eval"), dict) else {}
+            extra = stages.eval.model_extra or {}
             rows.append(
                 {
-                    "name": report.get("name") or report.get("id"),
-                    "id": report.get("id"),
-                    "status": report.get("status"),
-                    "score": (
-                        evaluation.get("macro_average")
-                        if evaluation.get("macro_average") is not None
-                        else evaluation.get("score")
-                    )
+                    "report": raw,
+                    "name": parsed.id,
+                    "status": parsed.status,
+                    "score": parsed.score if eval_current else None,
+                    # `metrics` / `per_task` are volunteered extras, not contract fields: the two
+                    # guards below are the only consumers and both degrade to silence without them
+                    "metrics": (extra.get("metrics") or evaluation.get("metrics") or {})
                     if eval_current
-                    else None,
-                    "metrics": (evaluation.get("metrics") or {}) if eval_current else {},
-                    "train": spec.get("train") or {},
-                    "data_rows": dataset.get("rows"),
-                    "data_fingerprint": dataset.get("fingerprint"),
-                    "eval_protocol": _eval_protocol_fingerprint(report),
-                    "per_task": evaluation.get("per_task") or {},
-                    # the REVIEW stage's rollout-level findings + the experimenter's own
-                    # narrative — the leader grounds interpretation in these, not just numbers
-                    "analysis": report.get("analysis") or {},
-                    "compat_fixes": report.get("compat_fixes") or [],
-                    "error": report.get("error"),
+                    else {},
+                    "per_task": extra.get("per_task") or evaluation.get("per_task") or {},
+                    "limit": stages.eval.limit,
+                    "rows": stages.data.rows if stages.data else None,
+                    "fingerprint": stages.data.fingerprint if stages.data else None,
+                    "template": stages.train.template if stages.train else None,
+                    "epochs": stages.train.actual_epochs if stages.train else None,
                 }
             )
         rows.sort(key=lambda row: str(row["name"]))
-        varied = _varied_keys([row["train"] for row in rows])
-        # Data-side sweeps (row counts / content) are invisible to spec["train"] diffs — e.g.
-        # an injected-dataset volume sweep. Surface them as pseudo-keys next to the train dims.
-        with_data = [row for row in rows if row["data_rows"] is not None or row["data_fingerprint"]]
-        fingerprints = [row["data_fingerprint"] for row in with_data]
-        if len({row["data_rows"] for row in with_data}) > 1:
-            varied.append("data.rows")
-        elif all(fingerprints) and len(set(fingerprints)) > 1:
-            # only when every report records one — a mixed old/new-version study must not
-            # misread a missing fingerprint as a data variation
-            varied.append("data.fingerprint")
+        varied = _varied_keys(rows)
 
-        experiments: list[dict[str, Any]] = []
-        for row in rows:
-            entry = {
-                "name": row["name"],
-                "id": row["id"],
-                "status": row["status"],
-                "score": row["score"],
-                "metrics": row["metrics"],
-                "analysis_conclusion": (row["analysis"] or {}).get("conclusion"),
-                "failure_classes": (row["analysis"] or {}).get("failure_classes"),
-                "compat_fixes": row["compat_fixes"],
-                "error": row["error"],
-            }
-            for key in varied:
-                if key == "data.rows":
-                    entry[key] = row["data_rows"]
-                elif key == "data.fingerprint":
-                    entry[key] = row["data_fingerprint"]
-                else:
-                    entry[key] = row["train"].get(key)
-            experiments.append(entry)
+        # Reports go to the leader whole. Sorting them is the only shaping left.
+        experiments = [row["report"] for row in rows]
 
         ranked = sorted(
             rows,
@@ -258,18 +224,20 @@ class Study:
                     f"{disagree} — the winner is metric-dependent. Pin eval config['headline_metric'] "
                     "to choose which metric ranks."
                 )
-        # Comparability guard: ranking only means something if every experiment was scored by
-        # the SAME eval implementation (tasks / limits / harness commands). Model-identity keys
-        # are excluded from the fingerprint, so an eval-only baseline matches its sweep.
-        protocols = {
-            row["name"]: row["eval_protocol"]
-            for row in rows
-            if row["eval_protocol"] is not None and row["status"] == "completed"
+        # Comparability guard: ranking only means something if every experiment was scored over
+        # the SAME number of items. This used to hash `stages.eval.config`, a key no report has
+        # ever written, so it never fired — while the thing it was meant to catch happened
+        # repeatedly: a 54-of-164 subset scoring 50.00 outranked full-benchmark nodes and was
+        # reported as the run's best (audit 13.3). `limit` is a required contract field, so this
+        # version has an input.
+        limits = {
+            row["name"]: row["limit"] for row in rows if row["status"] == "completed"
         }
-        if len(set(protocols.values())) > 1:
+        if len(set(limits.values())) > 1:
             cautions.append(
-                f"experiments were scored under DIFFERENT eval protocols {protocols} — "
-                "their scores are NOT comparable; align spec['eval'] across the study"
+                f"experiments were scored over DIFFERENT item counts {limits} — a subset score is "
+                "NOT comparable with a full-benchmark score (a subset is also systematically "
+                "noisier); re-evaluate the outliers at the same limit before ranking them"
             )
         # Coverage guard: even under one protocol, runtime skips (gated bench, broken harness)
         # shrink an experiment's macro to FEWER benches — ranking partial against full coverage
@@ -291,6 +259,12 @@ class Study:
             cautions.append(
                 f"experiments covered DIFFERENT bench sets {shape} (skipped entries/tasks?) — "
                 "their macro scores are not comparable; rerun the missing benches"
+            )
+        for clones in _identical_data(rows):
+            cautions.append(
+                f"{clones} trained on BYTE-IDENTICAL data (same fingerprint) — whatever their "
+                "recipes said, any score difference between them is run-to-run noise and sets the "
+                "floor for what counts as a real effect in this study"
             )
         caution = " | ".join(cautions) if cautions else None
 
@@ -383,59 +357,43 @@ def _is_noise_metric(key: str) -> bool:
     )
 
 
-_PROTOCOL_SKIP_KEYS = {"model_name_or_path", "base_model", "model_args", "provider_config", "env"}
+#: The fields ``_varied_keys`` compares, as ``summary`` row key -> reported path. All five are
+#: OUTCOMES, not plan knobs: the leader already holds the plan it wrote, so echoing the requested
+#: lr back at it says nothing, whereas "you asked for 3 epochs and 0.40 happened" is the whole
+#: point. Its predecessor compared ``spec.train`` — a key no report has ever written.
+_VARIED_FIELDS = {
+    "rows": "data.rows",
+    "fingerprint": "data.fingerprint",
+    "template": "train.template",
+    "epochs": "train.actual_epochs",
+    "limit": "eval.limit",
+}
 
 
-def _strip_protocol_noise(value: Any) -> Any:
-    """Drop model-identity / stub-score / env keys at EVERY level (suite entries included)."""
-    if isinstance(value, dict):
-        return {
-            key: _strip_protocol_noise(val)
-            for key, val in value.items()
-            if key not in _PROTOCOL_SKIP_KEYS
-        }
-    if isinstance(value, list):
-        return [_strip_protocol_noise(item) for item in value]
-    return value
+def _varied_keys(rows: list[dict[str, Any]]) -> list[str]:
+    """Which measured dimensions actually differ across this study's nodes.
 
-
-def _eval_protocol_fingerprint(report: dict[str, Any]) -> str | None:
-    """A short hash of the experiment's eval *protocol* — what was evaluated and how it was
-    scored (tasks / limits / fewshot / harness commands / suite shape).
-
-    Model-identity keys are excluded (recursively, so suite entries too) so an eval-only
-    baseline fingerprints the same as the trained experiments it anchors; stub
-    ``provider_config`` is excluded so smoke sweeps with different fake scores don't alarm."""
-    _s = report.get("stages")
-    _se = _s.get("eval") if isinstance(_s, dict) else None
-    eval_stage = _se if isinstance(_se, dict) else {}
-    if eval_stage.get("config_drift"):
-        # the persisted score came from a config that is no longer the one on record —
-        # the protocol is UNKNOWN until the stage re-runs; don't group it with anything
-        return None
-    config = eval_stage.get("config")
-    if not isinstance(config, dict):
-        return None
-    protocol = _strip_protocol_noise(config)
-    if not protocol:
-        return None
-    payload = json.dumps(protocol, sort_keys=True, default=str).encode("utf-8")
-    return hashlib.sha1(payload).hexdigest()[:8]
-
-
-def _varied_keys(configs: list[dict[str, Any]]) -> list[str]:
-    """Keys whose value differs across the train configs that *have* one (the swept dims).
-
-    Experiments with no train stage (e.g. an eval-only baseline, whose train config is ``{}``)
-    are excluded — otherwise every train key looks "swept" simply because the baseline lacks it.
+    Only rows that recorded a given field participate, so an eval-only baseline (no data/train
+    stage, hence ``None``) does not make every training dimension look swept.
     """
-    trained = [config for config in configs if config]
-    keys: set[str] = set()
-    for config in trained:
-        keys.update(config)
-    varied = [
-        key
-        for key in keys
-        if len({json.dumps(c.get(key), sort_keys=True, default=str) for c in trained}) > 1
-    ]
-    return sorted(varied)
+    varied = []
+    for key, path in sorted(_VARIED_FIELDS.items(), key=lambda item: item[1]):
+        present = [row[key] for row in rows if row.get(key) is not None]
+        if len(present) > 1 and len({json.dumps(v, default=str) for v in present}) > 1:
+            varied.append(path)
+    return varied
+
+
+def _identical_data(rows: list[dict[str, Any]]) -> list[list[str]]:
+    """Groups of nodes whose training data was byte-identical.
+
+    Two nodes described as different recipes but sharing a fingerprint trained on the same bytes,
+    whatever their plans said — the previous batch grew a three-deep branch off two "different
+    seed" nodes whose data was md5-identical, and every conclusion drawn from that branch was
+    about noise. Cheap to detect the moment a fingerprint exists, and impossible to spot by eye.
+    """
+    groups: dict[str, list[str]] = {}
+    for row in rows:
+        if row.get("fingerprint"):
+            groups.setdefault(str(row["fingerprint"]), []).append(str(row["name"]))
+    return sorted(names for names in groups.values() if len(names) > 1)

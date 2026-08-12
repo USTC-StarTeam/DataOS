@@ -41,7 +41,6 @@ class TreeState:
             "plan": None,
             "report_path": None,
             "review_path": None,
-            "artifacts": {},
             "scripts": {},
         }
         return cls(path, {"root": "n0000", "nodes": [root]})
@@ -81,8 +80,7 @@ class TreeState:
                 "plan": dict(plan),
                 "report_path": None,
                 "review_path": None,
-                "artifacts": {},
-                "scripts": {},
+                    "scripts": {},
             }
         )
         return nid
@@ -99,7 +97,6 @@ class TreeState:
         score,
         model_path,
         eval_limit: int | None = None,
-        artifacts: dict | None = None,
         scripts: dict | None = None,
     ) -> None:
         node = self.get(node_id)
@@ -109,7 +106,6 @@ class TreeState:
         if model_path:
             node["model_path"] = model_path
         node["report_path"] = report_path
-        node["artifacts"] = artifacts or {}
         node["scripts"] = scripts or {}
 
     def attach_review(self, node_id: str, *, review_path: str, review: dict) -> None:

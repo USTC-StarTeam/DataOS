@@ -26,5 +26,5 @@
     "model": "gpt-5.6-sol",
     "effort": "medium"
   },
-  "monitor_port": 8783
+  "monitor_port": 8785
 }

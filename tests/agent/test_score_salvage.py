@@ -4,6 +4,7 @@ write per the contract) or, failing that, the remote summary.json."""
 
 import json
 
+from dataos.agent import report as report_schema
 from dataos.agent import subagent_executor as subagent_exec
 from tests.agent.test_subagent_executor import _cfg
 
@@ -48,30 +49,48 @@ def test_salvage_from_partial_report(tmp_path):
         }))
 
     _, report = _run(on_run=write_partial, cfg=_cfg(tmp_path / "ws"), tmp_path=tmp_path)
-    assert report["status"] == "completed"
-    assert report["score"] == 28.125
+    parsed = report_schema.read(report)
+    assert parsed.status == "completed"
+    assert parsed.score == 28.125
     assert report["salvaged"] is True
     assert "partial report.json" in report["error"]
+    # a salvaged report must read as FINISHED, or the resume loop re-runs an experiment whose
+    # score is already on disk (that is what produced the previous batch's zombie rounds)
+    assert report_schema.is_terminal(report)
 
 
 def test_salvage_from_remote_summary(tmp_path, monkeypatch):
     """No local report at all; the remote eval summary has the score."""
-    summary = {"score": 18.08, "task": "gsm8k"}
-    monkeypatch.setattr(
-        subagent_exec, "_ssh_text",
-        lambda cfg, cmd, **kw: json.dumps(summary) if "summary.json" in cmd else "",
-    )
+    summary = {"score": 18.08, "task": "gsm8k", "limit": 164}
+    eval_dir = "/data/hcgu/users/tjh/dataos_agentver_runs/p/round-0000/explore-0/eval/gsm8k_full"
+
+    def _ssh(cfg, cmd, **kw):
+        # the executor ASKS which eval dirs exist rather than reconstructing the name: the tag it
+        # used to build ("auto" for an AUTO-sized eval) is one no eval has ever written
+        if cmd.startswith("ls "):
+            return f"{eval_dir}/summary.json"
+        return json.dumps(summary) if "summary.json" in cmd else ""
+
+    monkeypatch.setattr(subagent_exec, "_ssh_text", _ssh)
     _, report = _run(cfg=_cfg(tmp_path / "ws"), tmp_path=tmp_path)
-    assert report["status"] == "completed"
-    assert report["score"] == 18.08
+    parsed = report_schema.read(report)
+    assert parsed.status == "completed"
+    assert parsed.score == 18.08
+    # the caliber comes from the summary the score came from, never from the requested limit
+    assert parsed.stages.eval.limit == 164
     assert report["salvaged"] is True
     assert "remote summary.json" in report["error"]
-    assert report["eval"]["path"].endswith("eval/gsm8k_limit20")
+    assert eval_dir in report["error"]
+    assert report_schema.is_terminal(report)
 
 
 def test_no_score_anywhere_stays_failed(tmp_path, monkeypatch):
     monkeypatch.setattr(subagent_exec, "_ssh_text", lambda cfg, cmd, **kw: "")
     _, report = _run(cfg=_cfg(tmp_path / "ws"), tmp_path=tmp_path)
-    assert report["status"] == "failed"
-    assert report["score"] is None
+    parsed = report_schema.read(report)
+    assert parsed.status == "failed"
+    assert parsed.score is None
+    # limit 0, not the requested eval_limit: nothing was scored, so claiming a caliber would lie
+    assert parsed.stages.eval.limit == 0
     assert "salvaged" not in report
+    assert report_schema.is_terminal(report)

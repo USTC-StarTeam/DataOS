@@ -448,3 +448,42 @@ def test_system_survives_the_round_trip_to_llamafactory(tmp_path: Path) -> None:
     assert info["columns"]["system"] == "system"
     rows = json.loads((tmp_path / "sft" / "train.json").read_text())
     assert rows[0]["system"] == "TOOLS: [get_weather]"
+
+
+def test_every_declared_column_exists_in_every_row(tmp_path: Path) -> None:
+    """Simulates how LF actually reads the dataset, which the test above did not.
+
+    LF's alpaca converter subscripts an optional column unconditionally once it is mapped, so a
+    declared-but-absent column is not ignored — it raises. The test above fed one row that HAD a
+    system message and only checked that the column was declared, so it passed while the declaring
+    half was shipped without the guaranteeing half: the Gemma3 bfcl run then died with
+    ``KeyError: 'history'`` 12 seconds into four consecutive jobs, on its last round of budget.
+
+    The failure needs MIXED turn counts to appear at all. ``to_alpaca`` emits ``history`` for a
+    multi-turn record and omits it for a single-turn one, so a dataset of either kind alone can
+    look fine while their union is the landmine.
+    """
+    recs = convert.to_alpaca(
+        [
+            {"messages": [  # multi-turn -> carries `history`
+                {"role": "user", "content": "u1"}, {"role": "assistant", "content": "a1"},
+                {"role": "user", "content": "u2"}, {"role": "assistant", "content": "a2"},
+            ]},
+            {"messages": [  # single-turn -> `history` absent before materialization
+                {"role": "user", "content": "q"}, {"role": "assistant", "content": "a"},
+            ]},
+        ],
+        "auto",
+    )
+    convert.write_alpaca_dataset(recs, str(tmp_path / "sft"))
+    info = json.loads((tmp_path / "sft" / "dataset_info.json").read_text())["dataos_sft"]
+    rows = json.loads((tmp_path / "sft" / "train.json").read_text())
+    missing = [
+        (i, column) for i, row in enumerate(rows)
+        for column in info["columns"].values() if column not in row
+    ]
+    assert not missing, f"LF would raise KeyError on {missing}"
+    # and the multi-turn row keeps its turns: dropping the column would silently truncate the
+    # conversation to its last exchange, which is the same class of loss as the `system` incident
+    assert rows[0]["history"] == [["u1", "a1"]]
+    assert rows[1]["history"] == []
