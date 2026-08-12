@@ -81,7 +81,7 @@ def _model_dir(tmp_path, model_type: str):
 
 
 @pytest.mark.parametrize(
-    ("model_type", "expected"), [("qwen3", "qwen3"), ("smollm3", "smollm3"), ("gemma3", "gemma")]
+    ("model_type", "expected"), [("qwen3", "qwen3"), ("smollm3", "smollm3"), ("gemma3", "gemma3")]
 )
 def test_template_comes_from_the_models_own_config(tmp_path, model_type, expected):
     assert resolve_template(_model_dir(tmp_path, model_type)) == expected

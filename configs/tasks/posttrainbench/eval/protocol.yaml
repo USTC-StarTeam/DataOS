@@ -27,7 +27,10 @@ model_families:
   gemma3:
     eval_template: gemma3.jinja
     eval_template_bfcl: gemma3_tool_calling.jinja   # 仅 bfcl 用带 tool-calling 的变体
-    train_template: gemma             # LF 内建
+    train_template: gemma3            # LF 内建。**不是** `gemma`：两者文本槽位逐字节相同，但 `gemma` 配
+                                      # BasePlugin 而 `gemma3` 配 Gemma3Plugin，而 gemma-3-4b 是多模态
+                                      # checkpoint（LF 的 SUPPORTED_MODELS 里就有 Gemma-3-4B）。纯文本数据下
+                                      # 前者大概也能跑，但"大概"正是 smollm3 与 gsm8k 两次栽的地方。
 
 # per-bench：judge 与否 + 跑法。跑法（路径/显存/并发/超时）放在配置里而不是工具里，
 # 因为它们该由配置决定；而且它们会被写进 summary.json 的 runner 段，于是

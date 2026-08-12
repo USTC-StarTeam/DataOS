@@ -6,7 +6,9 @@ Training and evaluation must render the SAME chat format, or the model learns tu
 scorer never sends and every score is capped by protocol rather than capability. The task's eval
 side picks a jinja template by model family (``configs/tasks/posttrainbench/eval/lmeval/
 templates/``), so for each family LF has to offer a training template that emits the same turn
-tokens. It does for Qwen (``qwen3``) and Gemma. It does NOT for SmolLM3:
+tokens. It does for Qwen (``qwen3``) and Gemma (``gemma3`` — NOT the similarly usable
+``gemma``, whose text slots are identical but which carries ``BasePlugin`` instead of the
+``Gemma3Plugin`` a multimodal Gemma-3 checkpoint is paired with). It does NOT for SmolLM3:
 
 LF has no ``smollm3`` template — not in 0.9.4, not in 0.9.5, not on ``main`` (checked
 2026-08-11; upstream simply has not added SmolLM3). Its similarly-named ``smollm`` / ``smollm2``
@@ -67,7 +69,7 @@ DATAOS_TEMPLATES: tuple[str, ...] = ("smollm3", "smollm3_nothink")
 MODEL_TYPE_TEMPLATES: dict[str, str] = {
     "qwen3": "qwen3",
     "smollm3": "smollm3",  # registered below; LF's own `smollm` is the SmolLM1/2 format
-    "gemma3": "gemma",
+    "gemma3": "gemma3",  # NOT `gemma`: same text slots, but gemma3 carries Gemma3Plugin
 }
 
 
