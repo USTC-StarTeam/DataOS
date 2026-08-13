@@ -12,7 +12,7 @@ spent — then hands back the best checkpoint.
 [中文说明 / Chinese README](README.zh-CN.md)
 
 ```bash
-uv sync --extra dev
+uv sync --group dev
 uv run dataos configs/runs/ptb-gsm8k.json
 ```
 

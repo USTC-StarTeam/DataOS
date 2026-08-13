@@ -11,7 +11,7 @@
 [English README](README.md)
 
 ```bash
-uv sync --extra dev
+uv sync --group dev
 uv run dataos configs/runs/ptb-gsm8k.json
 ```
 
