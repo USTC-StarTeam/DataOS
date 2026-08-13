@@ -9,8 +9,9 @@ template: |
 
   `study_digest.experiments` holds each node's report.json IN FULL — the four stages it ran
   (data / train / eval / review), each with its own status, its `fixes`, and the numbers that
-  stage measured. Alongside them: ranking, best {name, score}, varied_keys (which measured
-  dimensions actually differ across nodes), metric_winners, caution.
+  stage measured. Alongside them: ranking and best {name, score}. Comparing nodes to each other is
+  YOUR job here — `tree` is what spans them, and it renders every score with the item count that
+  produced it (`74.00@200/1319`), so a subset score is visible as one without needing to be told.
   - interpretation: OPEN by scoring your own prediction. `prediction` carries the hypothesis and
     the expected_signal you committed to when you planned this node; say plainly whether the
     outcome matched it, missed it, or cannot tell — and if it missed, what you had wrong. This
@@ -33,9 +34,11 @@ template: |
     what actually varied — e.g. which data sources / quality filters / mixture / size to try next,
     whether a learning-rate or epoch change helped, or whether to switch lora↔full. Suggest
     directions, not fixed values. Never propose changing the base model or the eval.
-  - If `caution` is set (mismatched eval item counts, mismatched bench coverage, or two nodes that
-    trained on byte-identical data), say the ranking is unreliable and recommend a clean re-eval
-    rather than a new growth direction.
+  - Say the ranking is unreliable, and recommend a clean re-eval rather than a new growth
+    direction, whenever the reports themselves undercut it: scores measured over different item
+    counts (`eval.limit`), two nodes whose `data.fingerprint` is identical (any gap between them is
+    run-to-run noise, and it sets the floor for what counts as a real effect), or a node whose
+    `fixes` show it did not run the recipe you planned.
   - Never invent numbers; use only what the reports contain.
 
   Review context:

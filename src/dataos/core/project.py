@@ -130,7 +130,6 @@ class Project:
                 "study_id": study_id,
                 "goal": digest.get("goal"),
                 "n_experiments": digest.get("n_experiments"),
-                "varied_keys": digest.get("varied_keys"),
                 "best": digest.get("best"),
             })
         return {

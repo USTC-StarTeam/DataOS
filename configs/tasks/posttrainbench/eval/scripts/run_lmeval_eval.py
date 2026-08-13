@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import functools
 import os
 import socket
 import subprocess
@@ -56,15 +57,56 @@ TASK_ALIASES = {
     "arenahardwriting": "posttrainbench_arena_hard_writing",
 }
 
-# Benches served by lm-eval's in-process vLLM backend.
-DIRECT_VLLM_TASKS = {"gpqamain", "humaneval"}
-# Benches served by an OpenAI-compatible ``vllm serve`` subprocess.
-SERVER_TASKS = {"gsm8k", "bfcl", "aime2025", "healthbench", "arenahardwriting"}
-# Benches whose score is produced by an external judge (generate-only here).
-JUDGE_TASKS = {"healthbench", "arenahardwriting"}
+# ---------------------------------------------------------------------------
+# Per-bench protocol: READ from eval/protocol.yaml, not duplicated here.
+# ---------------------------------------------------------------------------
+#: ``protocol.yaml`` lives one directory up from this script, in the task it belongs to. This
+#: module reads it ITSELF rather than accepting the values as arguments: the file's own rule is
+#: that protocol decisions may read only this config plus the model's config.json, never a
+#: caller-supplied string, and a value that arrives on argv is a value a caller can change.
+#: Until 2026-08-13 the four tables below lived here as literals AND in protocol.yaml, where they
+#: had no reader at all — a config file that looked authoritative while the script decided
+#: everything from its own copy. The values were identical at wiring time (21/21 keys), so
+#: reading them changes nothing; ``tests/tasks/test_protocol_runner_block.py`` pins that.
+PROTOCOL_PATH = Path(__file__).resolve().parent.parent / "protocol.yaml"
 
-# vLLM GPU memory utilisation for the in-process vLLM backend.
-DIRECT_GPU_MEMORY = {"humaneval": 0.3, "gpqamain": 0.8}
+
+@functools.lru_cache(maxsize=1)
+def _benches() -> dict:
+    import yaml
+
+    protocol = yaml.safe_load(PROTOCOL_PATH.read_text(encoding="utf-8")) or {}
+    return protocol.get("benches") or {}
+
+
+def bench_protocol(task: str) -> dict:
+    """This bench's declared runner settings. Raises rather than defaulting.
+
+    A bench absent from protocol.yaml is a protocol gap, not something to guess through: the
+    previous shape of this code would happily score an undeclared bench with whatever the local
+    literals said.
+    """
+    spec = _benches().get(task)
+    if not isinstance(spec, dict):
+        raise SystemExit(
+            f"bench {task!r} is not declared in {PROTOCOL_PATH}; add it under `benches:` with "
+            "judge/runner and the runner's settings"
+        )
+    return spec
+
+
+def is_direct(task: str) -> bool:
+    """True when the bench runs on lm-eval's in-process vLLM backend."""
+    return bench_protocol(task).get("runner") == "direct"
+
+
+def needs_judge(task: str) -> bool:
+    """True when the score comes from an external judge (this script generates only)."""
+    return bool(bench_protocol(task).get("judge"))
+
+
+def direct_gpu_memory(task: str) -> float:
+    return float(bench_protocol(task)["gpu_memory_utilization"])
 
 # Score metric per task, by name only; the lm-eval filter suffix is resolved at
 # extraction time. (gsm8k accuracy, gpqamain accuracy, humaneval pass@1,
@@ -236,17 +278,12 @@ def generation_kwargs(task: str) -> dict[str, Any]:
 # default (the per-bench 1/2/6 inherited from pre-main left bfcl/healthbench serial);
 # override per run with --num-concurrent. Not score-affecting — raising it only changes
 # batching, not generation — so it is safe to tune for speed.
-DEFAULT_NUM_CONCURRENT = 32
+def default_num_concurrent(task: str) -> int:
+    return int(bench_protocol(task)["num_concurrent"])
 
 
 def default_timeout(task: str) -> int:
-    if task == "aime2025":
-        return 18_000_000
-    if task in {"arenahardwriting", "bfcl", "gpqamain", "healthbench"}:
-        return 1800
-    if task == "humaneval":
-        return 900
-    return 300
+    return int(bench_protocol(task)["timeout"])
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +306,7 @@ def configure_env(task: str, output_dir: Path) -> None:
             "POSTTRAINBENCH_AIME_EXTRACTION_LOG",
             str(output_dir / "aime_extraction_events.jsonl"),
         )
-    if task in JUDGE_TASKS:
+    if needs_judge(task):
         # Compute nodes have no internet: forbid any judge API call. We also run
         # judge benches with predict_only=True so process_results never fires.
         os.environ["POSTTRAINBENCH_JUDGE_DISABLED"] = "1"
@@ -389,7 +426,7 @@ def direct_vllm_model_args(
         "trust_remote_code": True,
         "dtype": "auto",
         "tensor_parallel_size": 1,
-        "gpu_memory_utilization": DIRECT_GPU_MEMORY[task],
+        "gpu_memory_utilization": direct_gpu_memory(task),
         "max_model_len": 32768,
         "generation_config": "vllm",
         # the protocol's tokenizer copy, always (see protocol_tokenizer)
@@ -496,7 +533,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     include_path = str(Path(args.include_path).resolve())
     limit = None if args.limit < 0 else args.limit
-    is_judge = task in JUDGE_TASKS
+    is_judge = needs_judge(task)
 
     configure_env(task, output_dir)
     chat_template = Path(args.chat_template).resolve()
@@ -507,7 +544,7 @@ def main() -> None:
 
     # The OpenAI-compatible model must be importable/registered before
     # simple_evaluate resolves the model string.
-    if task in SERVER_TASKS:
+    if not is_direct(task):
         register_tool_chat_model()
 
     from lm_eval import simple_evaluate
@@ -518,7 +555,7 @@ def main() -> None:
     start = time.time()
     server: subprocess.Popen | None = None
     try:
-        if task in DIRECT_VLLM_TASKS:
+        if is_direct(task):
             model = "vllm"
             model_args = direct_vllm_model_args(
                 task, args.model_path, chat_template, tokenizer=protocol_tok
@@ -529,7 +566,7 @@ def main() -> None:
             )
             model = "ptb-local-tool-chat-completions"
             model_args = server_model_args(
-                task, args.model_path, port, args.num_concurrent or DEFAULT_NUM_CONCURRENT
+                task, args.model_path, port, args.num_concurrent or default_num_concurrent(task)
             )
 
         raw = simple_evaluate(
@@ -607,7 +644,7 @@ def main() -> None:
     # thing measured, whatever the runner version); `runner` records the settings that are
     # ASSERTED not to affect the score, so the assertion becomes falsifiable by comparing two
     # reports instead of being taken on faith.
-    is_direct = task in DIRECT_VLLM_TASKS
+    direct = is_direct(task)
     summary["protocol"] = {
         "digest": protocol_digest(
             chat_template, Path(__file__).resolve(), POSTTRAINBENCH_DIR / "task.py"
@@ -615,15 +652,15 @@ def main() -> None:
         "template": chat_template.name,
     }
     summary["runner"] = {
-        "path": "direct" if is_direct else "server",
+        "path": "direct" if direct else "server",
         # True = the model dir carried a chat template that renders DIFFERENTLY from the
         # protocol's. This is the field that separates "harmless inherited copy" from
         # "silently scored under a lossy rebuild".
         "displaced_model_template": displaced_template,
         **(
-            {"gpu_memory_utilization": DIRECT_GPU_MEMORY[task]}
-            if is_direct
-            else {"num_concurrent": args.num_concurrent or DEFAULT_NUM_CONCURRENT}
+            {"gpu_memory_utilization": direct_gpu_memory(task)}
+            if direct
+            else {"num_concurrent": args.num_concurrent or default_num_concurrent(task)}
         ),
     }
 

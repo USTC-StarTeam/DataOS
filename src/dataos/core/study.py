@@ -145,15 +145,25 @@ class Study:
         Reads from disk (not in-memory state), so it works regardless of how the
         experiments were run. Tolerates missing/partial reports.
 
-        ``experiments`` carries each report VERBATIM rather than a hand-picked projection. The
-        projection it replaces was measured against all 1232 reports on disk and three of its
-        columns had never held a value: it read ``spec.train`` (0/1232) so ``varied_keys`` was
-        permanently empty, ``dataset.fingerprint`` (0/1232), and ``stages.eval.config`` (0/1232) so
-        the protocol-comparability caution had never once fired. It also read ``compat_fixes``
-        while 700 reports wrote ``compatibility_fixes``. A projection whose key names can silently
-        stop matching the contract is the bug; passing the report through removes the class.
-        The aggregates below are the ones that survive that measurement — every input they read is
-        a field reports actually write.
+        ``experiments`` carries each report VERBATIM rather than a hand-picked projection, and
+        ranking is the only aggregate left. Both facts come from measurement, not taste.
+
+        The projection was measured against all 1232 reports on disk and three of its columns had
+        never held a value: it read ``spec.train`` (0/1232), ``dataset.fingerprint`` (0/1232), and
+        ``stages.eval.config`` (0/1232), while reading ``compat_fixes`` where 700 reports wrote
+        ``compatibility_fixes``. A projection whose key names can silently stop matching the
+        contract is the bug; passing the report through removes the class.
+
+        The cross-experiment aggregates went the same way, for a structural reason rather than a
+        naming one: ``varied_keys``, ``metric_winners`` and the comparability / coverage /
+        identical-data cautions all compared MULTIPLE experiments inside one study, and the agentic
+        loop runs ``fan_out(specs=[spec])`` — exactly one experiment per study. Measured over the
+        87 studies of the 2026-08-12/13 batches: ``ranking`` non-empty 87 times, ``best`` 42, and
+        ``varied_keys`` / ``metric_winners`` / ``caution`` **zero**. A guard with no possible
+        control group is not a weak guard, it is decoration, and decoration in this position is
+        worse than absence — it reads as "someone is checking this". Cross-node comparison belongs
+        to the tree, which is the thing that actually spans nodes (it already renders a subset score
+        as ``74.00@200/1319`` so a caliber mismatch is visible where the nodes sit side by side).
         """
         rows: list[dict[str, Any]] = []
         for raw in self._read_reports():
@@ -163,29 +173,15 @@ class Study:
             # letting them rank (while the guards exclude them as not-completed) would crown
             # exactly the least trustworthy row
             eval_current = stages.eval.status == "completed"
-            evaluation = raw.get("eval") if isinstance(raw.get("eval"), dict) else {}
-            extra = stages.eval.model_extra or {}
             rows.append(
                 {
                     "report": raw,
                     "name": parsed.id,
                     "status": parsed.status,
                     "score": parsed.score if eval_current else None,
-                    # `metrics` / `per_task` are volunteered extras, not contract fields: the two
-                    # guards below are the only consumers and both degrade to silence without them
-                    "metrics": (extra.get("metrics") or evaluation.get("metrics") or {})
-                    if eval_current
-                    else {},
-                    "per_task": extra.get("per_task") or evaluation.get("per_task") or {},
-                    "limit": stages.eval.limit,
-                    "rows": stages.data.rows if stages.data else None,
-                    "fingerprint": stages.data.fingerprint if stages.data else None,
-                    "template": stages.train.template if stages.train else None,
-                    "epochs": stages.train.actual_epochs if stages.train else None,
                 }
             )
         rows.sort(key=lambda row: str(row["name"]))
-        varied = _varied_keys(rows)
 
         # Reports go to the leader whole. Sorting them is the only shaping left.
         experiments = [row["report"] for row in rows]
@@ -197,87 +193,13 @@ class Study:
         ranking = [{"name": row["name"], "score": row["score"]} for row in ranked]
         best = ranking[0] if ranking and ranking[0]["score"] is not None else None
 
-        # Flag a metric-dependent winner: a task can emit several metrics, and the headline is
-        # only one of them. If a shared metric crowns a different experiment, the conclusion
-        # hinges on which metric is the headline — surface that instead of hiding it.
-        per_metric: dict[str, list[tuple[str, float]]] = {}
-        for row in rows:
-            for key, value in (row["metrics"] or {}).items():
-                # error bars are not scores: ranking experiments by ::stderr crowns the
-                # NOISIEST run (seen live with bfcl's stderr columns, incl. the mislabeled all2)
-                if isinstance(value, (int, float)) and not _is_noise_metric(key):
-                    per_metric.setdefault(key, []).append((row["name"], float(value)))
-        metric_winners: dict[str, str] = {}
-        for key, pairs in per_metric.items():
-            if len(pairs) < 2:
-                continue
-            top = max(value for _, value in pairs)
-            leaders = [name for name, value in pairs if value == top]
-            if len(leaders) == 1:  # a tie crowns nobody (3-way 0.85 used to "win" arbitrarily)
-                metric_winners[key] = leaders[0]
-        cautions: list[str] = []
-        if best is not None:
-            disagree = sorted(k for k, w in metric_winners.items() if w != best["name"])
-            if disagree:
-                cautions.append(
-                    f"headline best is {best['name']!r}, but another experiment scores higher on "
-                    f"{disagree} — the winner is metric-dependent. Pin eval config['headline_metric'] "
-                    "to choose which metric ranks."
-                )
-        # Comparability guard: ranking only means something if every experiment was scored over
-        # the SAME number of items. This used to hash `stages.eval.config`, a key no report has
-        # ever written, so it never fired — while the thing it was meant to catch happened
-        # repeatedly: a 54-of-164 subset scoring 50.00 outranked full-benchmark nodes and was
-        # reported as the run's best (audit 13.3). `limit` is a required contract field, so this
-        # version has an input.
-        limits = {
-            row["name"]: row["limit"] for row in rows if row["status"] == "completed"
-        }
-        if len(set(limits.values())) > 1:
-            cautions.append(
-                f"experiments were scored over DIFFERENT item counts {limits} — a subset score is "
-                "NOT comparable with a full-benchmark score (a subset is also systematically "
-                "noisier); re-evaluate the outliers at the same limit before ranking them"
-            )
-        # Coverage guard: even under one protocol, runtime skips (gated bench, broken harness)
-        # shrink an experiment's macro to FEWER benches — ranking partial against full coverage
-        # is apples-to-oranges. Identical coverage (everyone skipped the same bench) stays quiet.
-        coverages = {
-            # only benches that actually SCORED count as covered — an in-entry lm-eval task
-            # skip leaves the task in per_task with value None, which is exactly the
-            # missing-coverage case this guard exists to catch
-            row["name"]: frozenset(
-                task
-                for task, value in row["per_task"].items()
-                if isinstance(value, (int, float))
-            )
-            for row in rows
-            if row["status"] == "completed" and row["per_task"]
-        }
-        if len(set(coverages.values())) > 1:
-            shape = {name: sorted(cov) for name, cov in sorted(coverages.items())}
-            cautions.append(
-                f"experiments covered DIFFERENT bench sets {shape} (skipped entries/tasks?) — "
-                "their macro scores are not comparable; rerun the missing benches"
-            )
-        for clones in _identical_data(rows):
-            cautions.append(
-                f"{clones} trained on BYTE-IDENTICAL data (same fingerprint) — whatever their "
-                "recipes said, any score difference between them is run-to-run noise and sets the "
-                "floor for what counts as a real effect in this study"
-            )
-        caution = " | ".join(cautions) if cautions else None
-
         return {
             "study_id": self.study_id,
             "goal": (self.plan or {}).get("goal"),
             "n_experiments": len(rows),
-            "varied_keys": varied,
             "experiments": experiments,
             "ranking": ranking,
             "best": best,
-            "metric_winners": metric_winners,
-            "caution": caution,
         }
 
     def review(self, conclusion: Any = None) -> dict[str, Any]:
@@ -347,53 +269,3 @@ def _next_serial(root: Path) -> str:
     return f"study-{highest + 1:04d}"
 
 
-def _is_noise_metric(key: str) -> bool:
-    """Error-bar / counter pseudo-metrics that must not participate in winner ranking."""
-    lowered = key.lower()
-    return (
-        "stderr" in lowered
-        or "_sterr" in lowered
-        or lowered.endswith("::all2")  # bfcl quirk: 'all2' is a stderr despite the name
-    )
-
-
-#: The fields ``_varied_keys`` compares, as ``summary`` row key -> reported path. All five are
-#: OUTCOMES, not plan knobs: the leader already holds the plan it wrote, so echoing the requested
-#: lr back at it says nothing, whereas "you asked for 3 epochs and 0.40 happened" is the whole
-#: point. Its predecessor compared ``spec.train`` — a key no report has ever written.
-_VARIED_FIELDS = {
-    "rows": "data.rows",
-    "fingerprint": "data.fingerprint",
-    "template": "train.template",
-    "epochs": "train.actual_epochs",
-    "limit": "eval.limit",
-}
-
-
-def _varied_keys(rows: list[dict[str, Any]]) -> list[str]:
-    """Which measured dimensions actually differ across this study's nodes.
-
-    Only rows that recorded a given field participate, so an eval-only baseline (no data/train
-    stage, hence ``None``) does not make every training dimension look swept.
-    """
-    varied = []
-    for key, path in sorted(_VARIED_FIELDS.items(), key=lambda item: item[1]):
-        present = [row[key] for row in rows if row.get(key) is not None]
-        if len(present) > 1 and len({json.dumps(v, default=str) for v in present}) > 1:
-            varied.append(path)
-    return varied
-
-
-def _identical_data(rows: list[dict[str, Any]]) -> list[list[str]]:
-    """Groups of nodes whose training data was byte-identical.
-
-    Two nodes described as different recipes but sharing a fingerprint trained on the same bytes,
-    whatever their plans said — the previous batch grew a three-deep branch off two "different
-    seed" nodes whose data was md5-identical, and every conclusion drawn from that branch was
-    about noise. Cheap to detect the moment a fingerprint exists, and impossible to spot by eye.
-    """
-    groups: dict[str, list[str]] = {}
-    for row in rows:
-        if row.get("fingerprint"):
-            groups.setdefault(str(row["fingerprint"]), []).append(str(row["name"]))
-    return sorted(names for names in groups.values() if len(names) > 1)

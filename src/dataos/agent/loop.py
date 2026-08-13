@@ -222,7 +222,6 @@ def _recent_reviews(proj, *, limit: int = 5) -> list[dict]:
                 "study_id": sid,
                 "best": data.get("best"),
                 "conclusion": data.get("conclusion"),
-                "caution": data.get("caution"),
             }
         )
     return rows
@@ -876,7 +875,6 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                 "status": status,
                 "score": score,
                 "best": digest.get("best"),
-                "caution": digest.get("caution"),
             }
         )
         round_idx += 1
