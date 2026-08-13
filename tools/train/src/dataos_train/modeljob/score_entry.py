@@ -28,8 +28,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from dataos_launch.io import atomic_write_text
+
 from ..data.convert import read_records
-from ..io import atomic_write_text
 from .backend import CONFIG_FILE, SCORES_FILE
 from .gradient import cosine, flatten_grads, l2_norm, mean_direction, project, sign_normalize
 from .spec import GradientInteraction, ModelJobSpec

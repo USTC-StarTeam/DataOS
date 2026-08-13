@@ -12,6 +12,7 @@ authors = [{ name = "USTC-StarTeam" }]
 license = { text = "MIT" }
 keywords = ["training", "sft", "rl", "grpo", "llama-factory", "verl", "data-centric"]
 dependencies = [
+  "dataos-launch",
   "pydantic>=2.6",
   "numpy>=1.26",
 ]

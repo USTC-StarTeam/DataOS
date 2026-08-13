@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..io import atomic_write_text
+from dataos_launch.io import atomic_write_text
 
 
 def read_records(path: str, fmt: str = "auto") -> list[dict[str, Any]]:

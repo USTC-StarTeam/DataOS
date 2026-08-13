@@ -8,8 +8,9 @@ Verified against verl 0.4.1 (ppo_trainer.yaml).
 
 from __future__ import annotations
 
+from dataos_launch.types import Resources
+
 from ...spec import GRPO, TrainSpec, VerlPPO
-from ...types import Resources
 
 
 def _b(x: bool) -> str:

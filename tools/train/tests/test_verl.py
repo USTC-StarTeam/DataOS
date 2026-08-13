@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from dataos_launch.types import Resources, Status
+
 from dataos_train.backends.verl import VerlBackend
 from dataos_train.backends.verl import data as vdata
 from dataos_train.backends.verl.collect import parse_metrics
 from dataos_train.backends.verl.config import render_overrides
 from dataos_train.spec import GRPO, SFT, DatasetRef, EnvSpec, Reward, Rollout, TrainSpec, VerlPPO
-from dataos_train.types import Resources, Status
 
 
 def _spec(**kw) -> TrainSpec:

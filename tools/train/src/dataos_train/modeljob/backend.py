@@ -17,10 +17,10 @@ import statistics
 from pathlib import Path
 from typing import Any
 
+from dataos_launch.types import JobSpec, LaunchPlan, SlurmExtras, Status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..data.convert import read_records
-from ..types import JobSpec, LaunchPlan, SlurmExtras, Status
 from .spec import GradientInteraction, ModelJobSpec
 
 NAME = "modeljob"  # env domain + JobSpec.backend label

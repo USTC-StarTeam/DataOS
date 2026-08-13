@@ -19,11 +19,14 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .io import atomic_write_json, read_json
-from .launchers.base import materialize
+from dataos_launch.io import atomic_write_json, read_json
+from dataos_launch.launchers.base import materialize
+from dataos_launch.registry import get_launcher
+from dataos_launch.types import Handle, JobSpec, Status
+
 from .modeljob import ModelJobSpec
 from .modeljob import backend as modeljob_backend
-from .registry import backend_names, get_backend, get_launcher
+from .registry import backend_names, get_backend
 from .schemas import (
     all_schemas,
     backend_method_schema,
@@ -33,7 +36,6 @@ from .schemas import (
     schema_names,
 )
 from .spec import TrainSpec
-from .types import Handle, JobSpec, Status
 
 
 def _read_input(arg: str) -> Any:

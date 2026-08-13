@@ -6,13 +6,13 @@ import json
 from pathlib import Path
 
 from conftest import MODEL_DIR
+from dataos_launch.types import Resources, Status
 
 from dataos_train.backends.llamafactory import LlamaFactoryBackend
 from dataos_train.backends.llamafactory.config import render_train_config
 from dataos_train.data import convert
 from dataos_train.schemas import backend_schema, method_schema
 from dataos_train.spec import DPO, GRPO, KTO, ORPO, PPO, SFT, DatasetRef, EnvSpec, TrainSpec
-from dataos_train.types import Resources, Status
 
 
 def test_convert_formats() -> None:

@@ -13,8 +13,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from dataos_launch.io import atomic_write_text
+
 from ...data.convert import read_records
-from ...io import atomic_write_text
 
 
 def read_template(path: str | None) -> str:

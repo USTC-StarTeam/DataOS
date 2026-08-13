@@ -12,9 +12,11 @@ import json
 import shlex
 from pathlib import Path
 
-from ...io import read_json
+from dataos_launch.io import read_json
+from dataos_launch.types import JobSpec, LaunchPlan, SlurmExtras, Status
+
 from ...spec import GRPO, TrainSpec, VerlPPO
-from ...types import Capabilities, JobSpec, LaunchPlan, SlurmExtras, Status, TrainResult
+from ...types import Capabilities, TrainResult
 from ..base import is_hf_model_dir, tail_text
 from .collect import parse_metrics
 from .config import render_overrides

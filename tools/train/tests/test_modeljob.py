@@ -7,12 +7,12 @@ import sys
 from pathlib import Path
 
 import pytest
+from dataos_launch.types import Status
 from pydantic import ValidationError
 
 import dataos_train.cli as cli
 import dataos_train.modeljob as mj
 from dataos_train.modeljob import score_entry
-from dataos_train.types import Status
 
 
 def _spec_dict(**kw) -> dict:
@@ -278,7 +278,7 @@ def test_preamble_activates_venv_by_path_without_conda():
     """uv/standard venvs (absolute path, no conda_sh) must be activated by path."""
     from types import SimpleNamespace
 
-    from dataos_train.launchers.base import build_preamble
+    from dataos_launch.launchers.base import build_preamble
 
     job = SimpleNamespace(
         conda_sh=None, conda_env="/envs/sft/.venv", pythonpath=[], env={}, pre_cmds=[],

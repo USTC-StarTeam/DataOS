@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataos_train.launchers.slurm import SlurmLauncher, map_sacct_state
-from dataos_train.types import JobSpec, LaunchPlan, Resources, SlurmExtras, Status
+from dataos_launch.launchers.slurm import SlurmLauncher, map_sacct_state
+from dataos_launch.types import JobSpec, LaunchPlan, Resources, SlurmExtras, Status
 
 
 def _job(**kw) -> JobSpec:
@@ -47,6 +47,23 @@ def test_sbatch_gres_defaults_from_gpus() -> None:
 def test_sbatch_torchrun() -> None:
     text = SlurmLauncher().render_sbatch(_job(launch=LaunchPlan(kind="torchrun")))
     assert "torchrun --nnodes 1 --nproc-per-node 2" in text
+
+
+def test_status_reads_the_primary_job_row(tmp_path, monkeypatch) -> None:
+    """sacct lists the main job first, then .batch/.extern — a failed job's .extern is
+    COMPLETED, so reading the LAST row misreports FAILED as COMPLETED. Came here from
+    dataos-eval's suite when the polling moved into the launcher."""
+    import stat
+
+    from dataos_launch.types import Handle
+
+    fake = tmp_path / "sacct"
+    fake.write_text("#!/bin/bash\necho FAILED; echo COMPLETED; echo COMPLETED\n")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+    handle = Handle(launcher="slurm", spec_id="s1", run_dir=str(tmp_path), job_name="exp1",
+                    submitted_at="2026-08-13T00:00:00Z", job_id="1")
+    assert SlurmLauncher().status(handle) == Status.FAILED
 
 
 def test_sacct_mapping() -> None:

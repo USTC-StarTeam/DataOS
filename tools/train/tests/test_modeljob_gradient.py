@@ -14,11 +14,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from dataos_launch.types import Status
 from pydantic import ValidationError
 
 import dataos_train.modeljob as mj
 from dataos_train.modeljob import gradient
-from dataos_train.types import Status
 
 
 def _spec_dict(**kw) -> dict:

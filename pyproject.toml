@@ -15,6 +15,7 @@ dependencies = [
   "httpx>=0.28,<0.29",
   "pyarrow>=15.0.0",
   # --- in-repo workspace tools (the agent's instruments, see tools/) ---
+  "dataos-launch",
   "dataos-operator",
   "dataos-train",
   "dataos-eval",
@@ -31,6 +32,7 @@ dependencies = [
 members = ["tools/*"]
 
 [tool.uv.sources]
+dataos-launch = { workspace = true }
 dataos-operator = { workspace = true }
 dataos-train = { workspace = true }
 dataos-eval = { workspace = true }

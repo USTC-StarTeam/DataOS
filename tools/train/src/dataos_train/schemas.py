@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from dataos_launch.types import Handle, JobSpec, LaunchPlan, Resources
+
 from .registry import backend_names, get_backend
 from .spec import (
     DPO,
@@ -25,7 +27,7 @@ from .spec import (
     TrainSpec,
     VerlPPO,
 )
-from .types import Capabilities, Handle, JobSpec, LaunchPlan, Resources, TrainResult
+from .types import Capabilities, TrainResult
 
 _METHOD_SCHEMAS = {
     "sft": SFT,

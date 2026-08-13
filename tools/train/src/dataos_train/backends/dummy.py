@@ -6,9 +6,11 @@ import json
 import sys
 from pathlib import Path
 
-from ..io import read_json
+from dataos_launch.io import read_json
+from dataos_launch.types import JobSpec, LaunchPlan, Status
+
 from ..spec import TrainSpec
-from ..types import Capabilities, JobSpec, LaunchPlan, Status, TrainResult
+from ..types import Capabilities, TrainResult
 
 
 class DummyBackend:

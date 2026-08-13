@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+from dataos_launch.types import Resources
 from pydantic import BaseModel, ConfigDict, Field
-
-from .types import Resources
 
 
 class _Model(BaseModel):
