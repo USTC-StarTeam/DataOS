@@ -1,6 +1,6 @@
 """Full agentic loop, all-stub (no GPU / no LLM / no claude CLI).
 
-The loop's only executor is the experimenter (``dataos.agent.subagent_executor``); here we
+The loop's only executor is the experimenter (``dataos.agent.roles``); here we
 replace its ``fan_out`` with a fake that just writes a completed ``report.json`` per spec, so
 the test exercises the loop's orchestration (plan → execute → review → tree → budget stop →
 resume) without a real experimenter / H100.
@@ -13,7 +13,7 @@ import pytest
 
 from dataos.agent.config import AutoRunConfig, Budget
 from dataos.agent.loop import run_auto
-from dataos.agent import subagent_executor
+from dataos.agent import roles
 
 
 def _plan(parent: str, name: str) -> str:
@@ -65,7 +65,7 @@ def _fake_fan_out(*, cfg, study_id, specs, deadline=None):
 
 @pytest.fixture(autouse=True)
 def _stub_subagent(monkeypatch):
-    monkeypatch.setattr(subagent_executor, "fan_out", _fake_fan_out)
+    monkeypatch.setattr(roles, "fan_out", _fake_fan_out)
 
 
 def _cfg(ws):
@@ -215,20 +215,22 @@ def test_validate_plan_eval_limit_required_in_auto_mode():
     assert _validate_plan(plan, tree, fixed) == []                            # fixed mode: optional
 
 
-def test_no_function_local_subagent_executor_import():
-    """Regression: a function-local `from dataos.agent import subagent_executor` inside
-    run_auto shadowed the module-level import and crashed --resume (recon present -> the
-    recon branch's local import never ran -> the budget line hit an unbound local)."""
+def test_no_function_local_role_module_import():
+    """Regression: a function-local `from dataos.agent import roles` inside run_auto shadowed the
+    module-level import and crashed --resume (recon present -> the recon branch's local import
+    never ran -> the budget line hit an unbound local). Both role/runtime modules are guarded:
+    the shadowing hazard is about WHERE the import sits, not which module it names."""
     import inspect
 
     import dataos.agent.loop as loop
 
     for name, fn in inspect.getmembers(loop, inspect.isfunction):
         src = inspect.getsource(fn)
-        assert "from dataos.agent import subagent_executor" not in src, (
-            f"{name} has a function-local subagent_executor import — it shadows the "
-            "module-level import and breaks the resume path"
-        )
+        for module in ("roles", "runtime"):
+            assert f"from dataos.agent import {module}" not in src, (
+                f"{name} has a function-local `{module}` import — it shadows the "
+                "module-level import and breaks the resume path"
+            )
 
 
 def test_invalid_plans_skip_rounds_then_stop_cleanly(tmp_path):

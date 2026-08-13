@@ -20,6 +20,43 @@ from dataos.agent import report as report_schema
 from dataos.prompt import render
 
 _CONTRACT = "experimenter/context/report_contract"
+#: report.json has TWO producers. The experimenter writes one per node from the contract above;
+#: the investigator's recon stage writes the round-0 BASELINE — the anchor every later score is
+#: compared against. Only the first was updated when the shape changed, so for a whole batch every
+#: baseline came back in the old shape and the leader's anchor lost its caliber fields (audit 15.7).
+#: A test that asserts against one producer's prompt cannot see that; this one lists both.
+_PRODUCERS = (_CONTRACT, "investigator/turn/recon")
+
+def _render(producer: str) -> str:
+    """Render a producer's prompt. ``recon`` takes render params; the contract block takes none."""
+    if producer != "investigator/turn/recon":
+        return render(producer)
+    return render(
+        producer,
+        target_bench="gsm8k", base_model="/m", fixed_pool="/p", deploy_root="/d",
+        eval_env_python="/e/bin/python", cluster_json="{}", profile_script="/s.py",
+        lm_bridge="/b", recon_path="/r.json", baseline_run_root="/rr",
+        baseline_eval_dir="/rr/eval/x", baseline_report_path="/br.json", eval_limit=-1,
+        env_ops="", task_def="",
+    )
+
+
+def _report_keys(producer: str) -> set[str]:
+    """Keys the producer's prompt quotes inside its report.json example.
+
+    The scan is BOUNDED to that one JSON block. recon.yaml writes two files — the baseline report
+    AND recon.json (candidate_sources, conversion, ...) — so an unbounded line scan would drag the
+    intel file's keys in and demand the report schema declare them.
+    """
+    lines = _render(producer).splitlines()
+    start = next(i for i, line in enumerate(lines) if '{"id"' in line)
+    end = next(i for i, line in enumerate(lines[start:], start) if line.rstrip().endswith("}}}"))
+    return {
+        line.split('"')[1]
+        for line in lines[start : end + 1]
+        if line.lstrip().startswith('"') and '":' in line
+    }
+
 
 # Fields the prompt is not expected to spell out: `stages` and `status` are structural (the shape
 # of the JSON block IS the ask), and `path`/`sha256` appear inside the `script` example.
@@ -50,16 +87,40 @@ def test_the_contract_asks_for_nothing_the_schema_drops():
     it is about the prompt promising a field is load-bearing when nothing validates it. Any field
     worth asking for by name belongs in the schema.
     """
-    text = render(_CONTRACT)
-    # keys the contract quotes inside its JSON example, i.e. what it actually promises
-    quoted = {
-        line.split('"')[1]
-        for line in text.splitlines()
-        if line.lstrip().startswith('"') and '":' in line
-    }
     known = report_schema.field_names() | _STRUCTURAL | {"<your class name>", "<node_id>"}
-    unknown = sorted(key for key in quoted if key not in known)
-    assert not unknown, f"{unknown} are asked for in {_CONTRACT}.yaml but not declared in report.py"
+    for producer in _PRODUCERS:
+        unknown = sorted(key for key in _report_keys(producer) if key not in known)
+        assert not unknown, f"{unknown} are asked for in {producer}.yaml but not declared in report.py"
+
+
+#: What the round-0 BASELINE report must carry, whoever writes it. recon legitimately omits most
+#: of the schema (a baseline has no data and no training), so the forward check for that producer
+#: is this named subset rather than "every field" — but the subset is not negotiable: it is what
+#: the leader's anchor is made of.
+_BASELINE_REQUIRED = {
+    "limit": "the caliber of the anchor score",
+    "n_samples": "the ONLY place the run learns the benchmark's true size; without it the tree "
+                 "renders a subset score as a bare '@200' with no denominator (audit 15.4)",
+    "stderr": "the noise floor every later comparison is judged against",
+    "failure_classes": "the baseline diagnosis the run's first move is chosen from",
+    "conclusion": "whether the base model's failure is protocol-side or capability-side",
+    "dominant_evidence": "the one concrete mismatch that makes that verdict checkable",
+}
+
+
+def test_the_baseline_producer_asks_for_the_anchor_fields():
+    """recon writes the baseline report, and nothing used to check what it asked for.
+
+    The shape change updated the experimenter's contract and left this producer on the old shape,
+    so for a whole batch every baseline came back without its caliber fields — and the forward test
+    above could not see it, because it renders only the experimenter's contract. One producer
+    covered, one not, is how the gap survived a green suite.
+    """
+    keys = _report_keys("investigator/turn/recon")
+    missing = {name: why for name, why in _BASELINE_REQUIRED.items() if name not in keys}
+    assert not missing, "the baseline report would lose:\n" + "\n".join(
+        f"  {name}: {why}" for name, why in sorted(missing.items())
+    )
 
 
 def test_the_top_level_score_and_status_are_no_longer_writable():

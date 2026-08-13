@@ -165,10 +165,12 @@ stage answers for itself:
                "actual_epochs":<float completed>,"train_loss":<float final>},
      "eval":  {"status":"completed","score":<float native % from summary.json>,
                "limit":<int items evaluated; -1 = the full frozen benchmark>,
+               "n_samples":<int the scorer ACTUALLY scored, from summary.json>,
                "stderr":<float from summary.json>,"elapsed_s":<float wall clock>,
                "checkpoint_sweep":[{"step":<int or "final">,"score":<float>}]},
      "review":{"status":"completed","failure_classes":{"<your class name>":<count>},
                "sampled":<true if the counts come from a SAMPLE, false for a full census>,
+               "sample_size":{"correct":<k>,"wrong":<k>},
                "anomalies":"<repetition/length/format drift, or 'none'>",
                "conclusion":"<one sentence: the dominant failure mode AND where it lives — model capability / output shape / scorer parsing>",
                "dominant_evidence":"<ONE quoted comparison: what the parser wanted vs what the model emitted>"}}}
@@ -186,6 +188,9 @@ Every stage also accepts, and SHOULD carry when true:
 RULES
 - Do NOT write `status` or `score` at the top level. The score lives in exactly one place
   (`stages.eval.score`) and the node's status is DERIVED from it: a real number means completed.
+- `n_samples` is what the scorer actually scored; `limit` is what was REQUESTED. They differ
+  whenever the run is AUTO-sized or gets cut short, and only `n_samples` says how big the
+  measurement really was. Giving `sample_size` lets you omit `sampled` — it is derived from it.
 - `limit` is required. A subset score is not comparable with a full-benchmark score, and it is
   also systematically noisier — the leader is the one who decides what to do about that, so it
   has to be able to see it. If the run's eval limit is AUTO (-2), record the count you actually

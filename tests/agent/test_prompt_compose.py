@@ -74,7 +74,7 @@ def test_experimenter_discipline_appears_once_across_system_and_task(tmp_path):
     """The pre-refactor prose duplicated these lines in system AND task; now single-sourced."""
     from pathlib import Path
 
-    import dataos.agent.subagent_executor as se
+    import dataos.agent.roles as se
 
     system = system_prompt("experimenter", _CFG)
     cfg = AutoRunConfig(

@@ -21,7 +21,8 @@ from dataos.agent import report as report_schema
 from dataos.agent.eval_freeze import freeze_eval
 
 from . import budget as _budget
-from . import subagent_executor
+from . import runtime
+from . import roles
 from .config import AutoRunConfig
 from .schemas import ExperimentPlan
 
@@ -233,7 +234,7 @@ def _remaining_hours(started: float, cfg: AutoRunConfig, now: float) -> float | 
     credit is how the leader kept planning experiments the launcher would refuse to run."""
     if cfg.budget.max_wall_clock_s is None:
         return None
-    credit = subagent_executor._queue_wait_s(cfg)
+    credit = runtime._queue_wait_s(cfg)
     deadline = _budget.credited_deadline(
         started_at=started, budget=cfg.budget, queue_credit_s=credit
     )
@@ -249,9 +250,16 @@ def _effective_eval_limit(cfg: AutoRunConfig) -> int:
 def _full_eval_size(cfg: AutoRunConfig) -> int | None:
     """How many items the benchmark actually has, from the round-0 baseline's own eval.
 
-    The baseline always runs at the full protocol (-1), so its ``eval.n_samples`` is the only
-    place the run learns the benchmark's real size. ``None`` until round 0 has landed, or for a
-    run whose baseline predates the field."""
+    The baseline always runs at the full protocol (-1), so its ``n_samples`` is the only place the
+    run learns the benchmark's real size — and that size is what turns a subset score into
+    ``74.00@200/1319`` instead of a bare ``@200``. ``None`` until round 0 has landed.
+
+    Read through the schema rather than off a raw key: the baseline report has TWO producers (the
+    experimenter's contract and the investigator's recon prompt) and this reader was written
+    against only the second one's spelling. Moving the field into the schema without moving this
+    reader would have silently returned ``None`` here, dropping the ``/1319`` denominator — the one
+    guard against a subset score being read as comparable (audit 15.4).
+    """
     # read defensively: _validate_plan calls this, and tests validate against sparse doubles
     workspace, project_id = getattr(cfg, "workspace", None), getattr(cfg, "project_id", None)
     if not workspace or not project_id:
@@ -262,7 +270,7 @@ def _full_eval_size(cfg: AutoRunConfig) -> int | None:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
         return None
-    n = (report.get("eval") or {}).get("n_samples")
+    n = report_schema.read(report).stages.eval.n_samples
     return int(n) if isinstance(n, (int, float)) and n > 0 else None
 
 
@@ -562,7 +570,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         log.info("leader: resuming dialog session %s", session_id)
 
     started = _clock()
-    subagent_executor.set_invocation_wall_start(time.time())  # anchor for queue-credit overlap
+    runtime.set_invocation_wall_start(time.time())  # anchor for queue-credit overlap
     round_idx = len(_reviewed_studies(proj))
     best = _global_best(proj)
     events: list[dict] = []
@@ -588,7 +596,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             started + cfg.budget.max_wall_clock_s if cfg.budget.max_wall_clock_s else None
         )
         try:
-            recon = subagent_executor.run_recon_subagent(
+            recon = roles.run_investigator(
                 cfg=cfg, proj=proj, catalog=catalog, deadline=recon_deadline
             )
         except Exception as e:  # noqa: BLE001 — recon failure must not brick the run
@@ -597,7 +605,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
 
     while True:
         now = _clock()
-        credit = 0.0 if cfg.backend == "stub" else subagent_executor._queue_wait_s(cfg)
+        credit = 0.0 if cfg.backend == "stub" else runtime._queue_wait_s(cfg)
         reason = _budget.stop_reason(
             started_at=started, budget=cfg.budget, now=now, queue_credit_s=credit
         )
@@ -754,7 +762,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             now=_clock(),
             node_id=node_id,
             node_name=node.get("experiment_name"),
-            node_run_root=subagent_executor._run_root(cfg, study_id, spec["name"]),
+            node_run_root=runtime._run_root(cfg, study_id, spec["name"]),
             node_trains=bool((node.get("plan") or {}).get("train")),
         )
 
@@ -766,7 +774,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             if cfg.budget.max_wall_clock_s
             else None
         )
-        subagent_executor.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)
+        roles.fan_out(cfg=cfg, study_id=study_id, specs=[spec], deadline=deadline)
 
         exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
         score, eval_limit, mpath, scripts, status, report_path = _read_report(

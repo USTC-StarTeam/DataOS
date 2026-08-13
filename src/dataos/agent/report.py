@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 _STAGE = Literal["completed", "failed", "skipped"]
 
@@ -168,6 +168,15 @@ class EvalStage(Stage):
         "'the midpoint beat the final' is a finding for the next round even when the winner is "
         "unremarkable.",
     )
+    n_samples: int | None = Field(
+        default=None,
+        description="items the scorer ACTUALLY scored, copied from summary.json. Distinct from "
+        "`limit`, which is what was REQUESTED: an AUTO run asks for -2 and a capped run can be "
+        "cut short, so only this says how big the measurement really was. The round-0 baseline's "
+        "value is load-bearing beyond its own report — it is the only place a run learns the "
+        "benchmark's true size, which is what lets the tree render a subset score as "
+        "'74.00@200/1319' instead of a bare '@200'.",
+    )
 
 
 class ReviewStage(Stage):
@@ -179,8 +188,31 @@ class ReviewStage(Stage):
     sampled: bool = Field(
         description="true when the counts come from a SAMPLE, false for a full census. The "
         "previous batch mixed 5-item samples with 100-item censuses under identical key names and "
-        "the leader compared the numbers anyway."
+        "the leader compared the numbers anyway. Derived automatically when you give "
+        "`sample_size` instead — reporting the sizes is strictly more informative, so the schema "
+        "accepts the better answer rather than insisting on the boolean."
     )
+    sample_size: dict[str, int] | None = Field(
+        default=None,
+        description="how many rollouts you actually read, per outcome, e.g. "
+        "{'correct': 5, 'wrong': 5}. Omit for a full census. Volunteered by an experimenter "
+        "before any contract asked for it, which is a good sign it is the natural way to answer.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sampled_from_sample_size(cls, data: object) -> object:
+        """Let ``sample_size`` stand in for ``sampled``.
+
+        An experimenter wrote ``sample_size: {"correct": 5, "wrong": 5}`` and no ``sampled``; the
+        field the leader reads was then absent even though the report had said MORE than the
+        contract asked. Deriving costs six lines and removes the whole class of "right answer,
+        wrong key". The missing case is deliberately NOT derived: a review that mentions neither
+        still fails validation, because the dangerous default is silently claiming a census.
+        """
+        if isinstance(data, dict) and "sampled" not in data and data.get("sample_size"):
+            return {**data, "sampled": True}
+        return data
     anomalies: str = Field(description="repetition / length / format drift, or 'none'")
     conclusion: str = Field(
         description="one sentence: the dominant failure mode AND where it lives — model "
@@ -290,6 +322,7 @@ def from_legacy(raw: dict) -> Report:
             # a legacy report that never recorded its caliber is the very hazard this field
             # exists for; -1 would silently claim "full", so leave it visibly wrong instead
             limit=int(limit) if isinstance(limit, (int, float)) else 0,
+            n_samples=int(ev["n_samples"]) if isinstance(ev.get("n_samples"), (int, float)) else None,
             checkpoint_sweep=analysis.get("checkpoint_sweep"),
             error=raw.get("error") if not isinstance(score, (int, float)) else None,
         )

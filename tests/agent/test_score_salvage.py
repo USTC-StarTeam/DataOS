@@ -5,8 +5,8 @@ write per the contract) or, failing that, the remote summary.json."""
 import json
 
 from dataos.agent import report as report_schema
-from dataos.agent import subagent_executor as subagent_exec
-from tests.agent.test_subagent_executor import _cfg
+from dataos.agent import runtime
+from tests.agent.test_roles import _cfg
 
 
 class _CutAgent:
@@ -22,7 +22,7 @@ class _CutAgent:
 
 
 def _run(spec_name="explore-0", on_run=None, cfg=None, tmp_path=None):
-    import dataos.agent.subagent_executor as m
+    import dataos.agent.roles as m
 
     orig_build = m.build_agent
     m.build_agent = lambda *a, **k: _CutAgent(on_run=on_run, **k)
@@ -71,7 +71,7 @@ def test_salvage_from_remote_summary(tmp_path, monkeypatch):
             return f"{eval_dir}/summary.json"
         return json.dumps(summary) if "summary.json" in cmd else ""
 
-    monkeypatch.setattr(subagent_exec, "_ssh_text", _ssh)
+    monkeypatch.setattr(runtime, "_ssh_text", _ssh)
     _, report = _run(cfg=_cfg(tmp_path / "ws"), tmp_path=tmp_path)
     parsed = report_schema.read(report)
     assert parsed.status == "completed"
@@ -85,7 +85,7 @@ def test_salvage_from_remote_summary(tmp_path, monkeypatch):
 
 
 def test_no_score_anywhere_stays_failed(tmp_path, monkeypatch):
-    monkeypatch.setattr(subagent_exec, "_ssh_text", lambda cfg, cmd, **kw: "")
+    monkeypatch.setattr(runtime, "_ssh_text", lambda cfg, cmd, **kw: "")
     _, report = _run(cfg=_cfg(tmp_path / "ws"), tmp_path=tmp_path)
     parsed = report_schema.read(report)
     assert parsed.status == "failed"

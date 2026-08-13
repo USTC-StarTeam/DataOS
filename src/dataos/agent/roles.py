@@ -1,22 +1,27 @@
-"""Agentic per-experiment executor — a experimenter IMPLEMENTS one tree node.
+"""Running one ROLE to a terminal result — the experimenter and the investigator.
 
-The leader fixes WHAT each experiment is (parent model, data intent, and SFT
-hyperparameters). This module hands each experiment to an agentic Claude Code experimenter that
-figures out HOW to realize it — run the data recipe, submit training to H100 (ssh/sbatch,
-configured Slurm), run the frozen official PostTrainBench eval, and write ``report.json`` —
-self-healing around env/network/sbatch/operator failures.
+Neither role is subordinate to the leader, and the module used to be called
+``subagent_executor`` as if one were. The call graph says otherwise: ``loop.py`` is the only
+orchestrator, and it invokes all three roles itself — the leader through
+:func:`dataos.agent.backend.system_prompt`, and these two through :func:`fan_out` and
+:func:`run_investigator`. Nothing in the leader's prompts can start an experiment; it proposes a
+plan, ``_validate_plan`` checks it, and Python applies it. So the three are peers with different
+jobs, and the old name encoded a hierarchy that no longer exists (and arguably never did).
 
-Same ``fan_out(cfg, study_id, specs) -> {name: report}`` contract the loop used for the old
-deterministic Slurm backend, so the loop swaps executors with one line. PTB allows only ONE
-H100 for the whole run, so experiments run SEQUENTIALLY (never in parallel) under a shared
-single-GPU / 10h budget; ``report.json`` on disk is the source of truth.
+The two roles run under separate lifecycles rather than a shared one, because what "finished"
+means differs: an experimenter is done when its report.json is terminal (score first, review
+second — see :func:`dataos.agent.report.is_terminal`), while the investigator is done when both
+recon.json and the round-0 baseline report parse. Cluster and layout facts live in
+:mod:`dataos.agent.runtime`; this module only knows how to drive an agent.
+
+PTB allows only ONE H100 for the whole run, so experiments run SEQUENTIALLY (never in parallel)
+under a shared single-GPU / 10h budget; ``report.json`` on disk is the source of truth.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import shlex
 import time
 from pathlib import Path
 
@@ -24,6 +29,7 @@ from dataos.core.ids import _make_id
 from dataos.core.io import atomic_write_json
 from dataos.core.study import _slug
 
+from dataos.agent import runtime
 from dataos.agent import report as report_schema
 
 from dataos import prompt as _prompt
@@ -32,20 +38,15 @@ from dataos.agent.llm.config import build_agent
 
 log = logging.getLogger(__name__)
 
-_RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"  # legacy fallback; prefer runtime_config
-# Let the executor run FREE within its time budget. The real bound is the per-experiment
+# Let the role run FREE within its time budget. The real bound is the per-experiment
 # DEADLINE (the timeout on each agent.run); if the experimenter stops before writing report.json
 # the resume loop continues the SAME session. A high cap means max_turns ~never chops a live
 # experiment into artificial 150-turn pieces (which only added latency + a failure surface).
-SUBAGENT_MAX_STEPS = 100_000
+ROLE_MAX_STEPS = 100_000
 _EXP_TIMEOUT_SMOKE_S = 2 * 3600.0  # hard per-experiment timeout: 2 h (smoke)
 _EXP_TIMEOUT_FORMAL_S = 10 * 3600.0  # PTB hard cap: 10 h / 1 H100
-_STATE_FILE = "subagent_state.json"
-_REQUIRED_CLUSTER_KEYS = ("host", "user", "port", "key", "partition", "qos", "gres")
-_REQUIRED_PATH_KEYS = (
-    "deploy_root", "runs_base", "fixed_pool", "train_env", "eval_env",
-)  # conda_sh dropped — envs are uv venvs (called via {path}/bin/<tool>)
-_REQUIRED_GATEWAY_KEYS = ("base_url", "key_file")  # connection facts only; judge model is the task's
+_STATE_FILE = "subagent_state.json"  # on-disk name kept: the resume path reads it in every
+# archived run dir, so renaming it would strand old runs. The MODULE no longer claims a hierarchy.
 
 
 def _exp_timeout(cfg, deadline: float | None) -> float:
@@ -54,162 +55,6 @@ def _exp_timeout(cfg, deadline: float | None) -> float:
     if deadline is not None:
         return max(60.0, min(cap, deadline - time.monotonic()))
     return cap
-
-
-def _runtime_config(cfg) -> dict:
-    """Return the runtime config (paths / cluster / gateway) with legacy fallbacks for
-    sparse test doubles. Production cfgs carry everything from configs/environments."""
-    runtime = json.loads(json.dumps(getattr(cfg, "runtime_config", {}) or {}))
-    paths = runtime.setdefault("paths", {})
-    runtime.setdefault("cluster", {})
-    paths.setdefault("runs_base", _RUNS_BASE)
-    runtime.setdefault("environment", "PTB_H100_slurm")
-    runtime.setdefault("task", "posttrainbench")
-    paths.setdefault("runtime_root", f"{paths.get('deploy_root', '')}/configs")
-    return runtime
-
-
-def _task_assets_dir(runtime: dict) -> str:
-    """The runtime task dir on the exec host (eval bridge & co). Prompt sections come from
-    the runtime composer (runtime_compose) — no playbook files are read anymore."""
-    root = runtime.get("paths", {}).get("runtime_root", "")
-    task = runtime.get("task", "posttrainbench")
-    return f"{root}/tasks/{task}"
-
-
-def _missing_runtime_config_keys(cfg) -> list[str]:
-    runtime = _runtime_config(cfg)
-    missing = [
-        f"cluster.{key}" for key in _REQUIRED_CLUSTER_KEYS
-        if not runtime.get("cluster", {}).get(key)
-    ]
-    missing.extend(
-        f"paths.{key}" for key in _REQUIRED_PATH_KEYS
-        if not runtime.get("paths", {}).get(key)
-    )
-    missing.extend(
-        f"gateway.{key}" for key in _REQUIRED_GATEWAY_KEYS
-        if not runtime.get("gateway", {}).get(key)
-    )
-    return missing
-
-
-def _run_root(cfg, study_id: str, name) -> str:
-    runs_base = _runtime_config(cfg).get("paths", {}).get("runs_base", _RUNS_BASE)
-    return f"{runs_base}/{cfg.project_id}/{study_id}/{_slug(str(name))}"
-
-
-def _ssh_text(cfg, remote_cmd: str, *, timeout: int = 25) -> str:
-    """Run a read-only remote command over ssh; '' on any failure (best-effort probes —
-    a measurement failure must never break the run)."""
-    import os
-    import subprocess
-
-    cluster = _runtime_config(cfg).get("cluster") or {}
-    if not cluster.get("host"):
-        return ""
-    try:
-        return subprocess.run(
-            [
-                "ssh", "-i", os.path.expanduser(str(cluster.get("key", ""))),
-                "-p", str(cluster.get("port", 22)),
-                "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=no",
-                "-o", "ConnectTimeout=8",
-                f"{cluster.get('user')}@{cluster['host']}", remote_cmd,
-            ],
-            capture_output=True, text=True, timeout=timeout,
-        ).stdout.strip()
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-_INVOCATION_WALL_START: float | None = None  # wall-clock start of THIS run_auto invocation
-
-
-def set_invocation_wall_start(ts: float) -> None:
-    """Anchor queue-credit accounting: only queue waits overlapping THIS invocation count
-    (budget is per-invocation wall-clock; without the anchor every --resume re-credits the
-    whole history)."""
-    global _INVOCATION_WALL_START
-    _INVOCATION_WALL_START = ts
-
-
-def _queue_credit_s(rows: list[tuple[float, float]], *, since: float) -> float:
-    """Sum the [submit, wait_end] overlap with [since, +inf) over (submit, wait_end) epochs."""
-    return sum(max(0.0, end - max(sub, since)) for sub, end in rows)
-
-
-def _queue_wait_s(cfg) -> float:
-    """Total Slurm queue-wait time across this run's jobs, in seconds, overlapping THIS
-    invocation.
-
-    The run's budget tracks IDEAL run time — queue waiting is budget-free by design
-    (cluster contention is environment noise, not experiment work). Job ids are found via
-    slurm-<id>.out logs and *handle.json files (dataos-train handle.json + dataos-eval
-    eval_handle.json) under runs_base/<project_id>; sacct epochs are resolved cluster-side.
-    A job that never started is capped at its End (cancellation), never at now — a
-    cancelled-pending job must not print credit forever."""
-    import shlex
-
-    runtime = _runtime_config(cfg)
-    runs_base = (runtime.get("paths") or {}).get("runs_base")
-    if not (runtime.get("cluster") or {}).get("host") or not runs_base:
-        return 0.0
-    base = shlex.quote(f"{runs_base}/{cfg.project_id}")  # project ids can contain parens
-    remote = (
-        f"ids=$( (find {base} -maxdepth 4 -name 'slurm-*.out' 2>/dev/null | grep -oP 'slurm-\\K[0-9]+';"
-        f" find {base} -maxdepth 3 -name '*handle.json' 2>/dev/null | xargs -r grep -hoP '\"job_id\":\\s*\"?\\K[0-9]+') | sort -u | tr '\\n' ',' );"
-        " ids=${ids%,}; [ -z \"$ids\" ] && exit 0;"
-        " now=$(date +%s);"
-        # -X: main job rows only (no .batch/.extern steps)
-        " sacct -j \"$ids\" --format=Submit,Start,End -P -n -X 2>/dev/null | while IFS='|' read -r sub sta end; do"
-        "   se=$(date -d \"$sub\" +%s 2>/dev/null || echo 0); [ \"$se\" = 0 ] && continue;"
-        "   ee=0;"
-        "   for cand in \"$sta\" \"$end\"; do"  # Start first; a never-started job falls to End
-        "     if [ -n \"$cand\" ] && [ \"$cand\" != None ] && [ \"$cand\" != Unknown ]; then"
-        "       ee=$(date -d \"$cand\" +%s 2>/dev/null || echo 0);"
-        "     fi;"
-        "     [ \"$ee\" != 0 ] && break;"
-        "   done;"
-        "   [ \"$ee\" = 0 ] && ee=$now;"  # still pending: wait is still accruing
-        "   [ $ee -lt $se ] && ee=$se;"
-        "   echo \"$se $ee\";"
-        " done"
-    )
-    out = _ssh_text(cfg, remote)
-    rows: list[tuple[float, float]] = []
-    for line in (out or "").splitlines():
-        parts = line.split()
-        if len(parts) != 2:
-            continue
-        try:
-            rows.append((float(parts[0]), float(parts[1])))
-        except ValueError:
-            continue
-    return _queue_credit_s(rows, since=_INVOCATION_WALL_START or 0.0)
-
-
-def _paths(cfg, study_id: str, name, exp_dir: Path) -> dict:
-    """The DETERMINISTIC artifact layout for one experiment (H100 RUN_ROOT + local report).
-
-    Recorded in ``state.json`` for monitoring and resume, NOT in report.json: seven paths the
-    leader cannot open were 19.3% of every report's bytes.
-
-    The eval dir is deliberately absent. It used to be built here as
-    ``eval/{bench}_limit{"auto" if eval_limit == -2 else eval_limit}``, and ``auto`` is a tag no
-    eval has ever written — so the one consumer that resolved a real directory from it (score
-    salvage) looked in a path that does not exist. Naming a directory you did not create is a
-    guess; :func:`_remote_eval_dirs` asks instead.
-    """
-    rr = _run_root(cfg, study_id, name)
-    return {
-        "run_root": rr,
-        "data": f"{rr}/data/sft",
-        "adapter": f"{rr}/adapter",
-        "model": f"{rr}/final_model",
-        "logs": f"{rr}/logs",
-        "report": str(exp_dir / "report.json"),
-    }
 
 
 def _read_json(path: Path) -> dict | None:
@@ -246,7 +91,7 @@ def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: 
     """
     name = spec["name"]
     report.setdefault("id", _make_id("exp"))
-    default_model = _paths(cfg, study_id, name, exp_dir)["model"]
+    default_model = runtime._paths(cfg, study_id, name, exp_dir)["model"]
     stages = report.get("stages")
     train = stages.get("train") if isinstance(stages, dict) else None
     if isinstance(train, dict):
@@ -286,28 +131,6 @@ def _numeric_score(data: dict) -> float | None:
     return float(score) if isinstance(score, (int, float)) else None
 
 
-def _remote_eval_summaries(cfg, study_id: str, name) -> list[tuple[str, dict]]:
-    """Every ``summary.json`` under this run's ``eval/``, newest first.
-
-    Asks the exec host what is there rather than reconstructing the directory name. A checkpoint
-    sweep leaves several eval dirs, an AUTO-sized eval leaves one whose tag nobody can predict from
-    ``eval_limit``, and salvage only has to find A real score — newest is the best guess at the one
-    the experimenter was writing when it was cut off.
-    """
-    rr = _run_root(cfg, study_id, name)
-    out = _ssh_text(cfg, f"ls -1dt {shlex.quote(rr)}/eval/*/summary.json 2>/dev/null")
-    found: list[tuple[str, dict]] = []
-    for path in (out or "").split():
-        text = _ssh_text(cfg, f"cat {shlex.quote(path)} 2>/dev/null")
-        try:
-            summary = json.loads(text) if text else None
-        except json.JSONDecodeError:
-            summary = None
-        if isinstance(summary, dict):
-            found.append((str(Path(path).parent), summary))
-    return found
-
-
 def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
                     partial: dict | None, error: str) -> dict | None:
     """Rescue a COMPLETED score when the experimenter died after the eval produced one
@@ -321,7 +144,7 @@ def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit
     if partial is not None and report_schema.read(partial).score is not None:
         report, source = dict(partial), "partial report.json"
     else:
-        for eval_dir, summary in _remote_eval_summaries(cfg, study_id, spec["name"]):
+        for eval_dir, summary in runtime._remote_eval_summaries(cfg, study_id, spec["name"]):
             if _numeric_score(summary) is not None:
                 report, source = {
                     "stages": {
@@ -356,7 +179,7 @@ def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit
         report["status"] = "completed"
     report["salvaged"] = True
     report["error"] = f"salvaged from {source}; the experimenter was cut off: {error}"
-    log.warning("subagent[%s]: salvaged score=%s from %s",
+    log.warning("experimenter[%s]: salvaged score=%s from %s",
                 spec["name"], report_schema.read(report).score, source)
     return report
 
@@ -371,42 +194,42 @@ def _state_seed(*, cfg, study_id: str, spec: dict, exp_dir: Path, report_path: P
         "session_id": None,
         "report_path": str(report_path),
         "state_path": str(exp_dir / _STATE_FILE),
-        "artifacts": _paths(cfg, study_id, name, exp_dir),
+        "artifacts": runtime._paths(cfg, study_id, name, exp_dir),
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
 
 def _runtime_prompt_block(*, cfg, study_id: str, spec: dict, exp_dir: Path,
                           eval_limit: int) -> dict:
-    runtime = _runtime_config(cfg)
-    runtime.setdefault("paths", {})["run_root"] = _run_root(cfg, study_id, spec["name"])
-    runtime["paths"]["local_report"] = str(exp_dir / "report.json")
-    runtime["paths"]["local_state"] = str(exp_dir / _STATE_FILE)
+    runtime_config = runtime._runtime_config(cfg)
+    runtime_config.setdefault("paths", {})["run_root"] = runtime._run_root(cfg, study_id, spec["name"])
+    runtime_config["paths"]["local_report"] = str(exp_dir / "report.json")
+    runtime_config["paths"]["local_state"] = str(exp_dir / _STATE_FILE)
     parent_model = (
         (spec.get("train") or {}).get("model_name_or_path")
         or spec.get("init_model")
         or cfg.h100_base_model
     )
-    runtime["model"] = {
+    runtime_config["model"] = {
         "base_model": parent_model,
         "parent_model": parent_model,
         "root_base_model": cfg.h100_base_model,
         "base_model_id": getattr(cfg, "base_model_id", None),
     }
-    runtime["posttrainbench"] = {
+    runtime_config["posttrainbench"] = {
         "bench": cfg.target_bench,
         "profile": cfg.ptb_profile,
         "eval_limit": eval_limit,
     }
     if getattr(cfg, "runtime_config_path", None):
-        runtime["source"] = str(cfg.runtime_config_path)
-    return runtime
+        runtime_config["source"] = str(cfg.runtime_config_path)
+    return runtime_config
 
 
 def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
                  remaining_minutes: int | None = None) -> str:
     bench = cfg.target_bench
-    run_root = _run_root(cfg, study_id, spec["name"])
+    run_root = runtime._run_root(cfg, study_id, spec["name"])
     parent_model = (
         (spec.get("train") or {}).get("model_name_or_path")
         or spec.get("init_model")
@@ -492,7 +315,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         )
         atomic_write_json(report_path, report)
         _parsed = report_schema.read(report)
-        log.info("subagent[%s]: existing terminal report status=%s score=%s",
+        log.info("experimenter[%s]: existing terminal report status=%s score=%s",
                  name, _parsed.status, _parsed.score)
         return name, report
 
@@ -500,16 +323,16 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         cfg,
         role="experimenter",  # cwd comes from role_cwd (outside the repo); the whole
         instructions=system_prompt("experimenter", cfg),  # toolchain is ssh/scp + abs paths
-        max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
+        max_steps=max(cfg.max_steps, ROLE_MAX_STEPS),
         transcript=str(exp_dir / "agent.jsonl"),  # per-experiment run record (monitor + archive)
     )
-    log.info("subagent[%s]: starting (bench=%s base=%s timeout=%ss)",
+    log.info("experimenter[%s]: starting (bench=%s base=%s timeout=%ss)",
              name, cfg.target_bench, cfg.h100_base_model, int(timeout) if timeout else None)
     state = _read_json(state_path) or _state_seed(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
         report_path=report_path, eval_limit=eval_limit,
     )
-    state.setdefault("artifacts", _paths(cfg, study_id, name, exp_dir))
+    state.setdefault("artifacts", runtime._paths(cfg, study_id, name, exp_dir))
     state.setdefault("report_path", str(report_path))
     state.setdefault("state_path", str(state_path))
     _write_state(state_path, state)
@@ -522,7 +345,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
     last_text = ""
     while True:
         remaining = None if deadline is None else max(
-            0.0, deadline + _queue_wait_s(cfg) - time.monotonic()
+            0.0, deadline + runtime._queue_wait_s(cfg) - time.monotonic()
         )
         if remaining is not None and remaining <= 0:
             break
@@ -534,7 +357,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
             state["status"] = "blocked"
             state["last_error"] = str(e)
             _write_state(state_path, state)
-            log.error("subagent[%s]: agent error: %s", name, e)
+            log.error("experimenter[%s]: agent error: %s", name, e)
             break
 
         last_text = (getattr(res, "text", "") or "").strip()
@@ -544,7 +367,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         state["status"] = "running"
         state["last_message"] = last_text[-4000:]
         _write_state(state_path, state)
-        log.info("subagent[%s]: message (%d chars, session=%s): %s", name, len(last_text),
+        log.info("experimenter[%s]: message (%d chars, session=%s): %s", name, len(last_text),
                  state.get("session_id"), last_text[:800] + ("…" if len(last_text) > 800 else ""))
 
         report = _report_from_disk(report_path)
@@ -554,11 +377,11 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
             break
 
         remaining = None if deadline is None else max(
-            0.0, deadline + _queue_wait_s(cfg) - time.monotonic()
+            0.0, deadline + runtime._queue_wait_s(cfg) - time.monotonic()
         )
         if remaining is not None and remaining <= 0:
             break
-        log.info("subagent[%s]: no report.json yet; resuming same session", name)
+        log.info("experimenter[%s]: no report.json yet; resuming same session", name)
         _sleep_before_resume(cfg, remaining if remaining is not None else 30.0)
         prompt = _continue_prompt(
             state, last_text,
@@ -585,8 +408,8 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
     )
     atomic_write_json(report_path, report)
     _parsed = report_schema.read(report)
-    log.info("subagent[%s]: status=%s score=%s run_root=%s",
-             name, _parsed.status, _parsed.score, _run_root(cfg, study_id, name))
+    log.info("experimenter[%s]: status=%s score=%s run_root=%s",
+             name, _parsed.status, _parsed.score, runtime._run_root(cfg, study_id, name))
     return name, report
 
 
@@ -595,7 +418,7 @@ _RECON_FILE = "recon.json"
 # than the minutes it takes to finish. Only the run's own wall-clock ``deadline`` bounds it.
 
 
-def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None) -> dict:
+def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) -> dict:
     """RECON stage — a one-shot experimenter that gathers ground-truth intel BEFORE any training
     and writes ``recon.json`` (eval_format_contract + baseline_diagnosis + candidate_sources +
     source_profiles) AND runs the round-0 BASELINE eval itself (frozen protocol on the base
@@ -604,19 +427,19 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
     Resume-safe: if a valid recon.json already exists on disk, the loop skips calling this."""
     del catalog  # recon needs the pool + eval code, not the operator catalog
     recon_path = Path(proj.project_dir) / _RECON_FILE
-    runtime = _runtime_config(cfg)
-    paths = runtime.get("paths", {})
-    cluster = runtime.get("cluster", {})
+    runtime_config = runtime._runtime_config(cfg)
+    paths = runtime_config.get("paths", {})
+    cluster = runtime_config.get("cluster", {})
     deploy_root = paths.get("deploy_root", "")
     eval_env = paths.get("eval_env", "")
-    task_dir = _task_assets_dir(runtime)
+    task_dir = runtime._task_assets_dir(runtime_config)
     eval_limit = getattr(cfg, "eval_limit", None)
     if eval_limit is None:
         eval_limit = 20 if cfg.ptb_profile == "smoke" else -1
     if eval_limit == -2:
         eval_limit = -1  # AUTO governs experiments; the baseline reference is always full
     limit_tag = str(eval_limit)
-    baseline_run_root = f"{paths.get('runs_base', _RUNS_BASE)}/{cfg.project_id}/round-0000/baseline"
+    baseline_run_root = f"{paths.get('runs_base', runtime._RUNS_BASE)}/{cfg.project_id}/round-0000/baseline"
     baseline_report = (
         Path(proj.project_dir) / "round-0000" / "experiments" / "baseline" / "report.json"
     )
@@ -635,7 +458,7 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         cluster_json=json.dumps(
             {k: cluster.get(k) for k in ("host", "user", "port", "key")}, ensure_ascii=False
         ),
-        profile_script=f"{deploy_root}/resources/recon/{runtime.get('task', 'posttrainbench')}/profile_source.py",
+        profile_script=f"{deploy_root}/resources/recon/{runtime_config.get('task', 'posttrainbench')}/profile_source.py",
         lm_bridge=f"{task_dir}/eval",
         recon_path=str(recon_path),
         baseline_run_root=baseline_run_root,
@@ -649,7 +472,7 @@ def run_recon_subagent(*, cfg, proj, catalog=None, deadline: float | None = None
         cfg,
         role="investigator",
         instructions=system_prompt("investigator", cfg),
-        max_steps=max(cfg.max_steps, SUBAGENT_MAX_STEPS),
+        max_steps=max(cfg.max_steps, ROLE_MAX_STEPS),
         transcript=str(Path(proj.project_dir) / "investigator.jsonl"),
     )
     # bounded only by the run's own budget; no recon-specific cap
@@ -698,13 +521,13 @@ def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -
     experiments execute SEQUENTIALLY (never in parallel), sharing the single-GPU / 10h budget.
     ``deadline`` (monotonic) stops launching further experiments once the budget is spent."""
     if not cfg.target_bench:
-        raise ValueError("subagent executor needs cfg.target_bench (the single PTB bench)")
+        raise ValueError("the role runner needs cfg.target_bench (the single PTB bench)")
     if not cfg.h100_base_model:
-        raise ValueError("subagent executor needs cfg.h100_base_model (the -Base model path)")
-    missing_runtime = _missing_runtime_config_keys(cfg)
+        raise ValueError("the role runner needs cfg.h100_base_model (the -Base model path)")
+    missing_runtime = runtime._missing_runtime_config_keys(cfg)
     if missing_runtime:
         raise ValueError(
-            "subagent executor needs runtime config with: " + ", ".join(missing_runtime)
+            "the role runner needs runtime config with: " + ", ".join(missing_runtime)
         )
     exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
     log.info("fan_out: %d agentic experimenter(s), SEQUENTIAL (PTB: 1 H100 at a time) bench=%s",

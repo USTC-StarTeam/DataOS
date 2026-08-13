@@ -3,7 +3,8 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
-from dataos.agent import subagent_executor as subagent_exec
+from dataos.agent import runtime
+from dataos.agent import roles as role_runner
 
 
 def _cfg(ws):
@@ -60,12 +61,12 @@ def test_subagent_resumes_same_session_until_report(tmp_path, monkeypatch):
             )
 
     monkeypatch.setattr(
-        subagent_exec, "build_agent", lambda *args, **kwargs: FakeAgent(**kwargs)
+        role_runner, "build_agent", lambda *args, **kwargs: FakeAgent(**kwargs)
     )
-    monkeypatch.setattr(subagent_exec.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(role_runner.time, "sleep", lambda _seconds: None)
 
     spec = {"name": "explore-0", "data": {}, "train": {}, "init_model": "/models/parent"}
-    _, report = subagent_exec._run_one(
+    _, report = role_runner._run_one(
         _cfg(tmp_path / "ws"), "round-0000", spec, tmp_path / "experiments", timeout=10
     )
 
@@ -95,7 +96,7 @@ def test_runtime_config_injected_into_subagent_prompt(tmp_path):
     cfg.runtime_config_path = "workspace/p/resolved_config.json"
     spec = {"name": "explore-0", "data": {}, "train": {}, "init_model": "/models/parent"}
 
-    prompt = subagent_exec._task_prompt(
+    prompt = role_runner._task_prompt(
         cfg=cfg,
         study_id="round-0000",
         spec=spec,
@@ -110,7 +111,7 @@ def test_runtime_config_injected_into_subagent_prompt(tmp_path):
     assert '"base_url": "https://gateway.example/v1"' in prompt
     assert "Parent model to continue training from (use this exact path): /models/parent" in prompt
     assert '"parent_model": "/models/parent"' in prompt
-    assert subagent_exec._run_root(cfg, "round-0000", "explore-0") == (
+    assert runtime._run_root(cfg, "round-0000", "explore-0") == (
         "/remote/runs/p/round-0000/explore-0"
     )
 
@@ -119,7 +120,7 @@ def test_queue_credit_overlap_math():
     """Queue credit = the [submit, wait_end] overlap with THIS invocation. Rows arrive as
     (submit, wait_end) epochs resolved cluster-side: a cancelled-pending job is capped at
     its End (never at now), a still-pending job at now."""
-    f = subagent_exec._queue_credit_s
+    f = runtime._queue_credit_s
     # cancelled-while-pending: End-capped, finite forever (the P0: no infinite money printer)
     assert f([(100.0, 200.0)], since=0.0) == 100.0
     # still pending at query time: counts submit -> now

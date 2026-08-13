@@ -40,19 +40,27 @@ template: |
        prints the score — for judge benches it also runs the login-node judge step itself),
        read a handful of raw predictions from the eval dir and
        write report.json to the local path above:
-    {"name": "baseline", "status": "completed", "score": <float printed by collect>,
-     "stages": {"data": {"status": "skipped"}, "train": {"status": "skipped"},
-                "eval": {"status": "completed"}},
-     "model": {"path": "{{ base_model }}", "base_model": "{{ base_model }}"},
-     "eval": {"score": <same float>, "path": "<eval_dir>", "limit": {{ eval_limit }},
-              "n_samples": <the summary.json "n_samples": how many items were actually scored —
-                            this run's baseline is the only place the benchmark's real size gets
-                            recorded, and every later experiment's subset score is judged
-                            against it, so copy it exactly>},
-     "analysis": {"rollout_summary": "<correct/wrong counts + k sampled raw outputs read>",
-                  "failure_classes": {"<class>": <count>},
-                  "anomalies": "<repetition/length/format drift, or 'none'>",
-                  "conclusion": "<the base model's dominant failure mode in one sentence>"}}
+    {"id": "baseline",
+     "stages": {
+       "eval":  {"status": "completed", "score": <float printed by collect>,
+                 "limit": {{ eval_limit }},
+                 "n_samples": <the summary.json "n_samples": how many items were actually scored —
+                               this run's baseline is the only place the benchmark's real size gets
+                               recorded, and every later experiment's subset score is judged
+                               against it, so copy it exactly>,
+                 "stderr": <the metric's stderr from summary.json, or null if it emits none>,
+                 "elapsed_s": <wall clock of the eval>},
+       "review":{"status": "completed",
+                 "failure_classes": {"<class>": <count>},
+                 "sample_size": {"correct": <k>, "wrong": <k>},
+                 "anomalies": "<repetition/length/format drift, or 'none'>",
+                 "conclusion": "<the base model's dominant failure mode in one sentence>",
+                 "dominant_evidence": "<ONE quoted comparison: what the parser wanted vs what the model emitted>"}}}
+    A baseline has no data and no training, so OMIT those two stages entirely. Do NOT write a
+    top-level `status` or `score`: the score lives only in `stages.eval.score` and the node's
+    status is derived from it. This is the same shape the experimenters write (their contract is
+    the authority on the fields); the baseline is the anchor every later score is compared
+    against, so it is the one report that must not be shaped differently from the rest.
   Don't stop at WHAT the failures look like — locate them: for the dominant class, take 1-2
   failing cases and check them against the scorer's parser yourself (you just read its code):
   is the correct answer present but unparsable (protocol-side loss), or is the content itself
