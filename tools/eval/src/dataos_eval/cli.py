@@ -11,12 +11,23 @@ import argparse
 import json
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import yaml
+from dataos_launch import Handle, JobSpec, Resources, SlurmExtras, Status, get_launcher
 
 _HANDLE = "eval_handle.json"
+
+
+def _launcher_name(env: dict) -> str:
+    """Which launcher runs this evaluation — declared by the environment, never guessed.
+
+    Defaults to ``slurm`` because every environment that predates this field is a Slurm
+    cluster; a workstation environment says ``launcher: local`` and the same JobSpec then runs
+    as a subprocess. This is the whole point of the split: the evaluation protocol does not
+    change with the machine, only the thing that starts it does.
+    """
+    return str((env.get("slurm") or {}).get("launcher") or env.get("launcher") or "slurm")
 
 
 def _load(repo: Path, environment: str, task: str) -> tuple[dict, dict, dict]:
@@ -62,49 +73,83 @@ def resolve_eval_template(repo: Path, task_config: str, bench: str, model_path: 
     return path
 
 
-def _render_job(args, env: dict) -> str:
-    """The full job script: every hard-won environment lesson baked in (short TMPDIR,
-    libcuda link, cache redirects, offline HF). No scheduling flags exist here — those
-    are passed to sbatch by submit() and are not the caller's business. All interpolated
-    paths are shlex-quoted (run roots can contain parens, e.g. fresh-instance -1 dirs)."""
+def _build_job(args, env: dict) -> "JobSpec":
+    """Render this evaluation as a launcher-agnostic JobSpec.
+
+    Every hard-won environment lesson still lives here (short TMPDIR, libcuda link, cache
+    redirects, offline HF) — but as ``pre_cmds`` and ``env`` on the spec rather than as text
+    baked into a bash template, so the SAME evaluation can be run by any launcher. Where it
+    runs is :mod:`dataos_launch`'s decision, made from the environment's declared launcher.
+
+    Two things are deliberately explicit:
+
+    * ``PYTORCH_CUDA_ALLOC_CONF`` is set to the empty string. ``build_preamble`` injects
+      ``expandable_segments:True`` for TRAINING jobs, where fragmentation costs OOMs — but on
+      an eval job it changes how vLLM's reservation is accounted (audit 12: a nominal 26 GiB
+      was reported as 24320 MiB), and evaluation must not silently acquire a training default.
+    * ``TMPDIR`` uses ``$SLURM_JOB_ID`` when Slurm sets it and the pid otherwise, because the
+      path must stay short (the AF_UNIX socket limit is 108 chars) and unique per job on both
+      a shared cluster node and a workstation.
+    """
     import shlex
 
     run_root = shlex.quote(args.run_root)
-    model_path = shlex.quote(args.model_path)
-    model_name = shlex.quote(args.model_name)
-    output_dir = shlex.quote(args.output_dir)
-    bench = shlex.quote(args.task)
-    chat_template = shlex.quote(str(args.chat_template))
     eval_py = f"{env['tools']['eval_env']['path']}/bin/python"
-    bridge = Path(args.repo) / "configs" / "tasks" / args.task_config / "eval" / "scripts"
-    benchmarks = Path(args.repo) / "configs" / "tasks" / args.task_config / "benchmarks"
-    return f"""#!/bin/bash
-set -euo pipefail
-export TMPDIR=/tmp/job_${{SLURM_JOB_ID}}
-mkdir -p "$TMPDIR" "$TMPDIR/culib" {run_root}/cache/torch {run_root}/cache/triton {run_root}/cache/inductor
-trap 'rm -rf "$TMPDIR"' EXIT
-export TORCH_HOME={run_root}/cache/torch
-export TRITON_CACHE_DIR={run_root}/cache/triton
-export TORCHINDUCTOR_CACHE_DIR={run_root}/cache/inductor
-if [ -e /usr/lib/x86_64-linux-gnu/libcuda.so.1 ]; then
-  ln -sf /usr/lib/x86_64-linux-gnu/libcuda.so.1 "$TMPDIR/culib/libcuda.so"
-elif [ -e /usr/lib64/libcuda.so.1 ]; then
-  ln -sf /usr/lib64/libcuda.so.1 "$TMPDIR/culib/libcuda.so"
-fi
-export LIBRARY_PATH="$TMPDIR/culib:${{LIBRARY_PATH:-}}"
-export TRITON_LIBCUDA_PATH="$TMPDIR/culib"
-export POSTTRAINBENCH_BENCHMARKS_DIR={benchmarks}
-export HF_DATASETS_CACHE={benchmarks}/hf_datasets
-export HF_HUB_OFFLINE=1
-export HF_DATASETS_OFFLINE=1
-{eval_py} {bridge}/run_lmeval_eval.py \\
-  --task {bench} \\
-  --model-path {model_path} \\
-  --model-name {model_name} \\
-  --chat-template {chat_template} \\
-  --output-dir {output_dir} \\
-  --limit {args.limit}
-"""
+    # resolved: the job runs with cwd=run_dir, so a relative --repo would break every path
+    # below. Production always passes an absolute deploy root; this makes it true regardless.
+    repo = Path(args.repo).resolve()
+    bridge = repo / "configs" / "tasks" / args.task_config / "eval" / "scripts"
+    benchmarks = repo / "configs" / "tasks" / args.task_config / "benchmarks"
+    slurm = env.get("slurm") or {}
+
+    pre_cmds = [
+        'export TMPDIR=/tmp/job_${SLURM_JOB_ID:-$$}',
+        f'mkdir -p "$TMPDIR" "$TMPDIR/culib" {run_root}/cache/torch {run_root}/cache/triton '
+        f'{run_root}/cache/inductor',
+        "trap 'rm -rf \"$TMPDIR\"' EXIT",
+        # triton/inductor compile needs libcuda.so; some nodes ship only libcuda.so.1
+        "if [ -e /usr/lib/x86_64-linux-gnu/libcuda.so.1 ]; then",
+        '  ln -sf /usr/lib/x86_64-linux-gnu/libcuda.so.1 "$TMPDIR/culib/libcuda.so"',
+        "elif [ -e /usr/lib64/libcuda.so.1 ]; then",
+        '  ln -sf /usr/lib64/libcuda.so.1 "$TMPDIR/culib/libcuda.so"',
+        "fi",
+        'export LIBRARY_PATH="$TMPDIR/culib:${LIBRARY_PATH:-}"',
+        'export TRITON_LIBCUDA_PATH="$TMPDIR/culib"',
+    ]
+    job_env = {
+        "TORCH_HOME": f"{args.run_root}/cache/torch",
+        "TRITON_CACHE_DIR": f"{args.run_root}/cache/triton",
+        "TORCHINDUCTOR_CACHE_DIR": f"{args.run_root}/cache/inductor",
+        "POSTTRAINBENCH_BENCHMARKS_DIR": str(benchmarks),
+        "HF_DATASETS_CACHE": f"{benchmarks}/hf_datasets",
+        "HF_HUB_OFFLINE": "1",
+        "HF_DATASETS_OFFLINE": "1",
+        "PYTORCH_CUDA_ALLOC_CONF": "",  # see docstring: a training default, not an eval one
+    }
+    return JobSpec(
+        backend="lmeval",
+        job_name=f"eval_{args.task}",
+        command=[
+            eval_py, str(bridge / "run_lmeval_eval.py"),
+            "--task", args.task,
+            "--model-path", args.model_path,
+            "--model-name", args.model_name,
+            "--chat-template", str(args.chat_template),
+            "--output-dir", args.output_dir,
+            "--limit", str(args.limit),
+        ],
+        env=job_env,
+        run_dir=args.run_root,
+        resources=Resources(gpus=args.gpus, cpus=args.cpus),
+        pre_cmds=pre_cmds,
+        slurm=SlurmExtras(
+            partition=slurm.get("partition"),
+            qos=slurm.get("qos"),
+            nodelist=slurm.get("nodes"),
+            cpus_per_task=args.cpus,
+            extra_sbatch=[f"--time={_clamped_time(args, env)}"],
+        ),
+    )
 
 
 def _time_s(v: str) -> int:
@@ -120,31 +165,20 @@ def _time_s(v: str) -> int:
     return int(days) * 86400 + secs
 
 
-def _sbatch_argv(args, env: dict) -> list[str]:
-    """Scheduling facts, written here and ONLY here: single node, env node pool,
-    partition/qos from env.yaml, gres/cpus from the run's resource facts. --time is
-    explicit: with none, sbatch falls back to the QOS's 7d limit, which EXCEEDS the
-    partition's 3d MaxTime and pends forever (PartitionTimeLimit); anything above
-    slurm.max_time is clamped to it for the same reason."""
-    slurm = env["slurm"]
+def _clamped_time(args, env: dict) -> str:
+    """The job's ``--time``, clamped to the partition maximum.
+
+    Explicit by necessity: with no ``--time`` sbatch falls back to the QOS's 7d limit, which
+    EXCEEDS the partition's 3d MaxTime, and the job then pends forever with
+    ``PartitionTimeLimit`` rather than failing.
+    """
     limit = args.time
-    max_time = slurm.get("max_time")
+    max_time = (env.get("slurm") or {}).get("max_time")
     if max_time and _time_s(limit) > _time_s(max_time):
         print(f"dataos-eval: --time {limit} exceeds the partition max {max_time}; clamped",
               file=sys.stderr)
         limit = max_time
-    argv = [
-        "sbatch", "--parsable",
-        "-N1", "-n1",
-        f"--partition={slurm['partition']}",
-        f"--qos={slurm['qos']}",
-        f"--gres=gpu:{args.gpus}",
-        f"--cpus-per-task={args.cpus}",
-        f"--time={limit}",
-    ]
-    if slurm.get("nodes"):
-        argv.append(f"--nodelist={slurm['nodes']}")
-    return argv
+    return limit
 
 
 def cmd_submit(args) -> int:
@@ -161,79 +195,48 @@ def cmd_submit(args) -> int:
     args.chat_template = resolve_eval_template(
         repo, args.task_config, args.task, args.model_path, protocol
     )
-    run_root = Path(args.run_root)
-    (run_root / "logs").mkdir(parents=True, exist_ok=True)
-    script = run_root / "eval_job.sh"
-    script.write_text(_render_job(args, env))
+    job = _build_job(args, env)
+    name = _launcher_name(env)
 
-    argv = _sbatch_argv(args, env) + [
-        f"--chdir={run_root}",
-        f"--output={run_root}/logs/slurm-%j.out",
-        f"--error={run_root}/logs/slurm-%j.err",
-        str(script),
-    ]
     if args.dry_run:
-        print(" ".join(argv))
-        print(script.read_text())
+        print(json.dumps({"launcher": name, "job": job.model_dump(mode="json")}, indent=1))
         return 0
-    out = subprocess.run(argv, capture_output=True, text=True, check=False)
-    if out.returncode != 0:
-        print(f"sbatch failed: {out.stderr.strip()}", file=sys.stderr)
+
+    try:
+        handle = get_launcher(name, **(env.get("access") or {})).submit(job)
+    except Exception as exc:  # noqa: BLE001 - surface the launcher's own message
+        print(f"submit failed via launcher {name!r}: {exc}", file=sys.stderr)
         return 1
-    job_id = out.stdout.strip().split(";")[0]
-    handle = {
-        "job_id": job_id,
+
+    # The launch handle is the launcher's; this file adds what only EVALUATION knows —
+    # which bench, where its outputs land, whether a judge still has to run.
+    record = {
+        "launch": handle.model_dump(mode="json"),
+        "job_id": handle.job_id or str(handle.pid),   # kept for callers that read job_id
         "task": args.task,
         "output_dir": args.output_dir,
         "model_path": args.model_path,
         "model_name": args.model_name,
         "needs_judge": bool(bench_cfg.get("judge")),
         "chat_template": str(args.chat_template),
-        "script": str(script),
-        "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "submitted_at": handle.submitted_at,
     }
-    (run_root / _HANDLE).write_text(json.dumps(handle, indent=1))
-    print(json.dumps({"job_id": job_id, "handle": str(run_root / _HANDLE)}))
+    run_root = Path(args.run_root)
+    (run_root / _HANDLE).write_text(json.dumps(record, indent=1))
+    print(json.dumps({"job_id": record["job_id"], "handle": str(run_root / _HANDLE)}))
     return 0
 
 
-_FAIL = {"FAILED", "NODE_FAIL", "OUT_OF_MEMORY", "BOOT_FAIL", "PREEMPTED", "REVOKED"}
-_TMO = {"TIMEOUT", "DEADLINE"}
-
-
-def _map_state(raw: str) -> str:
-    """Coarse terminal/running mapping for one sacct State field — tolerates the reason
-    suffix (`CANCELLED by 1003`) and the long tail of fail states. Same policy as
-    dataos-train's map_sacct_state."""
-    token = (raw or "").strip()
-    state = token.split()[0].upper() if token else ""
-    if state == "COMPLETED":
-        return "COMPLETED"
-    if state in _FAIL or state.startswith("CANCELLED"):
-        return "FAILED"
-    if state in _TMO:
-        return "TIMEOUT"
-    if state in ("RUNNING", "COMPLETING", "RESIZING", "SUSPENDED"):
-        return "RUNNING"
-    return "PENDING"
-
-
-def _state(job_id: str) -> str:
-    out = subprocess.run(
-        ["sacct", "-j", job_id, "--format=State", "--noheader", "-n"],
-        capture_output=True, text=True, check=False,
-    )
-    states = [s.strip() for s in out.stdout.splitlines() if s.strip()]
-    # first non-empty row = the primary job, NOT .batch/.extern (a failed job's .extern
-    # is often COMPLETED — reading the LAST row misreports FAILED evals as COMPLETED)
-    return _map_state(states[0]) if states else "PENDING"
-
-
 def cmd_status(args) -> int:
-    handle = json.loads(Path(args.handle).read_text())
-    state = _state(handle["job_id"])
-    print(json.dumps({"job_id": handle["job_id"], "state": state}))
-    return 0 if state in ("COMPLETED", "FAILED", "TIMEOUT") else 2
+    """Ask the launcher. The sacct polling and the state mapping that used to live here were a
+    second copy of dataos-train's — its own docstring said "same policy as dataos-train's
+    map_sacct_state", which is the sentence that precedes every drift."""
+    record = json.loads(Path(args.handle).read_text())
+    env, _, _ = _load(Path(args.repo), args.environment, args.task_config)
+    handle = Handle.model_validate(record["launch"])
+    state = get_launcher(_launcher_name(env), **(env.get("access") or {})).status(handle)
+    print(json.dumps({"job_id": record.get("job_id"), "state": str(state)}))
+    return 0 if state in (Status.COMPLETED, Status.FAILED, Status.TIMEOUT) else 2
 
 
 def cmd_collect(args) -> int:

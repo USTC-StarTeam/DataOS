@@ -47,24 +47,32 @@ def _run_cli(argv: list[str]) -> int:
     return 0
 
 
+def _dry_run_spec(tmp_path, capsys, **over) -> dict:
+    """The JobSpec a submit would hand the launcher. Since the launcher registry landed, this —
+    not a rendered sbatch — is what dataos-eval owns and what the caller cannot reach past."""
+    assert _run_cli(["submit", *_argv(_submit_args(tmp_path, dry_run=True, **over))]) == 0
+    return json.loads(capsys.readouterr().out)
+
+
 def test_submit_dry_run_bakes_everything(tmp_path, capsys):
-    rc = _run_cli(["submit", *_argv(_submit_args(tmp_path, dry_run=True))])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "-N1" in out and "-n1" in out                       # single node, single task
-    assert "--nodelist=gpu01,gpu02,gpu03" in out               # the env node pool
-    assert "--gres=gpu:1" in out
-    assert "--time=12:00:00" in out                             # explicit: no --time pends forever (QOS 7d > partition MaxTime 3d)
-    assert "run_lmeval_eval.py" in out and "--limit -1" in out
-    assert "TRITON_LIBCUDA_PATH" in out and "HF_HUB_OFFLINE=1" in out
+    spec = _dry_run_spec(tmp_path, capsys)
+    assert spec["launcher"] == "slurm"
+    job = spec["job"]
+    res = job["resources"]
+    assert (res["nodes"], res["gpus"], res["cpus"]) == (1, 1, 8)   # single node, one GPU
+    assert job["slurm"]["nodelist"] == "gpu01,gpu02,gpu03"      # the env node pool
+    assert "--time=12:00:00" in job["slurm"]["extra_sbatch"]    # explicit: no --time pends forever
+    cmd = " ".join(job["command"])
+    assert "run_lmeval_eval.py" in cmd and "--limit -1" in cmd
+    assert job["env"]["HF_HUB_OFFLINE"] == "1"
+    assert any("TRITON_LIBCUDA_PATH" in c for c in job["pre_cmds"])
 
 
 def test_submit_clamps_time_to_the_partition_max(tmp_path, capsys):
-    rc = _run_cli(["submit", *_argv(_submit_args(tmp_path, time="7-00:00:00", dry_run=True))])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "--time=3-00:00:00" in out      # clamped to env slurm.max_time (a 7d ask pends forever)
-    assert "--time=7-00:00:00" not in out
+    extra = _dry_run_spec(tmp_path, capsys, time="7-00:00:00")["job"]["slurm"]["extra_sbatch"]
+    # clamped to env slurm.max_time (a 7d ask pends forever)
+    assert "--time=3-00:00:00" in extra
+    assert "--time=7-00:00:00" not in extra
 
 
 def test_submit_writes_handle_with_fake_sbatch(tmp_path, monkeypatch, capsys):
@@ -110,43 +118,25 @@ def _argv(d: dict) -> list[str]:
     return argv
 
 
-def test_map_state_tolerates_suffixes_and_fail_states():
-    from dataos_eval.cli import _map_state
-
-    assert _map_state("COMPLETED") == "COMPLETED"
-    assert _map_state("CANCELLED by 1003") == "FAILED"      # scancel (e.g. GPU Guard)
-    assert _map_state("NODE_FAIL") == "FAILED"
-    assert _map_state("OUT_OF_MEMORY") == "FAILED"
-    assert _map_state("PREEMPTED") == "FAILED"
-    assert _map_state("TIMEOUT") == "TIMEOUT"
-    assert _map_state("RUNNING") == "RUNNING"
-    assert _map_state("") == "PENDING"
-
-
-def test_status_reads_the_primary_job_row(tmp_path, monkeypatch, capsys):
-    """sacct lists the main job first, then .batch/.extern — a failed job's .extern is
-    COMPLETED, so reading the LAST row misreports FAILED as COMPLETED."""
-    import stat as _stat
-
-    from dataos_eval.cli import _state
-
-    fake = tmp_path / "sacct"
-    fake.write_text("#!/bin/bash\necho FAILED; echo COMPLETED; echo COMPLETED\n")
-    fake.chmod(fake.stat().st_mode | _stat.S_IEXEC)
-    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
-    assert _state("1") == "FAILED"
+# The sacct state mapping and the first-row rule this file used to test moved into
+# dataos-launch with the launcher; they are covered by tools/train/tests/test_slurm_render.py.
 
 
 def test_render_quotes_paren_paths(tmp_path, capsys):
     """Fresh-instance run roots can contain parens ('ptb-x-1' style dirs) — the generated
-    job script must quote every interpolated path or bash dies at line 6."""
-    rc = _run_cli(["submit", *_argv(_submit_args(tmp_path, run_root=str(tmp_path / "ptb-x(1)"),
-                                                output_dir=str(tmp_path / "ptb-x(1)/eval"),
-                                                dry_run=True))])
-    assert rc == 0
-    out = capsys.readouterr().out
-    script = out[out.find("#!/bin/bash"):]
+    job script must quote every interpolated path or bash dies at line 6. Rendered here through
+    the launcher the CLI would hand this spec to; asserting on the dry-run text instead let this
+    test pass vacuously once dry-run started printing the spec rather than the script."""
     import subprocess as sp
+
+    from dataos_launch.launchers.slurm import SlurmLauncher
+    from dataos_launch.types import JobSpec
+
+    spec = _dry_run_spec(tmp_path, capsys, run_root=str(tmp_path / "ptb-x(1)"),
+                         output_dir=str(tmp_path / "ptb-x(1)/eval"))
+    script = SlurmLauncher().render_sbatch(JobSpec.model_validate(spec["job"]))
+    assert script.startswith("#!/bin/bash")
+    assert "ptb-x(1)" in script                                  # the risky path really is in there
     r = sp.run(["bash", "-n"], input=script, text=True, capture_output=True)
     assert r.returncode == 0, r.stderr  # the script parses
 
