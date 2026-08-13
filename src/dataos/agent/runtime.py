@@ -30,7 +30,15 @@ from pathlib import Path
 from dataos.core.study import _slug
 
 _RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"  # legacy fallback; prefer runtime_config
-_REQUIRED_CLUSTER_KEYS = ("host", "user", "port", "key", "partition", "qos", "gres")
+#: What a runtime config must carry, BY KIND. The set is not universal: ssh coordinates and a
+#: Slurm partition are facts about reaching another machine, and a workstation run has neither —
+#: demanding them there would be demanding proof of a cluster that is deliberately absent. The
+#: environment declares its own kind (env.yaml `kind:`), so this is the same rule as everywhere
+#: else in this repo: configuration decides, code only enforces what was declared.
+_REQUIRED_CLUSTER_KEYS: dict[str, tuple[str, ...]] = {
+    "slurm": ("host", "user", "port", "key", "partition", "qos", "gres"),
+    "local": ("gres",),  # still says how many devices this run may take
+}
 _REQUIRED_PATH_KEYS = (
     "deploy_root", "runs_base", "fixed_pool", "train_env", "eval_env",
 )  # conda_sh dropped — envs are uv venvs (called via {path}/bin/<tool>)
@@ -59,8 +67,13 @@ def _task_assets_dir(runtime: dict) -> str:
 
 def _missing_runtime_config_keys(cfg) -> list[str]:
     runtime = _runtime_config(cfg)
+    kind = str(runtime.get("kind") or "slurm")
+    required = _REQUIRED_CLUSTER_KEYS.get(kind)
+    if required is None:
+        return [f"kind={kind!r} is not a known environment kind "
+                f"(known: {sorted(_REQUIRED_CLUSTER_KEYS)})"]
     missing = [
-        f"cluster.{key}" for key in _REQUIRED_CLUSTER_KEYS
+        f"cluster.{key}" for key in required
         if not runtime.get("cluster", {}).get(key)
     ]
     missing.extend(

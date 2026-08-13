@@ -93,6 +93,8 @@ def train_cli_path(env: dict[str, Any]) -> str:
 
 
 def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
+    """Where the job runs, as flat facts. A local environment leaves the ssh/Slurm half None —
+    :func:`dataos.agent.runtime._missing_runtime_config_keys` requires them only for kind=slurm."""
     access = env.get("access") or {}
     slurm = env.get("slurm") or {}
     return {
@@ -314,6 +316,10 @@ class PtbRunConfig:
         env = _env(self.environment)
         return {
             "environment": self.environment,
+            # The environment's own `kind` travels with the config, because what a runtime must
+            # provide differs by it: ssh coordinates and a Slurm partition are facts about
+            # reaching another machine, and a workstation environment has neither.
+            "kind": str(env.get("kind") or "slurm"),
             "task": self.task,
             "runtime_ref": DEFAULT_RUNTIME_REF,
             "cluster": _cluster(env, self.exec.resource),
