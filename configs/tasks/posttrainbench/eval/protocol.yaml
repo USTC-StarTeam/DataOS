@@ -50,7 +50,8 @@ benches:
     judge: false
     runner: server
     num_concurrent: 32
-    timeout: 18000000            # aime 的 repeats=32 让单题成本极高
+    timeout: 18000000            # aime 的 repeats=8 仍让单题成本偏高(30 题 x 8 采样约 0.63h);
+                                 # 2026-08-13 从 K32 降到 K8,见 lmeval/posttrainbench_aime2025.yaml 的 metadata.note
   healthbench:
     judge: true                  # GPU 作业只生成 predictions，collect 时在 login 节点补分
     runner: server

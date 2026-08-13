@@ -23,13 +23,21 @@ generation_kwargs:
   top_p: 0.95
   max_gen_toks: 16000
   ptb_omit_seed: true
-repeats: 32
+repeats: 8
 filter_list:
-  - name: "k32"
+  - name: "k8"
     filter:
       - function: "take_first_k"
-        k: 32
+        k: 8
 num_fewshot: 0
 metadata:
-  version: 1.1
-  source: PostTrainBench AIME 2025 DataOS fixed K32 protocol with official InspectAI prompt and independent samples
+  version: 2.0
+  source: PostTrainBench AIME 2025 DataOS fixed K8 protocol with official InspectAI prompt and independent samples
+  note: >-
+    K32 -> K8 on 2026-08-13, a deliberate protocol change: 30 problems x 32 samples cost 2.53h of
+    wall clock per eval (measured), so a 10h run spent 76% of its budget evaluating and reached
+    only 2 trained nodes. K8 costs ~0.63h. What it buys back is search depth; what it gives up is
+    resolution (1/960 = 0.10 points -> 1/240 = 0.42) and estimator variance, which matters because
+    temperature is 0.6 with no fixed seed. Scores are NOT comparable across the change - the
+    version bump to 2.0 and the k8 filter name make that visible in every metric key and in the
+    protocol digest, rather than leaving two incomparable numbers looking alike.
