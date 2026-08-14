@@ -14,6 +14,10 @@ template: |
     `.usage('<op>')`, then compose a recipe (filter / dedup / quality-score / select), and bridge to
     alpaca. Before running a recipe on H100, `export DATAOS_OPERATOR_PLUGINS=$AGENTVER/resources/custom_operators:$RUN_ROOT/custom_operators`
     so both shared and run-local custom operators are discoverable by name.
+  - EVERY operator — built-in or one you registered through DATAOS_OPERATOR_PLUGINS — is importable
+    by its bare class name from the package root: `from dataos_operator import ConcatMixer`.
+    `dir(dataos_operator)` lists them all and `catalog()` describes them. The full dotted path
+    (`dataos_operator.operators.mixer.concat_mixer`) also works; you never need to guess it.
   - OPERATORS TAKE `dataos_operator.Dataset`, NOT A HUGGINGFACE DATASET. Loading a source gives you
     a `datasets.Dataset`; handing that straight to an operator dies with
     `TypeError: MapperOperator expected a record or dataset, got <class 'datasets.arrow_dataset.Dataset'>`.
