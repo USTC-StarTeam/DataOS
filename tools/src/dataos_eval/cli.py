@@ -21,6 +21,9 @@ from dataos_launch.spec import SpecError
 
 from .stage import EvalStage
 
+#: Suffix, not a name: the spec's own name goes in front so a checkpoint sweep's six
+#: evaluations leave six records instead of overwriting one. `collect` and `status`
+#: take the path this prints, so nothing has to guess it.
 _HANDLE = "eval_handle.json"
 
 
@@ -76,7 +79,7 @@ def cmd_submit(args) -> int:
         "submitted_at": handle.submitted_at,
     }
     spec.write()
-    path = Path(spec.run_dir) / _HANDLE
+    path = Path(spec.run_dir) / f"{spec.name}.{_HANDLE}"
     path.write_text(json.dumps(record, indent=1))
     print(json.dumps({"job_id": record["job_id"], "handle": str(path)}))
     return 0

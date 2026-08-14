@@ -54,13 +54,22 @@ class Spec(Model, ABC):
     run_dir: str
     resources: Resources = Field(default_factory=Resources)
 
-    @classmethod
-    def spec_path(cls, run_dir: str | Path) -> Path:
-        return Path(run_dir) / f"{cls.stage}_spec.json"
+    @property
+    def spec_path(self) -> Path:
+        """``<run_dir>/specs/<stage>-<name>.json`` — one file per SPEC, not one per stage.
+
+        A run_dir holds a node, and a node submits many jobs: one data build, one training run,
+        then one evaluation per checkpoint. Writing ``<stage>_spec.json`` gave all six evals the
+        same path, so the file that claims to record what was intended held only the last of
+        them — and the experimenter took to inventing ``eval_handle_final.json`` and
+        ``eval_handle_ck100.json`` to keep the others, which is the recipe naming its own
+        manifest all over again.
+        """
+        return Path(self.run_dir) / "specs" / f"{self.stage}-{self.name}.json"
 
     def write(self) -> Path:
         """Persist next to the run. What was intended, readable long after the job is gone."""
-        path = self.spec_path(self.run_dir)
+        path = self.spec_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(self.model_dump_json(indent=1), encoding="utf-8")
         return path

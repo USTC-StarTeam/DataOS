@@ -116,7 +116,11 @@ class EvalStage(Stage):
             self.repo, self.task_config, task, model_path, self.protocol
         )
         return EvalSpec(
-            name=f"eval_{task}",
+            # Named after the OUTPUT DIR, which is the thing that differs between the six
+            # evaluations a checkpoint sweep submits into one run_dir. `eval_{task}` named them
+            # all alike, so their specs, handles and sbatch scripts collided and squeue could
+            # not say which checkpoint a running job was scoring.
+            name=f"eval_{Path(output_dir).name}",
             run_dir=run_root,
             resources=resources,
             task=task,

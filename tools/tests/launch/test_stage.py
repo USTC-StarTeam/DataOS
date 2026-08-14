@@ -61,12 +61,15 @@ def test_no_spec_may_state_placement() -> None:
         assert not {"cluster", "qos", "partition", "nodelist"} & set(cls.model_fields)
 
 
-def test_a_spec_round_trips_through_its_own_file(tmp_path) -> None:
-    spec = DataSpec(name="d", run_dir=str(tmp_path), recipe="build.py",
-                    resources=Resources(gpus=0, cpus=4))
-    path = spec.write()
-    assert path.name == "data_spec.json"
-    assert DataSpec.read(path) == spec
+def test_each_spec_gets_its_own_file(tmp_path) -> None:
+    """One run_dir, many jobs. `<stage>_spec.json` gave a checkpoint sweep's six evaluations
+    one path between them, so the file recording what was intended held only the last."""
+    first = DataSpec(name="d", run_dir=str(tmp_path), recipe="build.py",
+                     resources=Resources(gpus=0, cpus=4))
+    second = first.model_copy(update={"name": "d2", "recipe": "other.py"})
+    p1, p2 = first.write(), second.write()
+    assert p1 != p2 and p1.name == "data-d.json"
+    assert DataSpec.read(p1) == first and DataSpec.read(p2) == second   # neither overwrote
 
 
 def test_prepare_reports_every_reason_at_once(tmp_path) -> None:

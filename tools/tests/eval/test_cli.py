@@ -87,10 +87,13 @@ def test_submit_writes_handle_with_fake_sbatch(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
     rc = _run_cli(["submit", *_argv(_submit_args(tmp_path))])
     assert rc == 0
-    handle = json.loads((tmp_path / "eval_handle.json").read_text())
+    out = json.loads(capsys.readouterr().out)
+    assert out["job_id"] == "424242"
+    # the record is named after the spec, so a checkpoint sweep leaves one per evaluation
+    assert Path(out["handle"]).name == "eval_gsm8k_limit-1.eval_handle.json"
+    handle = json.loads(Path(out["handle"]).read_text())
     assert handle["job_id"] == "424242"
     assert handle["needs_judge"] is False
-    assert json.loads(capsys.readouterr().out)["job_id"] == "424242"
 
 
 def test_collect_reads_score(tmp_path, capsys):

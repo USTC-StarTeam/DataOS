@@ -117,6 +117,13 @@ class Launcher(ABC):
         script = run_dir / f"{job.job_name}{self.script_suffix}"
         atomic_write_text(script, self.render(job))
         handle = self.dispatch(job, script)
+        # Twice, deliberately, and they mean different things. `<job_name>.handle.json` is THIS
+        # job's record and nothing overwrites it — a node submits many jobs into one run_dir, and
+        # a single `handle.json` kept only the last, so a checkpoint sweep's earlier evals became
+        # unrecoverable from any canonical path. `handle.json` stays as "the most recent", which
+        # is what the documented poll flow reads and what runtime.py's `*handle.json` sweep
+        # harvests job ids from; the suffix is chosen so that sweep matches both.
+        atomic_write_json(run_dir / f"{job.job_name}.handle.json", handle.model_dump())
         atomic_write_json(run_dir / "handle.json", handle.model_dump())
         return handle
 
