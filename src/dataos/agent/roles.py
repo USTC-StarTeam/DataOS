@@ -193,6 +193,26 @@ def _numeric_score(data: dict) -> float | None:
     return float(score) if isinstance(score, (int, float)) else None
 
 
+def _score_of(partial: dict) -> float | None:
+    """The partial report's score, or None if it cannot be read at all.
+
+    Salvage is the LAST-RESORT path — it exists because something already went wrong — so the
+    one thing it must not do is add a second failure. It did: reading the partial report
+    unguarded, it hit a leaf whose type the experimenter had filled with prose and raised
+    ValidationError out of ``fan_out``, out of ``run_auto``, out of the process. The run died
+    with 17 minutes of budget left, on a node that had a score, in the function whose entire
+    purpose is to recover a score from a report that is not clean.
+
+    An unreadable partial simply has no score here; the remote ``summary.json`` sweep below is
+    the other source and is untouched by whatever the experimenter wrote.
+    """
+    try:
+        return report_schema.read(partial).score
+    except Exception as e:  # noqa: BLE001 — any unreadable partial means "no score here"
+        log.warning("salvage: partial report.json is unreadable (%s); trying the eval dirs", e)
+        return None
+
+
 def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
                     partial: dict | None, error: str) -> dict | None:
     """Rescue a COMPLETED score when the experimenter died after the eval produced one
@@ -203,7 +223,7 @@ def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit
     Returns None when no real score exists anywhere (caller falls back to failed)."""
     source = None
     report = None
-    if partial is not None and report_schema.read(partial).score is not None:
+    if partial is not None and _score_of(partial) is not None:
         report, source = dict(partial), "partial report.json"
     else:
         for eval_dir, summary in runtime._remote_eval_summaries(cfg, study_id, spec["name"]):

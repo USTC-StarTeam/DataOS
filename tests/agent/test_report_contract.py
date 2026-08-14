@@ -312,3 +312,17 @@ def test_prose_in_a_runtime_stamped_field_does_not_void_the_report():
     swept = {"stages": {"eval": {"status": "completed", "score": 1.0, "checkpoint_sweep": [
         {"eval_dir": "/e/ck1", "score": 1.0}]}, "review": {"status": "done"}}}
     assert len(report_schema.read(swept).stages.eval.checkpoint_sweep) == 1
+
+
+def test_salvage_does_not_add_a_second_failure_to_the_first():
+    """The LOCAL run died here, with 17 minutes of budget left and a scored node on disk.
+
+    `_salvage_report` is the last-resort path: it runs because something already went wrong.
+    It read the partial report unguarded, hit the prose leaf above, and raised ValidationError
+    out of fan_out, out of run_auto, out of the process — the function whose entire purpose is
+    to recover a score from a report that is not clean, crashing on a report that is not clean.
+    """
+    assert roles._score_of({"stages": {"eval": {"score": 28.0}}}) == 28.0
+    # unreadable at the top level: no score HERE, and salvage moves on to the eval dirs
+    assert roles._score_of({"stages": [1, 2, 3]}) is None
+    assert roles._score_of({"stages": {"eval": "not even a mapping"}}) is None
