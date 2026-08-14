@@ -213,3 +213,17 @@ def test_the_runs_gpus_and_cpus_are_not_defaults(tmp_path, capsys):
     to ask for 2 GPUs would have trained on 2 and evaluated on 1."""
     job = _dry_run_spec(tmp_path, capsys, gpus=2, cpus=11)["job"]
     assert (job["resources"]["gpus"], job["resources"]["cpus"]) == (2, 11)
+
+
+def test_an_empty_library_path_does_not_put_the_cwd_on_the_search_path(tmp_path, capsys):
+    """`:${LIBRARY_PATH:-}` appends a trailing colon when the variable is unset, and an empty
+    entry in a search path means the CURRENT DIRECTORY. gcc searches that path for a file named
+    `specs`; the job runs with cwd=run_dir, where dataos-launch kept a DIRECTORY of that name —
+    so every triton/inductor compile died with "cannot read spec file './specs': Is a directory"
+    and took the vLLM engine with it. Three eval jobs lost on 2026-08-14, and the experimenter
+    wrote its own workaround (moving the spec files aside between submits) rather than report it.
+    """
+    pre = "\n".join(_dry_run_spec(tmp_path, capsys)["job"]["pre_cmds"])
+    assert "LIBRARY_PATH" in pre
+    assert ':${LIBRARY_PATH:-}"' not in pre          # the trailing-colon form
+    assert '${LIBRARY_PATH:+:$LIBRARY_PATH}"' in pre  # empty stays empty

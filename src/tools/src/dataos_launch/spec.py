@@ -56,7 +56,7 @@ class Spec(Model, ABC):
 
     @property
     def spec_path(self) -> Path:
-        """``<run_dir>/specs/<stage>-<name>.json`` — one file per SPEC, not one per stage.
+        """``<run_dir>/job_specs/<stage>-<name>.json`` — one file per SPEC, not one per stage.
 
         A run_dir holds a node, and a node submits many jobs: one data build, one training run,
         then one evaluation per checkpoint. Writing ``<stage>_spec.json`` gave all six evals the
@@ -65,7 +65,12 @@ class Spec(Model, ABC):
         ``eval_handle_ck100.json`` to keep the others, which is the recipe naming its own
         manifest all over again.
         """
-        return Path(self.run_dir) / "specs" / f"{self.stage}-{self.name}.json"
+        # `job_specs`, not `specs`: run_dir is the job's cwd, and `specs` is a name the GNU
+        # toolchain probes for. A single unlucky search path (see dataos_eval.stage's
+        # LIBRARY_PATH) turned this directory into `gcc: fatal error: cannot read spec file
+        # './specs': Is a directory`. That search path is fixed too; a directory in someone
+        # else's namespace is still not worth keeping.
+        return Path(self.run_dir) / "job_specs" / f"{self.stage}-{self.name}.json"
 
     def write(self) -> Path:
         """Persist next to the run. What was intended, readable long after the job is gone."""

@@ -179,7 +179,14 @@ class EvalStage(Stage):
             "elif [ -e /usr/lib64/libcuda.so.1 ]; then",
             '  ln -sf /usr/lib64/libcuda.so.1 "$TMPDIR/culib/libcuda.so"',
             "fi",
-            'export LIBRARY_PATH="$TMPDIR/culib:${LIBRARY_PATH:-}"',
+            # `${LIBRARY_PATH:+:$LIBRARY_PATH}`, NOT `:${LIBRARY_PATH:-}`. The second appends a
+            # trailing colon when the variable is unset, and an empty entry in a search path means
+            # THE CURRENT DIRECTORY. gcc looks through that path for a file named `specs`, the job
+            # runs with cwd=run_dir, and dataos-launch keeps a directory of that name there — so
+            # every triton/inductor compile died with
+            #   gcc: fatal error: cannot read spec file './specs': Is a directory
+            # taking the vLLM engine with it before it could serve. Three eval jobs on 2026-08-14.
+            'export LIBRARY_PATH="$TMPDIR/culib${LIBRARY_PATH:+:$LIBRARY_PATH}"',
             'export TRITON_LIBCUDA_PATH="$TMPDIR/culib"',
         ]
         job_env = {

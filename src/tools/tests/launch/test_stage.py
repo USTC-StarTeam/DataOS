@@ -68,7 +68,7 @@ def test_each_spec_gets_its_own_file(tmp_path) -> None:
                      resources=Resources(gpus=0, cpus=4))
     second = first.model_copy(update={"name": "d2", "recipe": "other.py"})
     p1, p2 = first.write(), second.write()
-    assert p1 != p2 and p1.name == "data-d.json"
+    assert p1 != p2 and p1.name == "data-d.json" and p1.parent.name == "job_specs"
     assert DataSpec.read(p1) == first and DataSpec.read(p2) == second   # neither overwrote
 
 
