@@ -435,8 +435,17 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         max_steps=max(cfg.max_steps, ROLE_MAX_STEPS),
         transcript=str(exp_dir / "agent.jsonl"),  # per-experiment run record (monitor + archive)
     )
-    log.info("experimenter[%s]: starting (bench=%s base=%s timeout=%ss)",
-             name, cfg.target_bench, cfg.h100_base_model, int(timeout) if timeout else None)
+    # The model this NODE starts from, resolved the same way the prompt resolves it — not
+    # `cfg.h100_base_model`, which is the run's base and is only the node's parent for a
+    # root node. A continuation node logged "base=<run base>" two lines under its own
+    # "init_model=<checkpoint-400>", which reads as the continuation having been dropped.
+    parent = (
+        (spec.get("train") or {}).get("model_name_or_path")
+        or spec.get("init_model")
+        or cfg.h100_base_model
+    )
+    log.info("experimenter[%s]: starting (bench=%s parent=%s timeout=%ss)",
+             name, cfg.target_bench, parent, int(timeout) if timeout else None)
     state = _read_json(state_path) or _state_seed(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
         report_path=report_path, eval_limit=eval_limit,
