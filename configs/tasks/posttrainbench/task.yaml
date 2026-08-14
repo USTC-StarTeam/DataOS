@@ -29,7 +29,7 @@ scoring:
   # status 轮询 → collect 出分。调度(节点池/qos/gres)、作业环境(cache/TMPDIR/libcuda/
   # 离线 HF)与 judge 补分全由工具收口 —— agent 从不为评测手写 sbatch。
   command: |-
-    {{ env.tools.sft_env.path }}/bin/dataos-eval submit --repo {{ run.deploy_root }} --environment {{ run.environment }} --task-config {{ run.task }} --task {{ run.bench }} --model-path {{ ctx.model_path }} --model-name {{ ctx.label }} --output-dir {{ ctx.eval_dir }} --run-root {{ ctx.run_root }} --limit {{ run.eval_limit }} --gpus {{ run.resource.gpus }} --cpus {{ run.resource.cpus }}{% if run.resource.qos %} --qos {{ run.resource.qos }}{% endif %}{% if run.resource.node %} --nodelist {{ run.resource.node }}{% endif %}
+    {{ env.tools.sft_env.path }}/bin/dataos-eval submit --repo {{ run.deploy_root }} --environment {{ run.environment }} --task-config {{ run.task }} --task {{ run.bench }} --model-path {{ ctx.model_path }} --model-name {{ ctx.label }} --output-dir {{ ctx.eval_dir }} --run-root {{ ctx.run_root }} --limit {{ run.eval_limit }} --gpus {{ run.resource.gpus }} --cpus {{ run.resource.cpus }}{% if run.resource.get("qos") %} --qos {{ run.resource.qos }}{% endif %}{% if run.resource.get("partition") %} --partition {{ run.resource.partition }}{% endif %}{% if run.resource.get("node") %} --nodelist {{ run.resource.node }}{% endif %}
   # judge 类 bench(healthbench/arenahardwriting):GPU job 只生成 predictions(compute 无网),
   # collect 时自动在 login 节点补分(端点来自 env.gateway + 下面的 judge 选择;key 内联不落盘)。
   judge: {model: qwen3.5-plus, workers: 32}   # 本任务的 judge 选择(端点来自 env.gateway)

@@ -44,8 +44,14 @@ def placement(env: dict, resource: dict | None = None) -> dict[str, Any]:
     slurm = env.get("slurm") or {}
     chosen = resource or {}
     available = slurm.get("qos_available") or []
+    _default_partition = not chosen.get("partition") or \
+        chosen.get("partition") == slurm.get("partition")
     return {
-        "partition": slurm.get("partition"),
+        # A partition is a choice like the QOS is, and for the same reason: it is per-RUN, not
+        # per-machine. `debug` on PTB takes only the `debug_normal` QOS and caps a user at one
+        # job and one GPU, so "run this smoke on debug" is a sentence about one run, not about
+        # the deployment. env.yaml names the default; the run may name another.
+        "partition": chosen.get("partition") or slurm.get("partition"),
         # An environment DECLARES which QOS the account may use; it does not pick one. The
         # fallbacks behind the run's choice are the env's own default and then, only so a
         # config that never mentioned QOS still submits, the first declared one.
@@ -53,7 +59,13 @@ def placement(env: dict, resource: dict | None = None) -> dict[str, Any]:
         # `env.slurm.nodes` is a POOL ("gpu01,gpu02,gpu03"), not a pin. `run.resource.node` is
         # the pin. Passing the pool as --nodelist is correct and deliberate: it constrains
         # Slurm to nodes this deployment vouches for, and leaves the choice to the scheduler.
-        "nodelist": chosen.get("node") or slurm.get("nodes"),
+        #
+        # But the pool describes the DEFAULT partition, because that is the only partition it
+        # was ever written for. Carry it into another one and the two constraints have no
+        # intersection: PTB's pool is gpu[01-03] while `debug` is gpu05 alone, so
+        # `--partition=debug --nodelist=gpu01,gpu02,gpu03` asks for nodes that partition does
+        # not contain. A run that chose a partition has already said which machines it wants.
+        "nodelist": chosen.get("node") or (slurm.get("nodes") if _default_partition else None),
         "account": chosen.get("account") or slurm.get("account"),
         # Caps: facts about the partition, so the launcher can clamp rather than let a job pend
         # forever on a limit no error message ever names.

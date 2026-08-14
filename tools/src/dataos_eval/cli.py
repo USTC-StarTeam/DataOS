@@ -46,7 +46,7 @@ def cmd_submit(args) -> int:
     stage = _stage(args)
     spec = _spec(args, stage)
     # The run config's `resource` block, arriving as flags because the agent calls this over ssh.
-    resource = {"qos": args.qos, "node": args.nodelist}
+    resource = {"qos": args.qos, "node": args.nodelist, "partition": args.partition}
 
     if args.dry_run:
         print(json.dumps(stage.preview(spec, resource), indent=1))
@@ -139,6 +139,8 @@ def main() -> None:
                    help="run-level node pin; overrides the environment's node pool")
     s.add_argument("--qos", default=None,
                    help="run-level QOS; env.yaml only declares which ones exist")
+    s.add_argument("--partition", default=None,
+                   help="run-level partition; env.yaml names the default")
     s.add_argument("--time", default="12:00:00",
                    help="job time limit — must stay under the partition MaxTime (3d); "
                         "12h covers every full PTB eval with headroom")

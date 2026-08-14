@@ -92,6 +92,11 @@ def train_cli_path(env: dict[str, Any]) -> str:
     return train_env_path(env)
 
 
+def _slurm_facts(data: dict[str, Any]) -> dict[str, Any]:
+    """The environment's `slurm:` block — what it DECLARES exists, for the run to choose from."""
+    return (_env(_nonempty_str(data["environment"], "environment")).get("slurm") or {})
+
+
 def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
     """Where the job runs, as flat facts. A local environment leaves the ssh/Slurm half None —
     :func:`dataos.agent.runtime._missing_runtime_config_keys` requires them only for kind=slurm."""
@@ -102,7 +107,7 @@ def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
         "user": access.get("user"),
         "port": access.get("port", 22),
         "key": access.get("key_ref"),
-        "partition": slurm.get("partition"),
+        "partition": resource.partition or slurm.get("partition"),  # run first, env second
         "qos": resource.qos,   # the run's choice; env.yaml only declares qos_available
         "nodelist": resource.node,
         "gres": f"gpu:{resource.gpus}",
@@ -146,6 +151,11 @@ class ResourceConfig:
     gpus: int
     cpus: int
     node: str | None = None  # optional pin; None = let Slurm pick any free node
+    # Optional; env.yaml's slurm.partition is the default. Validated against
+    # slurm.partitions_available when the environment declares one, because a partition and a
+    # QOS are not independent — PTB's `debug` accepts only `debug_normal`, and the pair that
+    # does not match is refused by sbatch with a message about the QOS, not about the partition.
+    partition: str | None = None
     # Required exactly when the environment declares any, and deliberately not defaulted in
     # env.yaml. The QOS is what the run buys with — it changes between batches, and while it sat
     # in env.yaml with no run-level override the only way to switch was to switch ENVIRONMENTS,
@@ -156,8 +166,16 @@ class ResourceConfig:
     qos: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], *, qos_available: list[str] | None = None):
+    def from_dict(cls, data: dict[str, Any], *, qos_available: list[str] | None = None,
+                  partitions_available: list[str] | None = None):
         _require(data, ["gpus", "cpus"], "resource")
+        partition = _nonempty_str(data["partition"], "resource.partition") \
+            if data.get("partition") else None
+        if partition and partitions_available and partition not in partitions_available:
+            raise ValueError(
+                f"resource.partition {partition!r} is not one of the environment's "
+                f"partitions_available ({', '.join(partitions_available)})"
+            )
         qos = None
         if qos_available:
             _require(data, ["qos"], "resource")
@@ -177,11 +195,12 @@ class ResourceConfig:
             cpus=_positive_int(data["cpus"], "resource.cpus"),
             node=_nonempty_str(data["node"], "resource.node") if data.get("node") else None,
             qos=qos,
+            partition=partition,
         )
 
     def to_record(self) -> dict[str, Any]:
         return {"gpus": self.gpus, "cpus": self.cpus, "node": self.node,
-                "qos": self.qos}
+                "qos": self.qos, "partition": self.partition}
 
 
 
@@ -282,8 +301,8 @@ class PtbRunConfig:
                 runs_base=_nonempty_str(exec_["runs_base"], "exec.runs_base"),
                 resource=ResourceConfig.from_dict(
                     _object(exec_["resource"], "exec.resource"),
-                    qos_available=(_env(_nonempty_str(data["environment"], "environment"))
-                                   .get("slurm") or {}).get("qos_available"),
+                    qos_available=_slurm_facts(data).get("qos_available"),
+                    partitions_available=_slurm_facts(data).get("partitions_available"),
                 ),
             ),
             budget=BudgetConfig(

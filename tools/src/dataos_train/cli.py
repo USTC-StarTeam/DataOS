@@ -73,7 +73,8 @@ def _stage(args: argparse.Namespace) -> TrainStage:
 
 
 def _resource(args: argparse.Namespace) -> dict:
-    return {"qos": getattr(args, "qos", None), "node": getattr(args, "nodelist", None)}
+    return {"qos": getattr(args, "qos", None), "node": getattr(args, "nodelist", None),
+            "partition": getattr(args, "partition", None)}
 
 
 def _looks_like_jobspec(data: dict) -> bool:
@@ -321,6 +322,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="run-level QOS; env.yaml only declares which ones exist")
         sub_p.add_argument("--nodelist", default=None,
                            help="run-level node pin; overrides the environment's node pool")
+        sub_p.add_argument("--partition", default=None,
+                           help="run-level partition; env.yaml names the default")
     r.add_argument("--poll", type=float, default=10.0)
     r.add_argument("--timeout", type=float, default=None)
     r.set_defaults(func=cmd_run)

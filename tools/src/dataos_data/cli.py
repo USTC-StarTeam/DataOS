@@ -40,7 +40,7 @@ def cmd_submit(args) -> int:
         shared_operators=args.shared_operators,
     )
     # The run config's `resource` block, arriving as flags because the agent calls this over ssh.
-    resource = {"qos": args.qos, "node": args.nodelist}
+    resource = {"qos": args.qos, "node": args.nodelist, "partition": args.partition}
 
     if args.dry_run:
         print(json.dumps(stage.preview(spec, resource), ensure_ascii=False, indent=1,
@@ -87,6 +87,8 @@ def main(argv=None) -> int:
                         "placeholder when the QOS is watched")
     s.add_argument("--cpus", type=int, default=8)
     s.add_argument("--qos", default=None, help="run-level QOS; env.yaml declares which exist")
+    s.add_argument("--partition", default=None,
+                   help="run-level partition; env.yaml names the default")
     s.add_argument("--nodelist", default=None, help="run-level node pin; overrides the env pool")
     s.add_argument("--time", default="04:00:00")
     s.add_argument("--dry-run", action="store_true")

@@ -1,0 +1,19 @@
+{
+  "goal": "Full-loop smoke on the H100 cluster: prove data -> train -> eval runs end to end on the debug partition before spending gpu_priv hours on it.",
+  "workspace": "workspace/ptb-gsm8k-debug",
+  "environment": "PTB_H100_slurm",
+  "task": "posttrainbench",
+  "bench": "gsm8k",
+  "inputs": {
+    "base_model_path": "/data/hcgu/users/tjh/models/Qwen3-1.7B-Base",
+    "fixed_pool": "/data/hcgu/users/tjh/pools/posttrainbench_fixed_pool_v2"
+  },
+  "exec": {
+    "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
+    "runs_base": "/data2/hcgu/tjh/runs",
+    "resource": { "gpus": 1, "cpus": 8, "qos": "debug_normal", "partition": "debug" }
+  },
+  "budget": { "time_hours": 3, "eval_samples": 50 },
+  "agent": { "provider": "claude", "idle_timeout_s": 1800 },
+  "monitor_port": 8802
+}

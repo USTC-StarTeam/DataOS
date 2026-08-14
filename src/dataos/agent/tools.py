@@ -83,6 +83,7 @@ def _placement_flags(resolved: dict) -> str:
     return " ".join(filter(None, [
         f"--qos {resource['qos']}" if resource.get("qos") else "",
         f"--nodelist {resource['node']}" if resource.get("node") else "",
+        f"--partition {resource['partition']}" if resource.get("partition") else "",
     ]))
 
 
