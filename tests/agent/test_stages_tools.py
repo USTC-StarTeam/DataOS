@@ -173,7 +173,14 @@ def test_train_spec_clamps_time_to_the_partition_max():
 
 
 def test_templates_render_with_declared_params():
-    assert "o.guide()" in prompt.render("experimenter/turn/stage_data", catalog="CATALOG")
+    data = prompt.render("experimenter/turn/stage_data", catalog="CATALOG",
+                         data_bin="/envs/sft/bin/dataos-data", data_env="/envs/sft",
+                         provides="dataos-operator, dataos-data", placement="--qos gpu_priv")
+    assert "o.guide()" in data
+    # the venv and its contents are the ENVIRONMENT's to state; this file used to name one
+    # deployment's directory in a template rendered for every deployment
+    assert "runs in `/envs/sft`, which ships: dataos-operator, dataos-data" in data
+    assert "/envs/sft/bin/dataos-data submit" in data and "--qos gpu_priv" in data
     frozen = prompt.render(
         "experimenter/turn/stage_train", frozen_command="cmd", frozen_produces="prod",
         cli_path="", placement="",

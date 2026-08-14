@@ -78,10 +78,11 @@ HARD RULES:
 - TRAINING IS ALSO OUR METHOD (the task contract defines only the goal + how it is scored, not how
   to train), and it is DETERMINISTIC via dataos-train: your task prompt carries a ready TRAIN SPEC
   JSON — follow the train stage's invoke (write trainspec.json → `dataos-train validate` + `build`
-  on the login node → `dataos-train submit --launcher slurm` → poll `status` → `collect` → merge
+  on the login node → `dataos-train submit --repo/--environment` → poll `status` → `collect` → merge
   its report_fragment into report.json). Do NOT hand-write sbatch wrappers — submit/status/collect
   IS the submit path (handle.json is resume-safe). Do NOT hand-edit the spec's runtime-owned fields
-  (base_model/run_dir/dataset/env/cluster); only `method` reflects the plan.
+  (base_model/run_dir/dataset/env); only `method` reflects the plan. There is no placement
+  field to edit either — partition/QOS/node are the deployment's, resolved at submit.
   Write the kept data rows as alpaca (`{instruction,input,output}`) into `$RUN_ROOT/data/sft` —
   that is the dataset the spec points at. The chat `template` is NOT yours to set — dataos-train
   derives it from the model's own `config.json` `model_type`, and a spec that names a different

@@ -59,6 +59,33 @@ class Evaluator(Protocol):
     def invoke(self, resolved: dict) -> str: ...
 
 
+def _tool_providing(env: dict, what: str) -> dict:
+    """The env's venv that declares ``what`` in its ``provides``.
+
+    The environment declares which venv ships which tool; nothing here holds a table of paths.
+    A deployment that installs the instruments somewhere else changes one line of env.yaml.
+    """
+    for tool in (env.get("tools") or {}).values():
+        if isinstance(tool, dict) and what in (tool.get("provides") or []):
+            return tool
+    return {}
+
+
+def _placement_flags(resolved: dict) -> str:
+    """The run's placement choices as CLI flags — the same four every instrument takes.
+
+    Rendered from the run config rather than written into any prompt: a stage that could state
+    its own partition or QOS would be a fourth opinion on placement, and the one furthest from
+    the config that decides it. dataos-train carried exactly that, as `--launcher slurm`.
+    """
+    run = resolved.get("run", {}) or {}
+    resource = run.get("resource", {}) or {}
+    return " ".join(filter(None, [
+        f"--qos {resource['qos']}" if resource.get("qos") else "",
+        f"--nodelist {resource['node']}" if resource.get("node") else "",
+    ]))
+
+
 class OperatorToolbox:
     """The installed ``dataos_operator`` toolbox, registered as the data-stage Operator.
 
@@ -69,10 +96,19 @@ class OperatorToolbox:
     name = "dataos_operator"
     owner = OWNER_OURS
 
-    def invoke(self, resolved: dict) -> str:  # noqa: ARG002 — catalog is install-local
+    def invoke(self, resolved: dict) -> str:
         import dataos_operator
 
-        return _prompt.render("experimenter/turn/stage_data", catalog=dataos_operator.catalog())
+        env = resolved.get("environment", {})
+        tool = _tool_providing(env, "dataos-data")
+        return _prompt.render(
+            "experimenter/turn/stage_data",
+            catalog=dataos_operator.catalog(),
+            data_bin=f"{tool.get('path', '<sft_env>')}/bin/dataos-data",
+            data_env=tool.get("path", "<sft_env>"),
+            provides=", ".join(tool.get("provides") or []) or "<the env's declared packages>",
+            placement=_placement_flags(resolved),
+        )
 
 
 class FrozenEvaluator:
@@ -89,14 +125,7 @@ class FrozenEvaluator:
         scoring = task.get("scoring", {})
         result = scoring.get("result", {})
         fc = scoring.get("format_contract")
-        eval_bin = next(
-            (
-                f"{t['path']}/bin/dataos-eval"
-                for t in (env.get("tools") or {}).values()
-                if isinstance(t, dict) and "dataos-eval" in (t.get("provides") or [])
-            ),
-            "<sft_env>/bin/dataos-eval",
-        )
+        eval_bin = f"{_tool_providing(env, 'dataos-eval').get('path', '<sft_env>')}/bin/dataos-eval"
         repo = run.get("deploy_root") or "<deploy_root>"
         task_config = run.get("task", "")
         return _prompt.render(
@@ -138,15 +167,11 @@ class DataosTrainCli:
             None,
         ) or "<train_cli_env>"
         # The same four flags dataos-eval takes (see task.yaml scoring.command): the
-        # deployment to read, and the run's own placement choices. dataos-train used to take
-        # `--launcher slurm` plus a cluster block riding on the spec — a fourth opinion on
-        # placement, and the one furthest from the config that decides it.
+        # deployment to read, and the run's own choices within it.
         run = resolved.get("run", {}) or {}
-        resource = run.get("resource", {}) or {}
         placement = " ".join(filter(None, [
             f"--repo {run.get('deploy_root')} --environment {run.get('environment')}",
-            f"--qos {resource['qos']}" if resource.get("qos") else "",
-            f"--nodelist {resource['node']}" if resource.get("node") else "",
+            _placement_flags(resolved),
         ]))
         return _prompt.render(
             "experimenter/turn/stage_train", frozen_command="", frozen_produces="",

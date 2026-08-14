@@ -1,16 +1,31 @@
 description: >
-  DATA stage tool — the dataos_operator toolbox (an Operator registered from the installed
-  dataos_operator package). Render params: catalog (the installed operator catalog string).
+  DATA stage tool — the dataos_operator toolbox, submitted through the dataos-data CLI.
+  Render params (facts, every one resolved from env.yaml): catalog (the installed operator
+  catalog string), data_bin (the dataos-data CLI path), data_env (the venv the recipe runs in),
+  provides (what that venv ships), placement (the --qos/--nodelist flags from the run config).
+  The venv and its contents used to be prose here, naming one deployment's directory in a file
+  that is rendered for every deployment.
 template: |
   dataos_operator recipe (discover: `python -c "import dataos_operator as o; print(o.guide())"` / `o.usage('<op>')`) + hand-written prep scripts where the toolbox lacks a step; custom ops via DATAOS_OPERATOR_PLUGINS — full mechanics in your system prompt
 
-  sft_env (the train_env/sft_env paths in RUNTIME CONFIG — actually dataos_sft, the DataOS
-  derivative of the sft baseline) comes with `dataos_operator` AND `dataos_train` PREINSTALLED:
-  just import them inside the sbatch job. NEVER vendor, pip-install, or hunt for the packages.
+  Your recipe is a plain Python script; submit it through the `dataos-data` CLI — the same
+  deterministic lifecycle the other two stages use, NOT an sbatch wrapper you write:
+    1. write the recipe to {ctx.run_root}/build_data.py on the exec host
+    2. submit: `{{ data_bin }} submit --repo {ctx.deploy_root} --environment {ctx.environment} --run-root {ctx.run_root} --recipe {ctx.run_root}/build_data.py {{ placement }}`
+       → the job's shell is the tool's: short TMPDIR (a run-root-relative one exceeds the
+         108-char AF_UNIX socket limit), caches out of the shared HOME, offline HF, venv
+         activation, and DATAOS_OPERATOR_PLUGINS pointed at {ctx.run_root}/custom_operators so a
+         run-local operator resolves by name. Do not re-derive any of it.
+    3. poll: `{{ data_bin }} status {ctx.run_root}/data_handle.json` → {"status": ...}
 
-  dataos-train's data converter calls `load_from_disk` on `dataset.path`: alongside the Alpaca
-  `train.json` + `dataset_info.json`, also materialize the same rows as a Hugging Face dataset
-  (`dataset.save_to_disk(<run_root>/data/sft)`) or the train build will reject the input.
+  The recipe runs in `{{ data_env }}`, which ships: {{ provides }}. Those are PREINSTALLED —
+  never vendor them, pip-install them, or hunt for them.
 
-  The operator toolbox installed for this run (the brain's pinned dataos-operator; inside the Slurm job confirm with `o.catalog()` and prefer `o.usage('<name>')` for exact signatures):
+  OUTPUT CONTRACT — the submitted job checks it as its own last step, so "built nothing" fails
+  the BUILD rather than the training job downstream. Write the kept rows BOTH ways into
+  {ctx.run_root}/data/sft: the Alpaca `train.json` + `dataset_info.json`, AND the same rows as a
+  Hugging Face dataset (`dataset.save_to_disk(...)`) — dataos-train's converter calls
+  `load_from_disk` on that path and rejects the input without it.
+
+  The operator toolbox installed for this run (the brain's pinned dataos-operator; inside the job confirm with `o.catalog()` and prefer `o.usage('<name>')` for exact signatures):
   {{ catalog }}
