@@ -12,7 +12,7 @@ from collections.abc import Callable
 from importlib import metadata
 from typing import Any
 
-from .protocols import Launcher
+from .launchers.base import Launcher
 
 _LAUNCHERS: dict[str, Callable[..., Launcher]] = {}
 _BUILTINS_LOADED = False

@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from importlib import metadata as _metadata
 
-from .protocols import Launcher
+from .launchers.base import Launcher
+from .placement import launcher_from_config, launcher_name, placement
 from .registry import get_launcher, launcher_names, register_launcher
-from .types import Handle, Job, LaunchPlan, Resources, SlurmExtras, Status
+from .types import Handle, Job, LaunchPlan, Resources, Status
 
 # One distribution now (dataos-tools): the launcher and the three instruments always ship
 # together, so they share a version. Read from the installed dist rather than a literal —
@@ -26,9 +27,11 @@ __all__ = [
     "LaunchPlan",
     "Launcher",
     "Resources",
-    "SlurmExtras",
     "Status",
     "get_launcher",
+    "launcher_from_config",
+    "launcher_name",
     "launcher_names",
+    "placement",
     "register_launcher",
 ]

@@ -27,7 +27,8 @@ import sys
 from pathlib import Path
 
 import yaml
-from dataos_launch import Handle, Job, Resources, SlurmExtras, Status, get_launcher
+from dataos_launch import Handle, Job, Resources, Status, launcher_from_config, placement
+from dataos_launch.launchers.slurm import slurm_time_s
 
 _HANDLE = "data_handle.json"
 
@@ -36,16 +37,6 @@ def _load_env(repo: Path, environment: str) -> dict:
     return yaml.safe_load(
         (repo / "configs" / "environments" / environment / "env.yaml").read_text(encoding="utf-8")
     )
-
-
-def _launcher_name(env: dict) -> str:
-    """Which launcher runs this job — the environment's own declaration.
-
-    A Slurm cluster says ``launcher: slurm`` (or says nothing, which means the same for the
-    deployments that predate the field); a workstation says ``local`` and the identical Job
-    then runs bare-metal.
-    """
-    return str(env.get("launcher") or ("local" if env.get("kind") == "local" else "slurm"))
 
 
 def _build_job(args, env: dict) -> Job:
@@ -97,30 +88,36 @@ def _build_job(args, env: dict) -> Job:
         env=job_env,
         run_dir=args.run_root,
         conda_env=venv,
-        resources=Resources(gpus=args.gpus, cpus=args.cpus),
+        resources=Resources(gpus=args.gpus, cpus=args.cpus,
+                            time_h=slurm_time_s(args.time) / 3600),
         pre_cmds=pre_cmds,
-        slurm=SlurmExtras(
-            partition=(env.get("slurm") or {}).get("partition"),
-            # The run chooses, the environment defaults — the precedence dataos-train and
-            # dataos-eval both use. `env.slurm.nodes` is a POOL, not a pin.
-            qos=args.qos or (env.get("slurm") or {}).get("qos")
-            or ((env.get("slurm") or {}).get("qos_available") or [None])[0],
-            nodelist=args.nodelist or (env.get("slurm") or {}).get("nodes"),
-            cpus_per_task=args.cpus,
-            extra_sbatch=[f"--time={args.time}"],
-        ),
     )
+
+
+def _resource(args) -> dict:
+    """The run's placement choices, as ``configs/runs/*.json`` states them.
+
+    These arrive as CLI flags because the agent invokes the tool over ssh, but they are the run
+    config's ``resource`` block and nothing else; the precedence against ``env.yaml`` lives in
+    :func:`dataos_launch.placement.placement`, once, for all three instruments.
+    """
+    return {"qos": args.qos, "node": args.nodelist}
 
 
 def cmd_submit(args) -> int:
     repo = Path(args.repo).resolve()
     env = _load_env(repo, args.environment)
     job = _build_job(args, env)
+    launcher = launcher_from_config(env, _resource(args))
     if args.dry_run:
-        print(json.dumps({"launcher": _launcher_name(env), "job": job.model_dump()},
+        # Placement is the launcher's now, but a dry run still has to answer "what gets
+        # submitted" — and half that answer would otherwise be invisible.
+        print(json.dumps({"launcher": launcher.name,
+                          "placement": placement(env, _resource(args)),
+                          "job": job.model_dump()},
                          ensure_ascii=False, indent=1, default=str))
         return 0
-    handle = get_launcher(_launcher_name(env), **(env.get("access") or {})).submit(job)
+    handle = launcher.submit(job)
     path = Path(args.run_root) / _HANDLE
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(handle.model_dump(), ensure_ascii=False, default=str), encoding="utf-8")
@@ -132,7 +129,7 @@ def cmd_status(args) -> int:
     repo = Path(args.repo).resolve()
     env = _load_env(repo, args.environment)
     handle = Handle.model_validate(json.loads(Path(args.handle).read_text(encoding="utf-8")))
-    state = get_launcher(_launcher_name(env), **(env.get("access") or {})).status(handle)
+    state = launcher_from_config(env, _resource(args)).status(handle)
     print(json.dumps({"status": state.value if isinstance(state, Status) else str(state)},
                      ensure_ascii=False))
     return 0
@@ -152,7 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--shared-operators", default=None,
                    help="deployment-wide custom operator dir, prepended to the plugin path")
     # The run's resource facts, same four the other two instruments take.
-    s.add_argument("--gpus", type=int, default=1)
+    s.add_argument("--gpus", type=int, default=0,
+                   help="GPUs the RECIPE uses; 0 (the default — building data is CPU\n                        work) still gets the card this partition forces, plus the\n                        GPU-Guard placeholder when the QOS is watched")
     s.add_argument("--cpus", type=int, default=8)
     s.add_argument("--qos", default=None, help="run-level QOS; env.yaml declares which exist")
     s.add_argument("--nodelist", default=None, help="run-level node pin; overrides the env pool")

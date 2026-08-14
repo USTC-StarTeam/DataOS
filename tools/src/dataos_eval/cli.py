@@ -14,20 +14,10 @@ import sys
 from pathlib import Path
 
 import yaml
-from dataos_launch import Handle, Job, Resources, SlurmExtras, Status, get_launcher
+from dataos_launch import Handle, Job, Resources, Status, launcher_from_config, placement
+from dataos_launch.launchers.slurm import slurm_time_s
 
 _HANDLE = "eval_handle.json"
-
-
-def _launcher_name(env: dict) -> str:
-    """Which launcher runs this evaluation — declared by the environment, never guessed.
-
-    Defaults to ``slurm`` because every environment that predates this field is a Slurm
-    cluster; a workstation environment says ``launcher: local`` and the same Job then runs
-    as a subprocess. This is the whole point of the split: the evaluation protocol does not
-    change with the machine, only the thing that starts it does.
-    """
-    return str((env.get("slurm") or {}).get("launcher") or env.get("launcher") or "slurm")
 
 
 def _load(repo: Path, environment: str, task: str) -> tuple[dict, dict, dict]:
@@ -98,7 +88,6 @@ def _build_job(args, env: dict) -> "Job":
     repo = args.repo  # already absolute — resolved by the argument parser
     bridge = repo / "configs" / "tasks" / args.task_config / "eval" / "scripts"
     benchmarks = repo / "configs" / "tasks" / args.task_config / "benchmarks"
-    slurm = env.get("slurm") or {}
 
     pre_cmds = [
         'export TMPDIR=/tmp/job_${SLURM_JOB_ID:-$$}',
@@ -145,51 +134,20 @@ def _build_job(args, env: dict) -> "Job":
         ],
         env=job_env,
         run_dir=args.run_root,
-        resources=Resources(gpus=args.gpus, cpus=args.cpus),
+        resources=Resources(gpus=args.gpus, cpus=args.cpus,
+                            time_h=slurm_time_s(args.time) / 3600),
         pre_cmds=pre_cmds,
-        slurm=SlurmExtras(
-            partition=slurm.get("partition"),
-            # The run chooses; env.yaml only declares what exists. Both of these read env-only
-            # until 2026-08-14, and `env.slurm.nodes` is not a pin but a POOL — a run pinned to
-            # gpu02 put 35 of 35 training jobs there and 68 of 94 eval jobs somewhere else,
-            # because this was the one submitter that never saw the pin. `qos` was worse: when it
-            # moved to the run config the env field vanished, jobs went out with no --qos at all,
-            # and Slurm applied the account default (the GUARDED queue) in silence.
-            qos=args.qos or slurm.get("qos") or (slurm.get("qos_available") or [None])[0],
-            nodelist=args.nodelist or slurm.get("nodes"),
-            cpus_per_task=args.cpus,
-            extra_sbatch=[f"--time={_clamped_time(args, env)}"],
-        ),
     )
 
 
-def _time_s(v: str) -> int:
-    """Slurm time -> seconds: [[days-]hours:]minutes[:seconds]; a bare number is minutes."""
-    days, _, rest = v.partition("-")
-    if not rest:
-        days, rest = "0", v
-    if ":" not in rest:
-        return int(days) * 86400 + int(rest) * 60
-    secs = 0
-    for part in rest.split(":"):
-        secs = secs * 60 + int(part)
-    return int(days) * 86400 + secs
+def _resource(args) -> dict:
+    """The run's placement choices, as ``configs/runs/*.json`` states them.
 
-
-def _clamped_time(args, env: dict) -> str:
-    """The job's ``--time``, clamped to the partition maximum.
-
-    Explicit by necessity: with no ``--time`` sbatch falls back to the QOS's 7d limit, which
-    EXCEEDS the partition's 3d MaxTime, and the job then pends forever with
-    ``PartitionTimeLimit`` rather than failing.
+    These arrive as CLI flags because the agent invokes the tool over ssh, but they are the run
+    config's ``resource`` block and nothing else; the precedence against ``env.yaml`` lives in
+    :func:`dataos_launch.placement.placement`, once, for all three instruments.
     """
-    limit = args.time
-    max_time = (env.get("slurm") or {}).get("max_time")
-    if max_time and _time_s(limit) > _time_s(max_time):
-        print(f"dataos-eval: --time {limit} exceeds the partition max {max_time}; clamped",
-              file=sys.stderr)
-        limit = max_time
-    return limit
+    return {"qos": args.qos, "node": args.nodelist}
 
 
 def cmd_submit(args) -> int:
@@ -207,23 +165,27 @@ def cmd_submit(args) -> int:
         repo, args.task_config, args.task, args.model_path, protocol
     )
     job = _build_job(args, env)
-    name = _launcher_name(env)
+    launcher = launcher_from_config(env, _resource(args))
 
     if args.dry_run:
-        print(json.dumps({"launcher": name, "job": job.model_dump(mode="json")}, indent=1))
+        # Placement travels with the job here even though it is no longer ON the job: a dry
+        # run answers "what gets submitted", and half that answer now lives in the launcher.
+        print(json.dumps({"launcher": launcher.name,
+                          "placement": placement(env, _resource(args)),
+                          "job": job.model_dump(mode="json")}, indent=1))
         return 0
 
     try:
-        handle = get_launcher(name, **(env.get("access") or {})).submit(job)
+        handle = launcher.submit(job)
     except Exception as exc:  # noqa: BLE001 - surface the launcher's own message
-        print(f"submit failed via launcher {name!r}: {exc}", file=sys.stderr)
+        print(f"submit failed via launcher {launcher.name!r}: {exc}", file=sys.stderr)
         return 1
 
     # The launch handle is the launcher's; this file adds what only EVALUATION knows —
     # which bench, where its outputs land, whether a judge still has to run.
     record = {
         "launch": handle.model_dump(mode="json"),
-        "job_id": handle.job_id or str(handle.pid),   # kept for callers that read job_id
+        "job_id": handle.job_id,
         "task": args.task,
         "output_dir": args.output_dir,
         "model_path": args.model_path,
@@ -245,7 +207,7 @@ def cmd_status(args) -> int:
     record = json.loads(Path(args.handle).read_text())
     env, _, _ = _load(args.repo, args.environment, args.task_config)
     handle = Handle.model_validate(record["launch"])
-    state = get_launcher(_launcher_name(env), **(env.get("access") or {})).status(handle)
+    state = launcher_from_config(env, _resource(args)).status(handle)
     print(json.dumps({"job_id": record.get("job_id"), "state": str(state)}))
     return 0 if state in (Status.COMPLETED, Status.FAILED, Status.TIMEOUT) else 2
 

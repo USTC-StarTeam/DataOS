@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from dataos_launch.model import Model
-from dataos_launch.types import Job, LaunchPlan, SlurmExtras, Status
+from dataos_launch.types import Job, LaunchPlan, Status
 from pydantic import Field
 
 from ..data.convert import read_records
@@ -130,7 +130,6 @@ def build(spec: ModelJobSpec, run_dir: str | None = None) -> Job:
     pythonpath = list(spec.env.pythonpath)
     if spec.env.deploy_root and not pythonpath:
         pythonpath = [f"{spec.env.deploy_root}/src", spec.env.deploy_root]
-    cluster = spec.cluster or {}
     return Job(
         backend=NAME,
         job_name=spec.name or NAME,
@@ -143,14 +142,6 @@ def build(spec: ModelJobSpec, run_dir: str | None = None) -> Job:
         conda_env=spec.env.env_for(NAME),
         pythonpath=pythonpath,
         assets=assets,
-        slurm=SlurmExtras(
-            partition=cluster.get("partition"),
-            qos=cluster.get("qos"),
-            gres=cluster.get("gres"),
-            nodelist=cluster.get("nodelist"),
-            cpus_per_task=cluster.get("cpus_per_task"),
-            account=cluster.get("account"),
-        ),
     )
 
 

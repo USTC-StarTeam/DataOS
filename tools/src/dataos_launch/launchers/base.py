@@ -1,17 +1,29 @@
-"""Shared launcher logic: asset materialization, bash preamble, LaunchPlan composition.
+"""The Launcher base: what every launcher shares, and the two things each one supplies.
 
-The launcher composes the actual exec line from ``job.launch.kind`` — the single place
-launch topology is interpreted — so launchers never need to know which backend produced
-the job.
+A launcher answers WHERE a ``Job`` runs. Submitting has a fixed shape — materialize the assets,
+render a script, hand it to whoever starts things here, record what came back — and each of the
+two built-ins used to carry its own copy of it. Which is how ``handle.json`` came to be written
+twice with two different field sets, and how ``logs()`` came to be implemented twice over two
+differently-named path fields. Here the shape is written once and a launcher supplies only what
+genuinely differs: :meth:`Launcher.render` and :meth:`Launcher.dispatch`.
+
+This is a base class rather than the ``Protocol`` it was until 2026-08-14. The Protocol's stated
+reason — "so a launcher can come from anywhere without importing this one at definition time" —
+never held: any implementation has to import ``Job``, ``Handle`` and ``Status`` from this package
+to be typed at all, so it already imports this package. The cost was real, though: a structural
+contract cannot carry an implementation, so ``submit`` could not be shared, and the duplication
+above is what filled the gap.
 """
 
 from __future__ import annotations
 
 import shlex
+from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any, ClassVar
 
-from ..io import atomic_write_text
-from ..types import Job
+from ..io import atomic_write_json, atomic_write_text, utc_now_iso
+from ..types import Handle, Job, Status
 
 
 class LaunchError(RuntimeError):
@@ -84,3 +96,65 @@ def compose_launch_line(job: Job) -> str:
         return " ".join(shlex.quote(p) if " " in p else p for p in parts)
     raise LaunchError(f"unknown launch kind: {plan.kind!r}")
 
+
+class Launcher(ABC):
+    """Where a Job runs.
+
+    Built from configuration, never from a Job — see
+    :func:`dataos_launch.placement.launcher_from_config`. Placement (partition, QOS, node pool)
+    is a property of the deployment plus the run's choice; a stage that could also state it
+    would be a third opinion, and it silently outranked the other two for months.
+    """
+
+    #: registry key, and the value written to ``Handle.launcher``
+    name: ClassVar[str]
+    #: appended to ``job_name`` to name the generated script
+    script_suffix: ClassVar[str] = ".sh"
+
+    def submit(self, job: Job) -> Handle:
+        """Materialize, render, dispatch, record. The one submission path."""
+        run_dir = materialize(job)
+        script = run_dir / f"{job.job_name}{self.script_suffix}"
+        atomic_write_text(script, self.render(job))
+        handle = self.dispatch(job, script)
+        atomic_write_json(run_dir / "handle.json", handle.model_dump())
+        return handle
+
+    def logs(self, handle: Handle, *, tail: int | None = None) -> str:
+        """The job's output. One implementation, now that every Handle has a ``log_path``."""
+        if not handle.log_path:
+            return ""
+        path = Path(handle.log_path)
+        if not path.is_file():
+            return ""
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return "\n".join(text.splitlines()[-tail:]) if tail is not None else text
+
+    def new_handle(
+        self, job: Job, *, job_id: str, log_path: str | None = None, **native: Any
+    ) -> Handle:
+        """Fill the envelope; ``native`` is whatever only this launcher needs in order to poll."""
+        return Handle(
+            launcher=self.name,
+            spec_id=job.spec_id,
+            run_dir=job.run_dir,
+            job_name=job.job_name,
+            submitted_at=utc_now_iso(),
+            job_id=job_id,
+            log_path=log_path,
+            native=native,
+        )
+
+    @abstractmethod
+    def render(self, job: Job) -> str:
+        """The script text to hand to whatever starts jobs here."""
+
+    @abstractmethod
+    def dispatch(self, job: Job, script: Path) -> Handle:
+        """Start the written script; return the Handle (built via :meth:`new_handle`)."""
+
+    @abstractmethod
+    def status(self, handle: Handle) -> Status: ...
+
+    @abstractmethod
+    def cancel(self, handle: Handle) -> None: ...

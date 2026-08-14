@@ -1,4 +1,11 @@
-"""Bare-metal launcher: run the Job as a detached local subprocess."""
+"""Bare-metal launcher: run the Job as a detached local subprocess.
+
+The same ``Resources`` a scheduler would enforce, enforced by the only means a bare shell has.
+``time_h`` becomes ``timeout(1)``: without it a local job had no wall-clock ceiling at all, so a
+hung eval on a workstation ran until someone noticed, while the identical Job under Slurm came
+back TIMEOUT on schedule. Placement fields (partition, QOS, node list) mean nothing here and are
+accepted and ignored, so one ``launcher_from_config`` serves both deployments.
+"""
 
 from __future__ import annotations
 
@@ -10,26 +17,32 @@ import subprocess
 from contextlib import suppress
 from pathlib import Path
 
-from ..io import atomic_write_json, atomic_write_text, utc_now_iso
 from ..types import Handle, Job, Status
-from .base import build_preamble, compose_launch_line, materialize
+from .base import Launcher, build_preamble, compose_launch_line
+
+#: What ``timeout`` returns when it fired; 128+SIGKILL when the child had to be killed outright.
+_TIMEOUT_RC = {124, 137}
 
 
-class LocalLauncher:
+class LocalLauncher(Launcher):
     name = "local"
+    script_suffix = ".run.sh"
 
-    def __init__(self, **_: object) -> None:
-        # accepts (and ignores) cluster kwargs for a uniform get_launcher(**cfg) signature
+    def __init__(self, **_deployment: object) -> None:
+        # placement is a cluster's word; accepted so get_launcher(name, **cfg) has one signature
         pass
 
-    def _script(self, job: Job) -> str:
+    def render(self, job: Job) -> str:
         rc = f"{job.run_dir}/logs/{job.job_name}.rc"
         rc_q = shlex.quote(rc)
+        launch = compose_launch_line(job)
+        if job.resources.time_h:
+            launch = f"timeout --signal=TERM {int(job.resources.time_h * 3600)} {launch}"
         lines = [
             "#!/bin/bash",
             *build_preamble(job),
             "set +e",  # capture the real exit code instead of aborting on it
-            compose_launch_line(job),
+            launch,
             "code=$?",
             # Atomic rc so status sees the whole file.
             f"echo $code > {rc_q}.tmp && mv {rc_q}.tmp {rc_q}",
@@ -41,42 +54,31 @@ class LocalLauncher:
             # Written inline rather than as a trap: job.pre_cmds may install its own EXIT trap
             # (the eval bridge does, to remove TMPDIR) and a second one would silently replace it.
             # `trap '' TERM` first so the group-wide signal does not take down this shell before
-            # it can return the real exit code; $$ is the pgid because submit() starts a session.
+            # it can return the real exit code; $$ is the pgid because dispatch starts a session.
             "trap '' TERM; kill -- -$$ 2>/dev/null",
             "exit $code",
         ]
         return "\n".join(lines) + "\n"
 
-    def submit(self, job: Job) -> Handle:
-        materialize(job)
+    def dispatch(self, job: Job, script: Path) -> Handle:
         run_dir = Path(job.run_dir)
-        script_path = run_dir / f"{job.job_name}.run.sh"
-        atomic_write_text(script_path, self._script(job))
         rc = run_dir / "logs" / f"{job.job_name}.rc"
         if rc.exists():
             rc.unlink()
         out = run_dir / "logs" / f"{job.job_name}.out"
         fout = open(out, "wb")  # noqa: SIM115 - handed to the child; closed when it exits
         proc = subprocess.Popen(
-            ["bash", str(script_path)],
+            ["bash", str(script)],
             cwd=job.run_dir,
             stdout=fout,
             stderr=subprocess.STDOUT,
             start_new_session=True,
             env={**os.environ, **job.env},
         )
-        handle = Handle(
-            launcher="local",
-            spec_id=job.spec_id,
-            run_dir=job.run_dir,
-            job_name=job.job_name,
-            submitted_at=utc_now_iso(),
-            pid=proc.pid,
-            hostname=socket.gethostname(),
-            stdout_path=str(out),
+        # The pid IS the job id here — it is what this launcher calls the job and what it polls.
+        return self.new_handle(
+            job, job_id=str(proc.pid), log_path=str(out), hostname=socket.gethostname()
         )
-        atomic_write_json(run_dir / "handle.json", handle.model_dump())
-        return handle
 
     def status(self, handle: Handle) -> Status:
         rc = Path(handle.run_dir) / "logs" / f"{handle.job_name}.rc"
@@ -87,43 +89,26 @@ class LocalLauncher:
                 code = int(rc.read_text(encoding="utf-8").strip() or "1")
             except ValueError:
                 code = 1
-            handle.exit_code = code
-            return Status.COMPLETED if code == 0 else Status.FAILED
-        if _pid_alive(handle.pid, handle.hostname):
+            handle.native["exit_code"] = code
+            if code == 0:
+                return Status.COMPLETED
+            return Status.TIMEOUT if code in _TIMEOUT_RC else Status.FAILED
+        if _pid_alive(handle.job_id, handle.native.get("hostname")):
             return Status.RUNNING
         return Status.FAILED  # dead with no rc -> killed/crashed before finishing
 
-    def logs(self, handle: Handle, *, tail: int | None = None) -> str:
-        return _read_tail(handle.stdout_path, tail)
-
     def cancel(self, handle: Handle) -> None:
-        if handle.pid is None:
-            return
-        with suppress(ProcessLookupError, PermissionError):
-            os.killpg(os.getpgid(handle.pid), signal.SIGTERM)
+        with suppress(ProcessLookupError, PermissionError, ValueError):
+            os.killpg(os.getpgid(int(handle.job_id)), signal.SIGTERM)
 
 
-def _pid_alive(pid: int | None, hostname: str | None) -> bool:
-    if pid is None:
-        return False
+def _pid_alive(job_id: str, hostname: str | None) -> bool:
     if hostname and hostname != socket.gethostname():
         return False  # can't introspect a pid on another host
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+        os.kill(int(job_id), 0)
+    except (ProcessLookupError, ValueError):
         return False
     except PermissionError:
         return True
     return True
-
-
-def _read_tail(path: str | None, tail: int | None) -> str:
-    if not path:
-        return ""
-    p = Path(path)
-    if not p.is_file():
-        return ""
-    text = p.read_text(encoding="utf-8", errors="replace")
-    if tail is not None:
-        return "\n".join(text.splitlines()[-tail:])
-    return text

@@ -13,7 +13,7 @@ import shlex
 from pathlib import Path
 
 from dataos_launch.io import read_json
-from dataos_launch.types import Job, LaunchPlan, SlurmExtras, Status
+from dataos_launch.types import Job, LaunchPlan, Status
 
 from ...spec import GRPO, TrainSpec, VerlPPO
 from ...types import Capabilities, TrainResult
@@ -165,7 +165,6 @@ class VerlBackend:
             conda_env=spec.env.env_for(self.name, rl.kind),
             pythonpath=pythonpath,
             assets=assets,
-            slurm=_slurm_from_cluster(spec),
         )
 
     def collect(self, run_dir: str) -> TrainResult:
@@ -219,17 +218,6 @@ class VerlBackend:
                 return None
         return None
 
-
-def _slurm_from_cluster(spec: TrainSpec) -> SlurmExtras:
-    c = spec.cluster or {}
-    return SlurmExtras(
-        partition=c.get("partition"),
-        qos=c.get("qos"),
-        gres=c.get("gres"),
-        nodelist=c.get("nodelist"),
-        cpus_per_task=c.get("cpus_per_task"),
-        account=c.get("account"),
-    )
 
 
 def _local_attention_heads(base_model: str) -> int | None:

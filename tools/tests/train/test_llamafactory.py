@@ -251,7 +251,8 @@ def test_build_lora(tmp_path: Path) -> None:
     assert "llamafactory-cli export" in s and "final_model" in s
     assert job.env["FORCE_TORCHRUN"] == "1"
     assert job.conda_env == "Llama" and job.pythonpath == ["/deploy/src", "/deploy"]
-    assert job.slurm.gres == "gpu:2" and job.slurm.nodelist == "gpu04"
+    # placement is no longer on the Job — the need is, and the launcher translates it
+    assert (job.resources.gpus, job.resources.nodes) == (2, 1)
 
 
 def test_build_preference_rlhf_methods(tmp_path: Path) -> None:

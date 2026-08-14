@@ -109,7 +109,7 @@ def test_build_run_dir_default_and_env_resolution() -> None:
     job = mj.build(spec, run_dir="/r")
     assert job.conda_sh == "/c/conda.sh"
     assert job.conda_env == "train-env"
-    assert job.slurm.partition == "gpu" and job.slurm.gres == "gpu:1"
+    assert job.resources.gpus == 1   # placement (partition/gres) is the launcher's, not the Job's
 
 
 # --- collect ----------------------------------------------------------------

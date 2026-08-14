@@ -13,7 +13,7 @@ import shlex
 from pathlib import Path
 
 from dataos_launch.io import read_json
-from dataos_launch.types import Job, LaunchPlan, SlurmExtras, Status
+from dataos_launch.types import Job, LaunchPlan, Status
 
 from ...spec import DPO, KTO, ORPO, PPO, TrainSpec
 from ...types import Capabilities, TrainResult
@@ -298,7 +298,6 @@ class LlamaFactoryBackend:
             conda_env=train_env,
             pythonpath=pythonpath,
             assets=assets,
-            slurm=_slurm_from_cluster(spec),
         )
 
     @staticmethod
@@ -427,14 +426,3 @@ class LlamaFactoryBackend:
                 return text
         return ""
 
-
-def _slurm_from_cluster(spec: TrainSpec) -> SlurmExtras:
-    c = spec.cluster or {}
-    return SlurmExtras(
-        partition=c.get("partition"),
-        qos=c.get("qos"),
-        gres=c.get("gres"),
-        nodelist=c.get("nodelist"),
-        cpus_per_task=c.get("cpus_per_task"),
-        account=c.get("account"),
-    )

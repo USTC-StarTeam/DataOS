@@ -137,11 +137,26 @@ def _build_or_die(spec: TrainSpec) -> Job:
     return backend.build(spec)
 
 
-def _load_jobspec_or_build(arg: str) -> Job:
+def _load_jobspec_or_build(arg: str) -> tuple[Job, dict]:
+    """The Job to run, and the placement its spec carried.
+
+    Two values because the Job no longer carries a scheduler block: placement is the launcher's,
+    built from config. ``spec.cluster`` is that config as the brain resolved it (partition, QOS,
+    node), so submitting a TrainSpec hands it straight to the launcher. A pre-built Job has no
+    spec left to ask, so it brings none — pass ``--cluster-json``.
+
+    It carries placement but not the partition's CAPS, so a train job gets no clamping from
+    ``dataos_launch.placement``: it is a hand-built dict, third-hand from ``env.yaml``. The fix is
+    for this CLI to read ``env.yaml`` itself, as dataos-eval and dataos-data already do, and for
+    ``TrainSpec.cluster`` to go away — the commit that gives the three stages one Spec base.
+    Nothing regresses meanwhile: ``time_h`` is already clamped brain-side against
+    ``env.slurm.max_time``, and the GPU Guard never applies to a job that trains on its card.
+    """
     data = _read_input(arg)
     if isinstance(data, dict) and _looks_like_jobspec(data):
-        return Job.model_validate(data)
-    return _build_or_die(TrainSpec.model_validate(data))
+        return Job.model_validate(data), {}
+    spec = TrainSpec.model_validate(data)
+    return _build_or_die(spec), dict(spec.cluster or {})
 
 
 def _backend_for_run(run_dir: str, fallback: str) -> str:
@@ -219,9 +234,10 @@ def cmd_build(args: argparse.Namespace) -> int:
 
 
 def cmd_submit(args: argparse.Namespace) -> int:
-    job = _load_jobspec_or_build(args.spec)
+    job, cluster = _load_jobspec_or_build(args.spec)
     _persist_job(job)
-    cluster = _read_input(args.cluster_json) if args.cluster_json else {}
+    if args.cluster_json:
+        cluster = _read_input(args.cluster_json)
     launcher = get_launcher(args.launcher, **cluster)
     handle = launcher.submit(job)
     _emit(handle.model_dump())
@@ -244,7 +260,7 @@ def cmd_logs(args: argparse.Namespace) -> int:
     if args.raw:
         sys.stdout.write(text)
     else:
-        _emit({"log": text, "path": handle.log_path or handle.stdout_path})
+        _emit({"log": text, "path": handle.log_path})
     return 0
 
 
@@ -269,9 +285,10 @@ def cmd_collect(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    job = _load_jobspec_or_build(args.spec)
+    job, cluster = _load_jobspec_or_build(args.spec)
     _persist_job(job)
-    cluster = _read_input(args.cluster_json) if args.cluster_json else {}
+    if args.cluster_json:
+        cluster = _read_input(args.cluster_json)
     launcher = get_launcher(args.launcher, **cluster)
     handle = launcher.submit(job)
     deadline = (time.monotonic() + args.timeout) if args.timeout else None

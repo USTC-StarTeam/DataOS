@@ -60,8 +60,8 @@ def test_submit_dry_run_bakes_everything(tmp_path, capsys):
     job = spec["job"]
     res = job["resources"]
     assert (res["nodes"], res["gpus"], res["cpus"]) == (1, 1, 8)   # single node, one GPU
-    assert job["slurm"]["nodelist"] == "gpu01,gpu02,gpu03"      # the env node pool
-    assert "--time=12:00:00" in job["slurm"]["extra_sbatch"]    # explicit: no --time pends forever
+    assert spec["placement"]["nodelist"] == "gpu01,gpu02,gpu03"   # the env node pool
+    assert res["time_h"] == 12.0   # the launcher always emits --time; no --time pends forever
     cmd = " ".join(job["command"])
     assert "run_lmeval_eval.py" in cmd and "--limit -1" in cmd
     assert job["env"]["HF_HUB_OFFLINE"] == "1"
@@ -69,10 +69,15 @@ def test_submit_dry_run_bakes_everything(tmp_path, capsys):
 
 
 def test_submit_clamps_time_to_the_partition_max(tmp_path, capsys):
-    extra = _dry_run_spec(tmp_path, capsys, time="7-00:00:00")["job"]["slurm"]["extra_sbatch"]
-    # clamped to env slurm.max_time (a 7d ask pends forever)
-    assert "--time=3-00:00:00" in extra
-    assert "--time=7-00:00:00" not in extra
+    """The ask is a Resources field; the clamp is the launcher's, against the partition MaxTime
+    it was configured with. dataos-eval used to clamp too, in its own copy of the parser."""
+    from dataos_launch import get_launcher
+    from dataos_launch.types import Resources
+
+    spec = _dry_run_spec(tmp_path, capsys, time="7-00:00:00")
+    assert spec["job"]["resources"]["time_h"] == 168.0            # asked for 7d
+    launcher = get_launcher(spec["launcher"], **spec["placement"])
+    assert launcher.time_limit(Resources(**spec["job"]["resources"])) == "72:00:00"
 
 
 def test_submit_writes_handle_with_fake_sbatch(tmp_path, monkeypatch, capsys):
@@ -121,7 +126,7 @@ def _argv(d: dict) -> list[str]:
 
 
 # The sacct state mapping and the first-row rule this file used to test moved into
-# dataos-launch with the launcher; they are covered by tools/train/tests/test_slurm_render.py.
+# dataos-launch with the launcher; they are covered by tools/tests/launch/test_slurm.py.
 
 
 def test_render_quotes_paren_paths(tmp_path, capsys):
@@ -131,12 +136,13 @@ def test_render_quotes_paren_paths(tmp_path, capsys):
     test pass vacuously once dry-run started printing the spec rather than the script."""
     import subprocess as sp
 
-    from dataos_launch.launchers.slurm import SlurmLauncher
+    from dataos_launch import get_launcher
     from dataos_launch.types import Job
 
     spec = _dry_run_spec(tmp_path, capsys, run_root=str(tmp_path / "ptb-x(1)"),
                          output_dir=str(tmp_path / "ptb-x(1)/eval"))
-    script = SlurmLauncher().render_sbatch(Job.model_validate(spec["job"]))
+    launcher = get_launcher(spec["launcher"], **spec["placement"])
+    script = launcher.render(Job.model_validate(spec["job"]))
     assert script.startswith("#!/bin/bash")
     assert "ptb-x(1)" in script                                  # the risky path really is in there
     r = sp.run(["bash", "-n"], input=script, text=True, capture_output=True)
@@ -186,21 +192,19 @@ def test_a_run_node_pin_overrides_the_env_node_pool(tmp_path, capsys):
     "any of these", and Slurm obliged. A run pinned to gpu02 put 35 of 35 training jobs on gpu02
     and 68 of 94 eval jobs elsewhere, because this was the one submitter that never saw the pin.
     """
-    job = _dry_run_spec(tmp_path, capsys, nodelist="gpu02")["job"]
-    assert job["slurm"]["nodelist"] == "gpu02"
+    assert _dry_run_spec(tmp_path, capsys, nodelist="gpu02")["placement"]["nodelist"] == "gpu02"
 
 
 def test_without_a_pin_it_still_falls_back_to_the_env_pool(tmp_path, capsys):
-    job = _dry_run_spec(tmp_path, capsys)["job"]
-    assert job["slurm"]["nodelist"] == "gpu01,gpu02,gpu03"
+    spec = _dry_run_spec(tmp_path, capsys)
+    assert spec["placement"]["nodelist"] == "gpu01,gpu02,gpu03"
 
 
 def test_the_run_chooses_the_qos(tmp_path, capsys):
     """`qos` was env-only until it moved to the run config, at which point the field this read
     simply vanished: jobs went out with no --qos and Slurm applied the account default — the
     GUARDED queue — while the job's own prompt said it was unguarded. Nothing errored."""
-    job = _dry_run_spec(tmp_path, capsys, qos="gpu_normal")["job"]
-    assert job["slurm"]["qos"] == "gpu_normal"
+    assert _dry_run_spec(tmp_path, capsys, qos="gpu_normal")["placement"]["qos"] == "gpu_normal"
 
 
 def test_the_runs_gpus_and_cpus_are_not_defaults(tmp_path, capsys):
@@ -208,5 +212,4 @@ def test_the_runs_gpus_and_cpus_are_not_defaults(tmp_path, capsys):
     defaults — and every run config happened to ask for exactly those (1 and 8). The first run
     to ask for 2 GPUs would have trained on 2 and evaluated on 1."""
     job = _dry_run_spec(tmp_path, capsys, gpus=2, cpus=11)["job"]
-    assert job["resources"]["gpus"] == 2
-    assert job["slurm"]["cpus_per_task"] == 11
+    assert (job["resources"]["gpus"], job["resources"]["cpus"]) == (2, 11)

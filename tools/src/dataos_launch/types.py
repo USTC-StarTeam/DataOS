@@ -12,7 +12,7 @@ later), so they carry no heavy deps and round-trip cleanly.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -32,8 +32,22 @@ class Status(StrEnum):
 
 
 class Resources(Model):
+    """What the job needs, in units the job understands — not in a scheduler's units.
+
+    ``gpus`` is per node; total devices are ``nodes * gpus``. **Zero means this job does not use a
+    GPU**, which is a statement about the program, not a request to the scheduler — and the two
+    come apart. On PTB's partition ``gres_required: "gpu:1"`` means even a pure-CPU data build is
+    allocated a card; on the guarded QOS, holding that card idle is precisely what gets the job
+    scancelled. Saying "I don't use a GPU" is what lets the launcher do both right things: ask for
+    the card anyway, and install the guard placeholder. A job that silently passed ``gpus=1`` to
+    mean "give me the mandatory card" could not be told apart from one that trains on it.
+
+    ``mem_gb`` is likewise a need, not an ``--mem`` line. Where memory is granted per card, the
+    launcher converts: wanting more than one card's worth means wanting more cards.
+    """
+
     nodes: int = 1
-    gpus: int = 1  # PER NODE -> gres gpu:{gpus}; total devices = nodes * gpus
+    gpus: int = 1
     cpus: int = 16
     time_h: float = 10.0
     mem_gb: int | None = None
@@ -53,23 +67,15 @@ class LaunchPlan(Model):
     extra: list[str] = Field(default_factory=list)
 
 
-class SlurmExtras(Model):
-    """Slurm placement, field names taken verbatim from ``run_config.to_cluster()``."""
-
-    partition: str | None = None
-    qos: str | None = None
-    gres: str | None = None  # default derived as f"gpu:{resources.gpus}"
-    nodelist: str | None = None
-    cpus_per_task: int | None = None
-    account: str | None = None
-    extra_sbatch: list[str] = Field(default_factory=list)
-
-
 class Job(Model):
     """A stage's rendered job: what to run, and what it needs to run it.
 
-    Launcher-agnostic, which the ``slurm: SlurmExtras`` field below currently contradicts — that
-    is the next commit.
+    Launcher-agnostic, and now literally so: there is no scheduler word in this type. It used to
+    carry a ``slurm: SlurmExtras`` block, which meant a job destined for a bare-metal launcher
+    still described a partition and a QOS, and — worse — that block took precedence over the
+    launcher's own configuration (``s.qos or self.defaults.get("qos")``), so a stage's guess
+    overrode the deployment's answer. Placement belongs to the launcher, which is built from
+    config; this says only what to run and what it needs.
     """
 
     spec_id: str = Field(default_factory=lambda: make_id("job"))
@@ -86,24 +92,32 @@ class Job(Model):
     pre_cmds: list[str] = Field(default_factory=list)
     # files the launcher materializes into run_dir before launch: rel_path -> contents
     assets: dict[str, str] = Field(default_factory=dict)
-    slurm: SlurmExtras = Field(default_factory=SlurmExtras)
 
 
 class Handle(Model):
-    """A live or finished job, persisted to ``<run_dir>/handle.json``."""
+    """A live or finished job, persisted to ``<run_dir>/handle.json``.
 
-    launcher: Literal["slurm", "local"]
+    The envelope is the core's; the contents are the launcher's. This used to be the union of
+    both launchers' fields — ``job_id``/``log_path`` for Slurm, ``pid``/``hostname``/
+    ``stdout_path``/``exit_code`` for local — which pushed the choice onto every caller:
+    ``handle.job_id or str(handle.pid)`` appeared in dataos_eval, and
+    ``handle.log_path or handle.stdout_path`` in dataos_train. Two universal questions were being
+    asked twice each, once per launcher.
+
+    So two universal answers stay on the envelope — every scheduler names its jobs, and every
+    launcher writes their output somewhere — and everything else moves into ``native``, which the
+    launcher writes and reads and nothing else interprets.
+
+    ``launcher`` is a plain string, not a Literal of the two built-ins. ``registry`` loads
+    launchers from the ``dataos_launch.launchers`` entry-point group, so a third-party launcher is
+    invited by one file and was made unrepresentable by another.
+    """
+
+    launcher: str
     spec_id: str
     run_dir: str
     job_name: str
     submitted_at: str
-    # slurm
-    job_id: str | None = None
-    log_path: str | None = None
-    # local
-    pid: int | None = None
-    hostname: str | None = None
-    stdout_path: str | None = None
-    exit_code: int | None = None
-
-
+    job_id: str  # what this launcher calls it
+    log_path: str | None = None  # where its output is
+    native: dict[str, Any] = Field(default_factory=dict)  # the launcher's own bookkeeping
