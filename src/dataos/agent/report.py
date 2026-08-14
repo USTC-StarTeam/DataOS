@@ -91,13 +91,23 @@ class ScriptRef(BaseModel):
     reproducibility and audit: the previous batch produced 4494 and 9028 rows from one nominally
     identical recipe because the real target rendering lived in per-round hand-written scripts that
     nothing pointed at, so "byte-identical recipe" was never a reproduction (audit 13.10 #10).
-    A path with no hash is not identification, which is why both fields are required.
+
+    A path with no hash is weak identification — but requiring the hash is worse than accepting a
+    weak one. This class was the last place in the file still able to reject, and it did: an
+    arenahardwriting node wrote ``script: {"path": ...}`` with no ``sha256`` and its whole report,
+    score 26.60 included, failed to parse. A provenance field that can destroy a measurement is
+    not paying for itself.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
-    path: str = Field(description="absolute path on the exec host")
-    sha256: str = Field(description="sha256sum of the file — the recipe's real identity")
+    path: str | None = Field(default=None, description="absolute path on the exec host")
+    sha256: str | None = Field(
+        default=None,
+        description="sha256sum of the file — the recipe's real identity. Without it the path names "
+        "a file whose contents nothing pins, so two runs can cite the same script and mean "
+        "different bytes.",
+    )
 
 
 class Stage(BaseModel):
