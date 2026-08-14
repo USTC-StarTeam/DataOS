@@ -42,10 +42,13 @@ def test_salvage_from_partial_report(tmp_path):
 
     def write_partial():
         exp_dir.mkdir(parents=True, exist_ok=True)
+        # the contract's first write: eval on disk, review not yet — so this reads as mid-run
         (exp_dir / "report.json").write_text(json.dumps({
-            "name": "explore-0", "status": "running", "score": 28.125,
-            "stages": {"eval": {"status": "completed"}},
-            "model": {"path": "/remote/final_model"},
+            "id": "n0001",
+            "stages": {
+                "eval": {"status": "completed", "score": 28.125, "limit": -1},
+                "train": {"status": "completed", "model_path": "/remote/final_model"},
+            },
         }))
 
     _, report = _run(on_run=write_partial, cfg=_cfg(tmp_path / "ws"), tmp_path=tmp_path)

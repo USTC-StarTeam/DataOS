@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from dataos.agent import report as report_schema
+from dataos.agent import roles
 from dataos.prompt import render
 
 _CONTRACT = "experimenter/context/report_contract"
@@ -145,35 +146,51 @@ def test_the_top_level_score_and_status_are_no_longer_writable():
     assert unscored.status == "failed"
 
 
-def test_a_stage_cannot_be_left_out_of_the_stage_map():
-    """``Stages`` forbids extras: a payload under a non-stage name is how the old shape lost track.
+def test_an_unasked_for_stage_survives_instead_of_killing_the_report():
+    """``Stages`` used to forbid extras, and that cost a whole report.
 
-    ``dataset`` / ``model`` / ``eval`` / ``analysis`` were stage outputs living outside the stage
-    map, which is why nobody read the map — it was the empty half of a split.
+    An experimenter declared an ``export`` stage for its LoRA merge — a stage that really happened,
+    described in the natural place — and the report was rejected for it. Rejection here is never
+    the cheap option: the only consumer of an unrecognised stage is the leader, which reads prose
+    for a living, so an extra stage costs nothing to keep and a real score to drop.
     """
-    with pytest.raises(ValueError):
-        report_schema.Report.model_validate(
-            {
-                "id": "n0003",
-                "stages": {
-                    "eval": {"status": "completed", "score": 1.0, "limit": -1},
-                    "dataset": {"rows": 6000},
-                },
-            }
-        )
+    parsed = report_schema.Report.model_validate(
+        {
+            "id": "n0003",
+            "stages": {
+                "eval": {"status": "completed", "score": 1.0, "limit": -1},
+                "export": {"status": "completed", "note": "merged the adapter"},
+            },
+        }
+    )
+    assert parsed.score == 1.0
+    assert (parsed.stages.model_extra or {}).get("export", {}).get("note")
 
 
-def test_eval_limit_is_required():
-    """The caliber of a score is not optional.
+def test_eval_limit_comes_from_the_harness_not_the_experimenter(monkeypatch):
+    """The caliber of a score is not optional — it is just not the experimenter's to type.
 
-    Three runs of the previous batch delivered a subset-scored model as their submission (a 54-of-164
+    Three runs of an earlier batch delivered a subset-scored model as their submission (a 54-of-164
     humaneval scoring 50.00 outranked full-benchmark nodes) because ``limit`` was a field a report
-    could simply omit.
+    could simply omit. Requiring it turned that into a rejected report, which loses the score too.
+    ``summary.json`` has carried the answer all along.
     """
-    with pytest.raises(ValueError):
-        report_schema.Report.model_validate(
-            {"id": "n0004", "stages": {"eval": {"status": "completed", "score": 50.0}}}
-        )
+    report = {"id": "n0004", "stages": {"eval": {"status": "completed", "score": 50.0}}}
+    assert report_schema.read(report).stages.eval.limit is None  # the report alone cannot say
+
+    summary = {"score": 50.0, "limit": 164, "n_samples": 164, "task": "humaneval",
+               "metric_key": "pass@1,none", "metrics": {"pass@1_stderr,none": 0.039}}
+    monkeypatch.setattr(
+        roles.runtime, "_remote_eval_summaries",
+        lambda cfg, study_id, name: [("/runs/x/eval/humaneval_limit164", summary)],
+    )
+    roles._stamp_measurements(cfg=None, study_id="round-0000", name="x", report=report)
+    parsed = report_schema.read(report)
+    assert parsed.stages.eval.limit == 164
+    assert parsed.stages.eval.n_samples == 164
+    # stderr arrives on the SAME scale as the score it belongs to, which the reports did not manage
+    # on their own: one baseline said `score=0.89, stderr=0.0044` while its siblings said 30.36/2.13
+    assert parsed.stages.eval.stderr == pytest.approx(3.9)
 
 
 def _corpus() -> list[Path]:
@@ -181,15 +198,20 @@ def _corpus() -> list[Path]:
     return sorted(root.glob("*/round-*/experiments/*/report.json")) if root.is_dir() else []
 
 
-def test_every_report_on_disk_still_reads():
-    """The whole archive, through the new schema. A shape that cannot read its own history cannot
-    be regression-tested against it — and the archive is the only corpus of real experimenter
-    output that exists."""
+def test_no_report_on_disk_loses_a_score_it_declares():
+    """The regression test for the bug this schema shape was rewritten around.
+
+    ``read()`` used to catch every validation error and fall through to a reader for a report shape
+    no live path produces, which turned any mismatch into ``score=None, status="failed"`` — a
+    plausible-looking lie, logged nowhere. On the archive that was 33 rejected reports and 22
+    destroyed scores, including a 27.44 and a 15.15 that their runs had recorded correctly at the
+    time. The rule that replaces it: whatever a report declares under ``stages.eval.score``,
+    reading it back yields that number or raises.
+    """
     paths = _corpus()
     if not paths:
         pytest.skip("no report corpus in this checkout")
-    failures = []
-    scored = 0
+    lost, unreadable, scored = [], [], 0
     for path in paths:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -197,34 +219,49 @@ def test_every_report_on_disk_still_reads():
             continue
         if not isinstance(raw, dict):
             continue
+        declared = ((raw.get("stages") or {}).get("eval") or {}).get("score") \
+            if isinstance(raw.get("stages"), dict) else None
         try:
             parsed = report_schema.read(raw)
         except Exception as exc:  # noqa: BLE001
-            failures.append(f"{path}: {exc}")
+            # Allowed, and the point: a file that is not report-shaped raises where someone can
+            # see it. What is NOT allowed is doing that quietly to a report carrying a score.
+            unreadable.append(f"{path}: {exc}")
+            if isinstance(declared, (int, float)):
+                lost.append(f"{path}: declared {declared}, raised instead")
             continue
         scored += isinstance(parsed.score, (int, float))
-    assert not failures, "reports that no longer read:\n" + "\n".join(failures[:10])
+        if isinstance(declared, (int, float)) and parsed.score != declared:
+            lost.append(f"{path}: declared {declared}, read back {parsed.score}")
+    assert not lost, "scores lost on read:\n" + "\n".join(lost[:10])
     assert scored > 0, "the corpus parsed but produced no scores — the score path is broken"
+    assert len(unreadable) <= 1, (
+        "more than the one known pre-contract file is unreadable:\n"
+        + "\n".join(unreadable[:10])
+    )
 
 
-def test_a_mid_flight_report_reads_as_failed_with_its_real_state_kept():
-    """11 of the 1231 archived reports were killed mid-stage, leaving ``status: "running"``.
+def test_a_mid_flight_stage_keeps_the_word_it_was_killed_on():
+    """Reports killed mid-stage carry ``running`` / ``pending`` / ``not_started``.
 
-    The schema's vocabulary is deliberately terminal — an experimenter writing a report has no
-    non-terminal option to reach for — so the legacy dialect is normalised on the way in. It must
-    not be normalised into silence: "the train stage never started" and "training failed" call for
-    different next rounds.
+    The vocabulary an experimenter is ASKED for is terminal, so these used to be normalised to
+    ``failed`` with the original word moved into ``error``. Keeping the word where it was written
+    says the same thing without a translation layer, and "the train stage never started" still
+    reads differently from "training failed". The overall verdict is unchanged: no score, so the
+    report is failed.
     """
     parsed = report_schema.read(
         {
             "id": "n0005",
-            "score": None,
-            "stages": {"train": {"status": "running"}, "eval": {"status": "not_started"}},
-            "model": {"path": "/runs/x/final_model"},
+            "stages": {
+                "train": {"status": "running", "model_path": "/runs/x/final_model"},
+                "eval": {"status": "not_started"},
+            },
         }
     )
     assert parsed.status == "failed"
+    assert parsed.score is None
     assert parsed.stages.train is not None
-    assert parsed.stages.train.status == "failed"
-    assert "running" in (parsed.stages.train.error or "")
-    assert "not_started" in (parsed.stages.eval.error or "")
+    assert parsed.stages.train.status == "running"
+    assert parsed.stages.eval.status == "not_started"
+    assert parsed.model_path == "/runs/x/final_model"

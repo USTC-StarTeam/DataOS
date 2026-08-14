@@ -13,6 +13,7 @@ import pytest
 
 from dataos.agent.config import AutoRunConfig, Budget
 from dataos.agent.loop import run_auto
+from dataos.agent import report as report_schema
 from dataos.agent import roles
 
 
@@ -53,10 +54,11 @@ def _fake_fan_out(*, cfg, study_id, specs, deadline=None):
         exp_dir.mkdir(parents=True, exist_ok=True)
         report = {
             "id": f"exp-{name}",
-            "name": name,
-            "status": "completed",
-            "score": 0.5,
-            "model": {"path": str(exp_dir / "final_model")},
+            "stages": {
+                "eval": {"status": "completed", "score": 0.5, "limit": -1},
+                "train": {"status": "completed", "model_path": str(exp_dir / "final_model")},
+                "review": {"status": "completed", "conclusion": "stub"},
+            },
         }
         (exp_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
         reports[name] = report
@@ -117,7 +119,7 @@ def test_stop_wall_clock_after_n_rounds(tmp_path):
         assert (pdir / r / "plan.json").is_file()
         assert (pdir / r / "review.json").is_file()
         rep = json.loads((pdir / r / "experiments" / exp / "report.json").read_text())
-        assert rep["status"] == "completed"
+        assert report_schema.read(rep).status == "completed"
 
     assert res["summary"]["n_studies"] == 2
 

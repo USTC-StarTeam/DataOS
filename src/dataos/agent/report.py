@@ -37,8 +37,35 @@ one report.
 ``extra="allow"`` is deliberate. Experimenters volunteered an ``eval_format_contract`` block
 (parser location, format sensitivity, expected target shape, pre-check outcome) that no contract
 asked for and nothing consumed — high-value information the platform was throwing away. Since the
-leader now sees the whole report, volunteered fields reach it; the models here only guarantee that
-the load-bearing part is present and typed.
+leader now sees the whole report, volunteered fields reach it.
+
+WHY NOTHING HERE IS REQUIRED
+----------------------------
+Because a report carries two payloads with opposite natures, and validation helps neither.
+
+The MEASUREMENTS (score, limit, n_samples, stderr, elapsed) are written by the frozen eval harness
+into ``summary.json``. When the experimenter restates them here it is acting as a courier, and a
+courier of numbers should be removed, not inspected: ``roles._stamp_report`` now reads the
+harness's own files and overwrites this block, so what reaches the leader is machine-sourced and
+the fields below are documentation of what will appear, not a demand on the writer.
+
+The JUDGEMENT (conclusion, failure_classes, anomalies, dominant_evidence, fixes) is written by a
+model and read by a model. No schema can check whether ``conclusion`` is TRUE, and the leader does
+not need it well-formed — it reads prose for a living.
+
+So validation had no true consumer, and it had a measured cost. Of the 69 stage-shaped reports on
+disk, 33 failed strict validation and 22 of those lost a real score: ``read()`` treated "failed to
+validate" as "must be an old-shape report", fell through to a legacy reader that looks for
+top-level ``eval``/``score``/``dataset`` keys a stage-shaped report does not have, and returned
+``score=None, status="failed"`` — a plausible-looking lie, logged nowhere. Scores of 27.44, 15.15
+and 13.84 read back as failed experiments. Five of the 33 rejections WERE real (an ``eval`` block
+with no ``limit``), and they were as silent as the 28 false ones; detection that cannot raise its
+voice is worse than no detection, because it looks like a guard.
+
+What remains is the one thing that was always paying off: this file is the field-name registry the
+prompt contract is checked against (``test_every_schema_field_is_asked_for_in_the_contract``). A
+field declared here and never asked for is a field no report will carry; a field asked for and not
+declared is one the schema silently drops. That test needs no runtime validation at all.
 """
 
 from __future__ import annotations
@@ -47,7 +74,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-_STAGE = Literal["completed", "failed", "skipped"]
+# Not a Literal. The vocabulary an experimenter is ASKED for is completed/failed/skipped, but
+# reports killed mid-flight carry `running` / `pending` / `not_started`, and a snapshot of a stage
+# that never finished is a fact worth keeping, not a parse error. Every consumer tests for
+# `== "completed"`, so an unknown word is already handled: it simply is not completed.
+_STAGE = str
 
 
 class ScriptRef(BaseModel):
@@ -71,7 +102,11 @@ class Stage(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    status: _STAGE
+    status: _STAGE | None = Field(
+        default=None,
+        description="completed / failed / skipped. Absent is not a parse error — every consumer "
+        "asks `== 'completed'`, and an unstated status is already not that.",
+    )
     error: str | None = Field(
         default=None,
         description="only when status=failed. Say WHICH gate or tool refused and why — '哪个阶段挂"
@@ -92,7 +127,9 @@ class Stage(BaseModel):
 
 
 class DataStage(Stage):
-    rows: int = Field(description="rows ACTUALLY written to data/sft")
+    rows: int | None = Field(
+        default=None, description="rows ACTUALLY written to data/sft; omit when status=skipped"
+    )
     requested_rows: int | None = Field(
         default=None,
         description="what the recipe asked for. A selector with strict=false silently returns "
@@ -109,11 +146,15 @@ class DataStage(Stage):
 
 
 class TrainStage(Stage):
-    model_path: str = Field(
+    model_path: str | None = Field(
+        default=None,
         description="the model dir this stage produced — the one the eval stage scores and the "
-        "next node continues from. The only path in this report, because the tree consumes it."
+        "next node continues from. The only path in this report, because the tree consumes it, "
+        "and the only field here the runtime cannot recover from the harness's own files: which "
+        "checkpoint you hand forward is a DECISION, not a measurement. Omit when status=skipped.",
     )
-    template: str = Field(
+    template: str | None = Field(
+        default=None,
         description="the chat template LF ACTUALLY used — read it back from train_config.yaml, do "
         "not restate the plan. A run whose online-ops entry could not register its family's "
         "template produced its best score under another family's turn framing, with the frozen "
@@ -133,22 +174,34 @@ class TrainStage(Stage):
 
 
 class SweepPoint(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    """One scored eval directory. Written by the runtime, never by the experimenter.
 
-    step: int | Literal["final"]
-    score: float
+    Asking the experimenter to declare its own sweep only ever surfaced the winner: 15 of the 29
+    nodes of the 2026-08-13 batch scored between 2 and 6 checkpoints on the FULL benchmark and
+    reported the maximum, and nothing downstream could see that a champion's 30.36 came from
+    checkpoint 12 while its final weights scored 28.12. The eval dirs were on disk the whole time.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    eval_dir: str | None = None
+    score: float | None = None
+    limit: int | None = None
+    n_samples: int | None = None
 
 
 class EvalStage(Stage):
     score: float | None = Field(
-        description="native % from summary.json; null when no score exists. This is the ONLY "
-        "authoritative score in the report — the old shape let it be read from three different "
-        "places."
+        default=None,
+        description="native % — restate it from summary.json if you like, but the runtime "
+        "overwrites this block from the harness's own files, so a typo here costs nothing.",
     )
-    limit: int = Field(
-        description="items evaluated. -1 = the full frozen benchmark. REQUIRED: a subset score and "
-        "a full score are not comparable, and three runs of the previous batch delivered a "
-        "subset-scored model as their submission because the caliber was optional."
+    limit: int | None = Field(
+        default=None,
+        description="items evaluated. -1 = the full frozen benchmark. A subset score and a full "
+        "score are not comparable, and three runs of an earlier batch delivered a subset-scored "
+        "model as their submission because the caliber was missing — which is why the runtime now "
+        "takes it from summary.json rather than asking you to be careful.",
     )
     stderr: float | None = Field(
         default=None,
@@ -164,9 +217,9 @@ class EvalStage(Stage):
     )
     checkpoint_sweep: list[SweepPoint] | None = Field(
         default=None,
-        description="every candidate you scored when the plan set save_steps, winner included. "
-        "'the midpoint beat the final' is a finding for the next round even when the winner is "
-        "unremarkable.",
+        description="every scored eval dir under this node, winner included — stamped by the "
+        "runtime from the harness's own files, so 'the midpoint beat the final' reaches the next "
+        "round whether or not the experimenter thought to mention it.",
     )
     n_samples: int | None = Field(
         default=None,
@@ -183,20 +236,22 @@ class ReviewStage(Stage):
     """The one stage that produces a judgement rather than an artifact."""
 
     failure_classes: dict[str, int] = Field(
-        description="your own class names -> counts. The leader compares these ACROSS rounds."
+        default_factory=dict,
+        description="your own class names -> counts. The leader compares these ACROSS rounds.",
     )
-    sampled: bool = Field(
+    sampled: bool | None = Field(
+        default=None,
         description="true when the counts come from a SAMPLE, false for a full census. The "
         "previous batch mixed 5-item samples with 100-item censuses under identical key names and "
         "the leader compared the numbers anyway. Derived automatically when you give "
-        "`sample_size` instead — reporting the sizes is strictly more informative, so the schema "
-        "accepts the better answer rather than insisting on the boolean."
+        "`sample_size` instead.",
     )
-    sample_size: dict[str, int] | None = Field(
+    sample_size: int | dict[str, int] | None = Field(
         default=None,
-        description="how many rollouts you actually read, per outcome, e.g. "
-        "{'correct': 5, 'wrong': 5}. Omit for a full census. Volunteered by an experimenter "
-        "before any contract asked for it, which is a good sign it is the natural way to answer.",
+        description="how many rollouts you actually read — a count (5) or a breakdown "
+        "({'correct': 5, 'wrong': 5}). Omit for a full census. Both spellings appear in real "
+        "reports and both answer the question, so both are accepted: insisting on one of them is "
+        "what made this the single most common validation failure on disk (21 of 33).",
     )
 
     @model_validator(mode="before")
@@ -207,16 +262,18 @@ class ReviewStage(Stage):
         An experimenter wrote ``sample_size: {"correct": 5, "wrong": 5}`` and no ``sampled``; the
         field the leader reads was then absent even though the report had said MORE than the
         contract asked. Deriving costs six lines and removes the whole class of "right answer,
-        wrong key". The missing case is deliberately NOT derived: a review that mentions neither
-        still fails validation, because the dangerous default is silently claiming a census.
+        wrong key".
         """
-        if isinstance(data, dict) and "sampled" not in data and data.get("sample_size"):
+        if isinstance(data, dict) and data.get("sampled") is None and data.get("sample_size"):
             return {**data, "sampled": True}
         return data
-    anomalies: str = Field(description="repetition / length / format drift, or 'none'")
-    conclusion: str = Field(
+    anomalies: str | None = Field(
+        default=None, description="repetition / length / format drift, or 'none'"
+    )
+    conclusion: str | None = Field(
+        default=None,
         description="one sentence: the dominant failure mode AND where it lives — model "
-        "capability / output shape / scorer parsing."
+        "capability / output shape / scorer parsing.",
     )
     dominant_evidence: str | None = Field(
         default=None,
@@ -229,11 +286,17 @@ class ReviewStage(Stage):
 
 
 class Stages(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # `forbid` here rejected a whole report because an experimenter declared an `export` stage for
+    # its LoRA merge — a stage that really happened, described in the natural place.
+    model_config = ConfigDict(extra="allow")
 
     data: DataStage | None = Field(default=None, description="absent on a baseline node")
     train: TrainStage | None = Field(default=None, description="absent on a baseline node")
-    eval: EvalStage
+    eval: EvalStage = Field(
+        default_factory=lambda: EvalStage(status="failed"),
+        description="the scored stage. Its absence is not a parse error, it is a node with no "
+        "measurement — which is what `failed` means.",
+    )
     review: ReviewStage | None = Field(
         default=None,
         description="written in a SECOND pass, after the score is already on disk. A completed "
@@ -246,8 +309,8 @@ class Report(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    id: str = Field(description="the tree node id from your task prompt")
-    stages: Stages
+    id: str = Field(default="", description="the tree node id from your task prompt")
+    stages: Stages = Field(default_factory=Stages)
 
     @property
     def score(self) -> float | None:
@@ -265,105 +328,16 @@ class Report(BaseModel):
         return self.stages.train.model_path if self.stages.train else None
 
 
-def _legacy_stage_status(raw: dict, stage: str, *, default: str = "completed") -> tuple[str, str | None]:
-    """``(terminal_status, note)`` for one stage of an old report.
-
-    Old reports wrote ``stages`` as a dict of dicts, a dict of plain strings, or a bare name list,
-    and 11 of the 1232 on disk are MID-FLIGHT snapshots — a stage left at ``running`` / ``pending``
-    / ``not_started`` / ``timeout`` because the experiment was killed before it finished. This
-    schema's vocabulary is deliberately terminal (an experimenter writing a report has no
-    non-terminal option to reach for), so the non-terminal words are normalised here, in the one
-    place that speaks the old dialect. The original word is returned as a note rather than dropped:
-    "the train stage never started" and "training failed" are different diagnoses, and the leader
-    needs the difference.
-    """
-    stages = raw.get("stages")
-    entry = stages.get(stage) if isinstance(stages, dict) else None
-    if isinstance(entry, dict):
-        word = str(entry.get("status") or default)
-    elif isinstance(entry, str):
-        word = entry
-    else:
-        word = default
-    if word in ("completed", "failed", "skipped"):
-        return word, None
-    return "failed", f"stage was still {word!r} when this report was written"
-
-
-def from_legacy(raw: dict) -> Report:
-    """Read a pre-stage-shaped report.
-
-    1232 reports in the workspace still carry it, and they are the regression corpus for this
-    schema — a shape change that cannot read its own history cannot be checked against it
-    (``tests/agent/test_report_contract.py`` reads all of them). This is the only place that knows
-    the old field names; consumers call :func:`read` and never see them.
-    """
-    ev = raw.get("eval") or {}
-    analysis = raw.get("analysis") or {}
-    dataset = raw.get("dataset") or {}
-    model = raw.get("model") or {}
-    # the old shape allowed the score in three places; take them in the order _report_score did
-    score = raw.get("score")
-    if not isinstance(score, (int, float)):
-        score = ev.get("macro_average")
-    if not isinstance(score, (int, float)):
-        score = ev.get("score")
-    limit = ev.get("limit")
-
-    def stage(name: str, **fields) -> dict:
-        status, note = _legacy_stage_status(raw, name)
-        error = fields.pop("error", None) or note
-        return {"status": status, "error": error, **fields}
-
-    stages: dict = {
-        "eval": stage(
-            "eval",
-            score=float(score) if isinstance(score, (int, float)) else None,
-            # a legacy report that never recorded its caliber is the very hazard this field
-            # exists for; -1 would silently claim "full", so leave it visibly wrong instead
-            limit=int(limit) if isinstance(limit, (int, float)) else 0,
-            n_samples=int(ev["n_samples"]) if isinstance(ev.get("n_samples"), (int, float)) else None,
-            checkpoint_sweep=analysis.get("checkpoint_sweep"),
-            error=raw.get("error") if not isinstance(score, (int, float)) else None,
-        )
-    }
-    if dataset:
-        stages["data"] = stage(
-            "data",
-            rows=int(dataset.get("rows") or 0),
-            fingerprint=dataset.get("fingerprint"),
-        )
-    if model.get("path"):
-        stages["train"] = stage(
-            "train",
-            model_path=str(model["path"]),
-            # legacy reports never recorded what LF actually used — that gap is audit 13.2
-            template=str(raw.get("template") or "unrecorded"),
-        )
-    if analysis:
-        stages["review"] = {
-            "status": "completed",
-            "failure_classes": analysis.get("failure_classes") or {},
-            # legacy counts mixed 5-item samples with full censuses under the same key names,
-            # and nothing recorded which was which — assume the cautious answer
-            "sampled": True,
-            "anomalies": str(analysis.get("anomalies") or "none"),
-            "conclusion": str(analysis.get("conclusion") or ""),
-        }
-    fixes = raw.get("compatibility_fixes") or raw.get("compat_fixes") or []
-    if fixes:
-        stages.setdefault("data", {"status": "completed", "rows": 0})
-        stages["data"].setdefault("fixes", [])
-        stages["data"]["fixes"] = [str(f) for f in fixes]
-    return Report.model_validate({"id": raw.get("id") or raw.get("name") or "?", "stages": stages})
-
-
 def read(raw: dict) -> Report:
-    """Validate a report of either shape. The only entry point consumers should use."""
-    try:
-        return Report.model_validate(raw)
-    except Exception:
-        return from_legacy(raw)
+    """The one way to turn a report on disk into typed values.
+
+    It does not validate — nothing above is required — so the only way this raises is a `raw` that
+    is not report-shaped at all (``stages`` as a list, say). That is a real error and belongs to
+    the caller, which is the change: the previous version caught every exception and fell through
+    to a reader for a report shape no live code path ever encounters, turning any mismatch into a
+    silent ``score=None, status="failed"``.
+    """
+    return Report.model_validate(raw)
 
 
 def is_terminal(raw: dict) -> bool:
@@ -371,22 +345,17 @@ def is_terminal(raw: dict) -> bool:
 
     The executor's resume logic hangs off this question: answer "yes" too early and the review
     stage never gets written, answer "no" for a finished report and the experimenter is re-run
-    forever. The old shape answered it with a hand-written top-level ``status``, where ``running``
-    meant "scored but still working" — the one legitimate use of a field this schema drops.
+    forever — which is exactly what happened to a node whose report was complete on disk from its
+    first write: validation kept failing, this returned False, and the agent was woken four times
+    over six minutes to re-assert a report it had already written correctly.
 
-    The replacement is already in the shape rather than beside it. The contract orders the two
-    writes: data/train/eval first (so a score is never hostage to later steps), then a rewrite
-    adding ``review``. So a report carrying ``review`` is one whose author considered itself done,
-    and a scored report without one is mid-run — exactly what ``status: "running"`` encoded. A
-    failed eval is terminal too: there is no review to wait for.
+    The answer is in the shape rather than beside it. The contract orders the two writes:
+    data/train/eval first (so a score is never hostage to later steps), then a rewrite adding
+    ``review``. So a report carrying ``review`` is one whose author considered itself done, and a
+    scored report without one is mid-run. A failed eval is terminal too: there is no review to
+    wait for.
     """
-    status = raw.get("status")
-    if isinstance(status, str):  # legacy: the experimenter declared terminality by hand
-        return status in ("completed", "failed")
-    try:
-        parsed = Report.model_validate(raw)
-    except Exception:
-        return False  # not a report we can reason about — treat as unfinished, never as done
+    parsed = read(raw)
     return parsed.stages.review is not None or parsed.stages.eval.status == "failed"
 
 
