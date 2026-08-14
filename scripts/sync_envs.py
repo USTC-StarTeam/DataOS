@@ -33,6 +33,19 @@ def _ssh(host: str, cmd: str) -> str:
     return r.stdout.strip()
 
 
+#: A tool's source dir. `tools/` holds the agent's instruments; dataos-operator is the
+#: platform's own library and lives in `src/operator`. Searched rather than mapped, so a
+#: future move needs no edit here.
+_PKG_BASES = ("tools", "src")
+
+
+def _pkg_dir(tool: str) -> str:
+    for base in _PKG_BASES:
+        if (REPO / base / tool / "pyproject.toml").is_file():
+            return f"{base}/{tool}"
+    raise SystemExit(f"no pyproject.toml for tool {tool!r} under {' or '.join(_PKG_BASES)}/")
+
+
 def _installed(host: str, venv: str, dist: str) -> str | None:
     out = _ssh(
         host,
@@ -68,7 +81,7 @@ def main() -> int:
             print(f"[MISMATCH] {env_name}: dataos-{tool} installed={have} declared={want}")
             if args.check:
                 continue
-            src = f"{args.deploy_root}/tools/{tool}"
+            src = f"{args.deploy_root}/{_pkg_dir(tool)}"
             print(f"  installing {src} -> {venv}")
             _ssh(
                 args.ssh_host,

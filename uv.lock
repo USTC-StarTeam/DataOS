@@ -1130,7 +1130,7 @@ requires-dist = [
     { name = "accelerate", marker = "extra == 'eval'", specifier = ">=0.34" },
     { name = "dataos-eval", editable = "tools/eval" },
     { name = "dataos-launch", editable = "tools/launch" },
-    { name = "dataos-operator", editable = "tools/operator" },
+    { name = "dataos-operator", editable = "src/operator" },
     { name = "dataos-train", editable = "tools/train" },
     { name = "datasets", specifier = ">=2.19.0" },
     { name = "evaluate", marker = "extra == 'eval'", specifier = ">=0.4.0" },
@@ -1161,7 +1161,7 @@ dev = [
 
 [[package]]
 name = "dataos-eval"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "tools/eval" }
 dependencies = [
     { name = "dataos-launch" },
@@ -1198,8 +1198,8 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "dataos-operator"
-version = "0.8.2"
-source = { editable = "tools/operator" }
+version = "0.9.0"
+source = { editable = "src/operator" }
 dependencies = [
     { name = "datasets" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },

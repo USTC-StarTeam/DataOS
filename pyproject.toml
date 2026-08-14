@@ -29,7 +29,10 @@ dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["tools/*"]
+# `tools/*` are the agent's instruments; dataos-operator is the platform's own
+# operator library and lives beside dataos/ and dataos_agent/ in src/ — still its
+# own distribution, because the cluster venvs install it WITHOUT the platform.
+members = ["tools/*", "src/operator"]
 
 [tool.uv.sources]
 dataos-launch = { workspace = true }

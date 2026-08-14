@@ -40,7 +40,7 @@ fi
 case "$E" in
   dataos_sft)
     echo ">>> [$E] install repo tools from $REPO/tools"
-    "$UV" pip install --python "$V/bin/python" "$REPO/tools/train" "$REPO/tools/operator"
+    "$UV" pip install --python "$V/bin/python" "$REPO/tools/train" "$REPO/src/operator"
     ;;
   train-cli)
     echo ">>> [$E] install repo tool train from $REPO/tools"

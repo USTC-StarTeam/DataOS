@@ -1,6 +1,6 @@
 # DataOS Operator
 
-这是 [DataOS](https://github.com/USTC-StarTeam/DataOS) 主仓的算子组件（`tools/operator/`，uv workspace 成员；旧的独立仓 DataOS-Operator 已废弃）。
+这是 [DataOS](https://github.com/USTC-StarTeam/DataOS) 主仓的算子组件（`src/operator/`，uv workspace 成员；旧的独立仓 DataOS-Operator 已废弃）。
 
 ## 仓库构成
 
@@ -25,7 +25,7 @@ scripts/         # 后续放仓库辅助脚本
 
 ## 安装与导入
 
-本包是 DataOS 主仓的 uv workspace 成员（`tools/operator/`），随主仓 `uv sync` 即可获得——主仓
+本包是 DataOS 主仓的 uv workspace 成员（`src/operator/`），随主仓 `uv sync` 即可获得——主仓
 `pyproject.toml` 以 `{ workspace = true }` 声明依赖，无 git pin。在 H100 部署上它预装进 `dataos_sft`
 派生 env，版本与主仓 env.yaml 的 `dataos_tools` 声明绑死（升级 = bump 本仓 `pyproject.toml` 版本 +
 改声明 + 跑 `scripts/sync_envs.py`）。

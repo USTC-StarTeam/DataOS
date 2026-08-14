@@ -30,7 +30,7 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   DataOS-Operator repos are archived): `dataos_agent` (code-agent CLI drivers:
   claude/kimi/codex/qwen + transport self-healing) is a brain component at
   `src/dataos_agent/` (ships inside the dataos distribution); the experimenter's tools are
-  uv-workspace members under `tools/` — `tools/train` (dataos-train), `tools/operator`
+  uv-workspace members under `tools/` — `tools/train` (dataos-train), `src/operator`
   (dataos-operator), `tools/eval` (dataos-eval). No git pins anywhere; `uv lock` resolves
   the workspace.
 - Core deps: `datasets`, `pyarrow`, `pydantic`, `tenacity`, + the in-repo tools.
@@ -49,7 +49,7 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   `tests/dataos_agent/`.
 - `tools/` — the agent's instruments, standalone distributions + uv workspace members:
   `tools/train` (dataos-train: unified train launcher, validate/build/submit/status/collect),
-  `tools/operator` (dataos-operator: the operator catalog),
+  `src/operator` (dataos-operator: the operator catalog),
   `tools/eval` (dataos-eval: the frozen evaluator's submit/status/collect CLI — owns all
   eval scheduling + the login-node judge step). Tool versions are pinned by the
   `dataos_tools` declaration in `env.yaml` (== their pyproject versions; enforced by

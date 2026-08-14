@@ -159,7 +159,7 @@ pins.
 | `src/dataos/` | The loop, planner and reviewer, role runners, the frozen-eval boundary, the `Project → Study → Experiment → Stage` model, the report schema, prompts and the monitor |
 | `src/dataos_agent/` | The code-agent CLI driver: a neutral event stream over four providers, transport self-healing, and a stall watchdog |
 | `tools/train/` | **dataos-train** — deterministic training lifecycle (validate / build / submit / status / collect) over LLaMA-Factory and verl |
-| `tools/operator/` | **dataos-operator** — 52 data-recipe operators (27 selectors, 10 evaluators, 10 mappers, 4 mixers, 1 reweighter) |
+| `src/operator/` | **dataos-operator** — 52 data-recipe operators (27 selectors, 10 evaluators, 10 mappers, 4 mixers, 1 reweighter) |
 | `tools/eval/` | **dataos-eval** — submits and collects one frozen benchmark evaluation, resolving the protocol from config plus the model's own `config.json` |
 | `configs/` | Environments, tasks (benchmarks, eval protocol, vendored benchmark data) and run definitions |
 
@@ -198,7 +198,7 @@ invariants and hard-won cluster facts. Human contributors will find it useful to
 | [`configs/CONTRACT.md`](configs/CONTRACT.md) | Environment / task / run-JSON specification |
 | [`AGENTS.md`](AGENTS.md) | Conventions and invariants for agents editing this repo |
 | [`tools/train/README.md`](tools/train/README.md) | TrainSpec, backends, online operators |
-| [`tools/operator/README.md`](tools/operator/README.md) | The operator catalog |
+| [`src/operator/README.md`](src/operator/README.md) | The operator catalog |
 | `docs/eval/` | Eval protocol decisions and baseline results |
 | `docs/dataos_agent/` | The CLI driver layer |
 | `docs/troubleshooting.md` | Operational failure modes and their fixes |
