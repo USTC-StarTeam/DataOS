@@ -69,6 +69,19 @@ def test_gres_is_not_gpus() -> None:
     assert "#SBATCH --gres=gpu:1" in text
 
 
+def test_a_typed_gres_keeps_its_type() -> None:
+    """A node can be heterogeneous, and PTB's gpu05 is: 6x nvidia_h100_80gb_hbm3 + 4x 40gb.
+    An untyped `--gres=gpu:1` lands on either, so a run sized for 80 GiB OOMs on some
+    submissions and not others — which reads as a flaky cluster, not as an underspecified
+    request. The KIND is the environment's declaration; only the COUNT is the job's."""
+    launcher = SlurmLauncher(**{**PTB, "gres_required": "gpu:nvidia_h100_80gb_hbm3:1"})
+    text = launcher.render(_job(resources=Resources(gpus=2)))
+    assert "#SBATCH --gres=gpu:nvidia_h100_80gb_hbm3:2" in text
+    # and a CPU job still gets the one card the partition forces, of that same type
+    cpu = launcher.render(_job(resources=Resources(gpus=0, cpus=8)))
+    assert "#SBATCH --gres=gpu:nvidia_h100_80gb_hbm3:1" in cpu
+
+
 def test_no_gres_where_the_partition_does_not_require_one() -> None:
     text = SlurmLauncher(partition="cpu").render(_job(resources=Resources(gpus=0, cpus=8)))
     assert "--gres" not in text

@@ -98,6 +98,23 @@ def _gres_count(gres: str) -> int:
     return int(tail) if tail.isdigit() else 0
 
 
+def _gres_kind(gres: str | None) -> str:
+    """The part before the count: ``"gpu"``, or ``"gpu:nvidia_h100_80gb_hbm3"``.
+
+    A node can be heterogeneous, and one of PTB's is: gpu05 carries
+    ``gpu:nvidia_h100_80gb_hbm3:6`` alongside ``gpu:40gb:4``. An untyped ``--gres=gpu:1`` may
+    land on either, so a full-SFT sized for 80 GiB OOMs on roughly half its submissions and
+    succeeds on the rest — a failure that looks like a flaky cluster rather than a request that
+    never said what it needed.
+    """
+    if not gres:
+        return "gpu"
+    parts = str(gres).split(":")
+    if parts and parts[-1].isdigit():
+        parts = parts[:-1]
+    return ":".join(parts) or "gpu"
+
+
 class SlurmLauncher(Launcher):
     name = "slurm"
     script_suffix = ".sbatch"
@@ -193,7 +210,9 @@ class SlurmLauncher(Launcher):
             f"#SBATCH --time={self.time_limit(r)}",
         ]
         if cards:
-            lines.append(f"#SBATCH --gres=gpu:{cards}")
+            # The KIND comes from the environment's own declaration, so a deployment that must
+            # name a card model gets to; the COUNT is this job's.
+            lines.append(f"#SBATCH --gres={_gres_kind(self.gres_required)}:{cards}")
         if self.partition:
             lines.append(f"#SBATCH --partition={self.partition}")
         if self.qos:
