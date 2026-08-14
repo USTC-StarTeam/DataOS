@@ -19,7 +19,7 @@ from dataos_train.backends.dummy import DummyBackend
 from dataos_train.spec import SFT, TrainSpec
 
 _SRC = str(Path(__file__).resolve().parents[1] / "src")
-_REPO = Path(__file__).resolve().parents[3]  # the DataOS repo root (configs/ lives there)
+_REPO = Path(__file__).resolve().parents[4]  # the DataOS repo root (configs/ lives there)
 
 
 def _spec(run_dir: Path, exit_code: int = 0) -> TrainSpec:

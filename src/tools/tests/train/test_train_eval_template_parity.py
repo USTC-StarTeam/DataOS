@@ -25,7 +25,7 @@ import yaml
 from jinja2 import Environment, nodes
 from jinja2.ext import Extension
 
-REPO = Path(__file__).resolve().parents[3]
+REPO = Path(__file__).resolve().parents[4]
 TASK = REPO / "configs" / "tasks" / "posttrainbench"
 TEMPLATES = TASK / "eval" / "lmeval" / "templates"
 

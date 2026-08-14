@@ -30,8 +30,8 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   DataOS-Operator repos are archived): `dataos_agent` (code-agent CLI drivers:
   claude/kimi/codex/qwen + transport self-healing) is a brain component at
   `src/dataos_agent/` (ships inside the dataos distribution); the experimenter's tools are
-  uv-workspace members under `tools/` — `tools/train` (dataos-train), `src/operator`
-  (dataos-operator), `tools/eval` (dataos-eval). No git pins anywhere; `uv lock` resolves
+  uv-workspace members under `src/` — `src/tools` (dataos-tools: the three instruments
+  plus the launcher) and `src/operator` (dataos-operator). No git pins anywhere; `uv lock` resolves
   the workspace.
 - Core deps: `datasets`, `pyarrow`, `pydantic`, `tenacity`, + the in-repo tools.
   Training/eval stacks (LLaMA-Factory, lm-eval, vLLM, torch) live in **frozen uv venvs on H100**
@@ -47,10 +47,10 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
 - `src/dataos_agent` — the CLI driver layer (neutral Event/Result, healing stream, stall
   watchdog; providers under `providers/`). Docs: `docs/dataos_agent/`; tests:
   `tests/dataos_agent/`.
-- `tools/` — the agent's instruments, standalone distributions + uv workspace members:
-  `tools/train` (dataos-train: unified train launcher, validate/build/submit/status/collect),
-  `src/operator` (dataos-operator: the operator catalog),
-  `tools/eval` (dataos-eval: the frozen evaluator's submit/status/collect CLI — owns all
+- `src/tools` — ONE distribution (dataos-tools) holding the agent's three instruments and
+  the launcher they submit through: `dataos_data` / `dataos_train` / `dataos_eval` /
+  `dataos_launch`. Each instrument owns a stage (submit/status/cancel; train adds
+  validate/build/collect, data adds probe, eval adds collect) — owns all
   eval scheduling + the login-node judge step). Tool versions are pinned by the
   `dataos_tools` declaration in `env.yaml` (== their pyproject versions; enforced by
   `tests/agent/test_env_tools_versions.py`); upgrading a tool = bump its version, update the

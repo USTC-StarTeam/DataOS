@@ -179,7 +179,7 @@ uv run pytest -q
 |---|---|
 | [`configs/CONTRACT.md`](configs/CONTRACT.md) | 环境 / 任务 / run JSON 的字段规格 |
 | [`AGENTS.md`](AGENTS.md) | 在本仓库改代码的约定与不变量 |
-| [`tools/docs/train/README.md`](tools/docs/train/README.md) | TrainSpec、后端、在线算子 |
+| [`src/tools/docs/train/README.md`](src/tools/docs/train/README.md) | TrainSpec、后端、在线算子 |
 | [`src/operator/README.md`](src/operator/README.md) | 算子目录 |
 | `docs/eval/` | 评估协议决策与基线结果 |
 | `docs/dataos_agent/` | CLI 驱动层 |

@@ -1,10 +1,10 @@
 """Contract: DataOS's build_train_spec output must pass dataos-train's own validate() —
 the spec crosses the tool boundary as data, and the two schemas must never drift apart.
 
-dataos-train lives in this repo (``tools/train``) and is imported from there. It used to be a
+dataos-train lives in this repo (an instrument of ``src/tools``) and is imported from there. It used to be a
 separate repo, and this module used to prepend a sibling checkout (``../DataOS-train/src``) to
 ``sys.path`` as a fallback. That fallback outlived the move and became a hazard: a stale sibling
-directory SHADOWED the in-repo package, so running ``pytest tests/ tools/train/tests/`` in one
+directory SHADOWED the in-repo package, so running ``pytest tests/ src/tools/tests/`` in one
 process collected an old ``dataos_train`` and died on imports of modules added since. Same shape
 as the defects in audit batch 12 — an outdated external copy silently beating the declared one.
 """

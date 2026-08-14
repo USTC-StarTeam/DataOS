@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-REPO = Path(__file__).resolve().parents[3]
+REPO = Path(__file__).resolve().parents[4]
 PROTOCOL = REPO / "configs" / "tasks" / "posttrainbench" / "eval" / "protocol.yaml"
 
 

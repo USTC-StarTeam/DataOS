@@ -33,12 +33,11 @@ def _ssh(host: str, cmd: str) -> str:
     return r.stdout.strip()
 
 
-#: A tool's source dir. `tools/` holds the agent's instruments; dataos-operator is the
-#: platform's own library and lives in `src/operator`. Searched rather than mapped, so a
-#: future move needs no edit here.
-#: Where a declared tool's source lives, tried in order. `dataos-tools` IS `tools/`;
-#: `operator` is `src/operator`. Searched rather than mapped, so the next move costs no edit.
-_PKG_BASES = ("", "tools", "src")
+#: Where a declared tool's source lives, tried in order. Both are under `src/` now
+#: (`src/tools`, `src/operator`); the bare "" and "tools" entries keep an older checkout
+#: resolvable. Searched rather than mapped, so a move costs no edit here — which is why this
+#: file needed none when `tools/` became `src/tools/`.
+_PKG_BASES = ("src", "", "tools")
 
 
 def _pkg_dir(tool: str) -> str:

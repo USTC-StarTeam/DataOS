@@ -14,7 +14,7 @@ dependencies = [
   "datasets>=2.19.0",
   "httpx>=0.28,<0.29",
   "pyarrow>=15.0.0",
-  # --- in-repo workspace tools (the agent's instruments, see tools/) ---
+  # --- in-repo workspace members (see src/) ---
   "dataos-operator",
   "dataos-tools",
   # --- autonomous layer (dataos.agent): main + sub agents drive code-agent CLIs
@@ -27,11 +27,12 @@ dependencies = [
 ]
 
 [tool.uv.workspace]
-# `tools` is one distribution holding the agent's three instruments and the launcher they
-# submit through; dataos-operator is the platform's own operator library, in src/ beside
-# dataos/ and dataos_agent/ — its own distribution, because the cluster venvs install it
+# Both members live under src/, beside dataos/ and dataos_agent/: `src/tools` is one
+# distribution holding the agent's three instruments and the launcher they submit through,
+# `src/operator` is the platform's own operator library. Separate distributions because the
+# cluster venvs install them
 # WITHOUT the platform.
-members = ["tools", "src/operator"]
+members = ["src/tools", "src/operator"]
 
 [tool.uv.sources]
 dataos-operator = { workspace = true }
@@ -82,7 +83,7 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "tools/tests", "src/operator/tests"]
+testpaths = ["tests", "src/tools/tests", "src/operator/tests"]
 # integration tests drive real code-agent CLIs (kimi/codex/...) — run on demand only
 addopts = "--ignore=tests/dataos_agent/integration"
 asyncio_mode = "auto"

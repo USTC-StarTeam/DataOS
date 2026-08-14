@@ -20,7 +20,7 @@ scripts/         # 后续放仓库辅助脚本
 
 当前仓库只保留轻量框架和少量示例算子，不包含 pipeline 层。
 （历史上的 vendored LLaMA-Factory 修改版 fork 已随 dataos-train 的成型于 2026-08 删除——
-训练侧钩子现由 `tools/train` 的 online-ops 协议承载，本包经
+训练侧钩子现由 `src/tools` 里 dataos-train 的 online-ops 协议承载，本包经
 `dataos_train.online_ops` entry point 向 train 暴露在线算子。）
 
 ## 安装与导入

@@ -21,7 +21,7 @@
 | `access.key_ref` | 否 | path | 控制面上的私钥路径(不入库);无则用默认 ssh 配置 |
 | `tools` | 是 | map | 机器预装的**通用运行时**(uv venv / conda / bare venv 皆可);**共享冻结基线(sft/rl/eval)只列通用框架/基础设施**;repo 私有工具(dataos-train/dataos-operator)只能出现在 **DataOS 派生 env**(如 `dataos_sft` = sft 基线 + repo 工具),并须配 `dataos_tools` 版本声明 |
 | `tools.<名>` | — | map | 每个运行时:`{path: <venv 或 conda prefix,须有 bin/python>, provides: [通用框架名/能力...]}`;一律按 `{path}/bin/<tool>` 调用,与环境管理器无关 |
-| `tools.<名>.dataos_tools` | 否 | map | 该 venv 预装的 repo 工具及**绑死版本**:`{train: "0.1.0", operator: "0.6.0"}`——必须等于 `tools/<名>/pyproject.toml` 的 version(有测试兜底);升级 = bump 版本 + 改声明 + `scripts/sync_envs.py`,此外任何 push/pull 不动 venv |
+| `tools.<名>.dataos_tools` | 否 | map | 该 venv 预装的 repo 工具及**绑死版本**:`{train: "0.1.0", operator: "0.6.0"}`——必须等于 `src/tools/pyproject.toml` 的 version(有测试兜底);升级 = bump 版本 + 改声明 + `scripts/sync_envs.py`,此外任何 push/pull 不动 venv |
 | ~~`paths`~~ | — | — | **env 已无 paths 段**:`fixed_pool`/`deploy_root`/`runs_base` 都是 **run 级事实**(本次 run 的输入与产物位置,在 run JSON);`benchmarks` 不声明,代码拼 `{deploy_root}/configs/tasks/<task>/benchmarks` |
 | `resources` | 否 | map | 供大脑规划参考:`gpu_type` / `note` 等,自由字段 |
 | `gateway` | 否 | map | 从这台机可达的 **LLM 端点(仅连接事实)**:`{base_url, key_file}`。**不含 model**——用哪个 model / 并发是**任务**的选择(→ `task.scoring.judge`) |
@@ -132,7 +132,7 @@
 
 ## 7. 校验规则(compose.resolve 会检查)
 
-- env:`name/kind/access/tools/operations/discipline` 齐全;`operations` 含五动词。(`runs_base` 不再要求 —— 由 run JSON `exec.runs_base` 提供)
+- env:`name/kind/access/tools/operations/discipline` 齐全;`operations` 含 fetch/activate 两个动词(提交/轮询/取消归三个工具)。(`runs_base` 不再要求 —— 由 run JSON `exec.runs_base` 提供)
 - task:`name/inputs/objective/constraints/produce/scoring` 齐全;`scoring` 含 `evaluator/command/result`;`result` 含 `file/field/range`。
 - 模板里出现的 `{env.*}/{run.*}` 必须能在 env.yaml/run-config 找到对应值,否则解析报错(契约不满足)。
 - 未知顶层字段 → 警告(向前兼容,不报错)。
