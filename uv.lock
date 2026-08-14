@@ -27,11 +27,8 @@ resolution-markers = [
 [manifest]
 members = [
     "dataos",
-    "dataos-data",
-    "dataos-eval",
-    "dataos-launch",
     "dataos-operator",
-    "dataos-train",
+    "dataos-tools",
 ]
 
 [[package]]
@@ -1087,11 +1084,8 @@ name = "dataos"
 version = "0.3.0a0"
 source = { editable = "." }
 dependencies = [
-    { name = "dataos-data" },
-    { name = "dataos-eval" },
-    { name = "dataos-launch" },
     { name = "dataos-operator" },
-    { name = "dataos-train" },
+    { name = "dataos-tools" },
     { name = "datasets" },
     { name = "httpx" },
     { name = "jinja2" },
@@ -1130,11 +1124,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'eval'", specifier = ">=0.34" },
-    { name = "dataos-data", editable = "tools/data" },
-    { name = "dataos-eval", editable = "tools/eval" },
-    { name = "dataos-launch", editable = "tools/launch" },
     { name = "dataos-operator", editable = "src/operator" },
-    { name = "dataos-train", editable = "tools/train" },
+    { name = "dataos-tools", editable = "tools" },
     { name = "datasets", specifier = ">=2.19.0" },
     { name = "evaluate", marker = "extra == 'eval'", specifier = ">=0.4.0" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
@@ -1161,67 +1152,6 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "ruff", specifier = ">=0.6.0" },
 ]
-
-[[package]]
-name = "dataos-data"
-version = "0.1.0"
-source = { editable = "tools/data" }
-dependencies = [
-    { name = "dataos-launch" },
-    { name = "pyyaml" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dataos-launch", editable = "tools/launch" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "dataos-eval"
-version = "0.3.0"
-source = { editable = "tools/eval" }
-dependencies = [
-    { name = "dataos-launch" },
-    { name = "pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dataos-launch", editable = "tools/launch" },
-    { name = "pyyaml", specifier = ">=6.0" },
-]
-
-[[package]]
-name = "dataos-launch"
-version = "0.1.0"
-source = { editable = "tools/launch" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic", specifier = ">=2.6" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "dataos-operator"
@@ -1283,49 +1213,31 @@ requires-dist = [
 provides-extras = ["dev", "image", "hf", "llm", "train", "llamafactory"]
 
 [[package]]
-name = "dataos-train"
-version = "0.1.8"
-source = { editable = "tools/train" }
+name = "dataos-tools"
+version = "0.4.0"
+source = { editable = "tools" }
 dependencies = [
-    { name = "dataos-launch" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
     { name = "pydantic" },
+    { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
-all = [
-    { name = "datasets" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-data = [
-    { name = "datasets" },
-]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
-llamafactory = [
-    { name = "llamafactory", extra = ["metrics"] },
-]
-verl = [
-    { name = "ray" },
-]
 
 [package.metadata]
 requires-dist = [
-    { name = "dataos-launch", editable = "tools/launch" },
-    { name = "dataos-train", extras = ["dev", "data"], marker = "extra == 'all'", editable = "tools/train" },
-    { name = "datasets", marker = "extra == 'data'", specifier = ">=2.19.0" },
-    { name = "llamafactory", extras = ["metrics"], marker = "extra == 'llamafactory'", specifier = ">=0.9.4,<0.10" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pydantic", specifier = ">=2.6" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ray", marker = "extra == 'verl'", specifier = ">=2.9" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
 ]
-provides-extras = ["dev", "llamafactory", "verl", "data", "all"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "dataproperty"

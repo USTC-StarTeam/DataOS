@@ -13,7 +13,7 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 #: `tools/` holds the agent's instruments; dataos-operator is the platform's own operator
 #: library and lives in `src/operator`. Both are workspace members with their own version.
-_PKG_BASES = ("tools", "src")
+_PKG_BASES = ("", "tools", "src")
 
 
 def _pyproject(tool: str) -> Path:

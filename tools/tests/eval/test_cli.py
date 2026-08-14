@@ -174,7 +174,7 @@ def test_judge_flag_comes_from_the_protocol_not_a_tool_table(tmp_path):
     declared = {b for b, c in protocol["benches"].items() if c["judge"]}
     assert declared == {"healthbench", "arenahardwriting"}
     assert "JUDGE_BENCHES" not in (
-        (REPO / "tools" / "eval" / "src" / "dataos_eval" / "cli.py").read_text(encoding="utf-8")
+        (REPO / "tools" / "src" / "dataos_eval" / "cli.py").read_text(encoding="utf-8")
     )
     del yaml
 

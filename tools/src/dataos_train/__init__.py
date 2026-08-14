@@ -29,4 +29,7 @@ __all__ = [
 ]
 # Read from the installed distribution, not a second hand-maintained literal: this had
 # drifted to 0.1.0a0 while pyproject said 0.1.2. Same fix as dataos-operator/-eval.
-__version__ = _metadata.version("dataos-train")
+# One distribution now (dataos-tools): the launcher and the three instruments always ship
+# together, so they share a version. Read from the installed dist rather than a literal —
+# a second hand-maintained copy is how this constant once sat three minors stale.
+__version__ = _metadata.version("dataos-tools")

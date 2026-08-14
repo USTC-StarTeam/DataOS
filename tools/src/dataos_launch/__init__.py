@@ -15,7 +15,10 @@ from .protocols import Launcher
 from .registry import get_launcher, launcher_names, register_launcher
 from .types import Handle, JobSpec, LaunchPlan, RayPlan, Resources, SlurmExtras, Status
 
-__version__ = _metadata.version("dataos-launch")
+# One distribution now (dataos-tools): the launcher and the three instruments always ship
+# together, so they share a version. Read from the installed dist rather than a literal —
+# a second hand-maintained copy is how this constant once sat three minors stale.
+__version__ = _metadata.version("dataos-tools")
 
 __all__ = [
     "Handle",

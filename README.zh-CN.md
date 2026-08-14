@@ -143,9 +143,9 @@ uv run dataos configs/runs/ptb-gsm8k.json --resume   # 续跑已有工作区
 |---|---|
 | `src/dataos/` | 循环、规划器与复盘器、角色执行器、冻结评估边界、`Project → Study → Experiment → Stage` 模型、报告 schema、提示词与监控 |
 | `src/dataos_agent/` | code-agent CLI 驱动层：四个 provider 之上的中立事件流、传输自愈、停滞看门狗 |
-| `tools/train/` | **dataos-train** —— 确定性的训练生命周期（validate / build / submit / status / collect），支持 LLaMA-Factory 与 verl |
+| `tools/src/dataos_train/` | **dataos-train** —— 确定性的训练生命周期（validate / build / submit / status / collect），支持 LLaMA-Factory 与 verl |
 | `src/operator/` | **dataos-operator** —— 52 个数据配方算子（27 selector、10 evaluator、10 mapper、4 mixer、1 reweighter） |
-| `tools/eval/` | **dataos-eval** —— 提交并收集一次冻结基准评估，协议从配置加模型自己的 `config.json` 解析 |
+| `tools/src/dataos_eval/` | **dataos-eval** —— 提交并收集一次冻结基准评估，协议从配置加模型自己的 `config.json` 解析 |
 | `configs/` | 环境、任务（基准、评估协议、随仓库分发的基准数据）与运行定义 |
 
 提示词按角色与用途分开：`src/dataos/prompt/<role>/context/` 是这个角色始终知道的东西，
@@ -179,7 +179,7 @@ uv run pytest -q
 |---|---|
 | [`configs/CONTRACT.md`](configs/CONTRACT.md) | 环境 / 任务 / run JSON 的字段规格 |
 | [`AGENTS.md`](AGENTS.md) | 在本仓库改代码的约定与不变量 |
-| [`tools/train/README.md`](tools/train/README.md) | TrainSpec、后端、在线算子 |
+| [`tools/docs/train/README.md`](tools/docs/train/README.md) | TrainSpec、后端、在线算子 |
 | [`src/operator/README.md`](src/operator/README.md) | 算子目录 |
 | `docs/eval/` | 评估协议决策与基线结果 |
 | `docs/dataos_agent/` | CLI 驱动层 |

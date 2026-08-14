@@ -5,7 +5,7 @@ entry-point group — duck-typed, no import coupling (this module never imports
 dataos_train). Each factory here wraps one runtime-protocol operator into train's
 hook shape: ``__call__(batch: dict) -> list[float]`` per-sample factors with mean ≈ 1
 (the trainer feeds live per-sample losses in ``batch["losses"]``; see
-tools/train/docs/online_ops.md).
+tools/docs/train/online_ops.md).
 """
 
 from __future__ import annotations

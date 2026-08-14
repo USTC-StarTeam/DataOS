@@ -55,7 +55,7 @@ to drive the runtime was deleted once this path existed.
 2. dataos-train resolves the name through the `dataos_train.online_ops` entry-point
    group (registered by this package, see `integrations/dataos_train.py`), and the
    trainer feeds live per-sample losses to the hook every batch — no extra model is
-   loaded. Hook contract (`reweight` / `select` / `step`): `tools/train/docs/online_ops.md`.
+   loaded. Hook contract (`reweight` / `select` / `step`): `tools/docs/train/online_ops.md`.
 
    Bridged to dataos-train today: `loss_reweighter` (reweight), `loss_selector` and
    `delta_loss_selector` (select). Selectors that need eval/query sets

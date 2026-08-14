@@ -37,7 +37,7 @@ through a wrapper entry so the registration is in place; every other template ke
 `llamafactory-cli` directly.
 
 The registration also carries `default_system` — a hand translation of the header `smollm.jinja`
-injects into EVERY request (see the note below). `tools/train/tests/test_train_eval_template_parity.py`
+injects into EVERY request (see the note below). `tools/tests/train/test_train_eval_template_parity.py`
 renders both sides on the same messages and fails if they drift; it caught one divergence already
 (the `/no_think` branch prefills an empty `<think></think>`, which LF's own `qwen3_nothink` does
 not model).

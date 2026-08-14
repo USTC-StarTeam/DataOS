@@ -36,7 +36,9 @@ def _ssh(host: str, cmd: str) -> str:
 #: A tool's source dir. `tools/` holds the agent's instruments; dataos-operator is the
 #: platform's own library and lives in `src/operator`. Searched rather than mapped, so a
 #: future move needs no edit here.
-_PKG_BASES = ("tools", "src")
+#: Where a declared tool's source lives, tried in order. `dataos-tools` IS `tools/`;
+#: `operator` is `src/operator`. Searched rather than mapped, so the next move costs no edit.
+_PKG_BASES = ("", "tools", "src")
 
 
 def _pkg_dir(tool: str) -> str:

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dataos-tools"
+version = "0.4.0"
+description = "The agent's instruments — data / train / eval — and the launcher that submits them"
+requires-python = ">=3.11"
+authors = [{ name = "USTC-StarTeam" }]
+license = { text = "MIT" }
+# One distribution because there has only ever been one deployment target: the cluster's sft venv
+# installs all of these together and nothing installs a subset. Four versions to keep coherent for
+# a thing that always ships as a unit is overhead that has already cost — a single logical change
+# (the run's qos reaching every submitter) needed two version bumps, and a third declaration had
+# silently drifted. The MODULE boundaries stay: `python -m dataos_train.data.convert` is baked
+# into every generated run_train.sh, so the import paths are load-bearing in a way the
+# distribution boundary never was.
+dependencies = [
+  "pydantic>=2.6",
+  "numpy>=1.26",
+  "pyyaml>=6.0",
+]
+
+[project.scripts]
+dataos-data = "dataos_data.cli:main"
+dataos-train = "dataos_train.cli:main"
+dataos-eval = "dataos_eval.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dataos_launch", "src/dataos_data", "src/dataos_train", "src/dataos_eval"]
