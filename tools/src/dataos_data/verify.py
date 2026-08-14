@@ -1,10 +1,18 @@
-"""The data stage's output contract, checked where the data is.
+"""The data stage's output contract: completed where the data is, then checked.
 
 Runs INSIDE the data job, as its last step — the same place and for the same reason
-``dataos_train.data.convert`` runs inside the training job: the thing being checked is on that
+``dataos_train.data.convert`` runs inside the training job: the thing being handled is on that
 host, in that venv, and a failure has to fail THAT job.
 
-What it checks is what the 2026-08-14 batch actually got wrong, which is not what one would guess.
+Completed, not only checked, and the distinction is the point. The contract is two forms of the
+same rows: the HF ``save_to_disk`` dataset the training job's converter reads, and the alpaca
+``train.json`` + ``dataset_info.json`` LLaMA-Factory reads. The second is a transcription of the
+first, and the recipe used to be told to do it by hand — so a build could produce good data and
+still fail, or worse produce two forms that disagreed. :func:`materialize_alpaca` derives it
+instead, with the converter's own writer, and a recipe that writes its own is left alone.
+
+What it then checks is what the 2026-08-14 batch actually got wrong, which is not what one would
+guess.
 A recipe that filters everything away already fails loudly, because ``save_to_disk`` refuses to
 write a dataset with no rows to infer a schema from; humaneval's ``length_filter(40..2600)`` took
 four sources to zero and the build job died on the spot. There is deliberately no rows>0 check
@@ -47,6 +55,27 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def materialize_alpaca(sft_dir: Path, name: str = "dataos_sft") -> int | None:
+    """Derive the alpaca pair from the HF dataset. Returns rows written, or None if it existed.
+
+    The recipe writes ONE form. It used to be told to write two — ``save_to_disk`` for the
+    training job's converter, and ``train.json`` + ``dataset_info.json`` for LLaMA-Factory — and
+    the second was a transcription of the first, done by hand, per node, from a prompt. A whole
+    class of build failure was nothing but that transcription going wrong or being skipped.
+
+    Written by the same function the training job's converter uses, deliberately: the two agree
+    because they are one implementation, not because two implementations were checked against
+    each other. The converter rewrites this pair from the same HF rows when it runs, so doing it
+    here is idempotent — what it buys is that the alpaca form exists BEFORE training, which is
+    when ``llamafactory``'s truncation precheck samples it and when the report fingerprints it.
+    """
+    if (sft_dir / "train.json").is_file():
+        return None  # the recipe wrote its own; it is the authority on its own rows
+    from dataos_train.data.convert import read_records, to_alpaca, write_alpaca_dataset
+
+    return write_alpaca_dataset(to_alpaca(read_records(str(sft_dir))), str(sft_dir), name)
 
 
 def _alpaca_rows(sft_dir: Path) -> tuple[int, str] | None:
@@ -124,13 +153,11 @@ def verify(
         raise SystemExit(f"dataos-data: no data dir at {sft_dir}")
 
     hf_rows = _hf_rows(sft_dir)
+    derived = materialize_alpaca(sft_dir)
 
     alpaca = _alpaca_rows(sft_dir)
-    if alpaca is None:
-        raise SystemExit(
-            f"dataos-data: {sft_dir}/train.json is missing. The contract is BOTH forms: the HF "
-            "dataset for the converter and the alpaca train.json for LLaMA-Factory."
-        )
+    if alpaca is None:  # materialize_alpaca returned rows, so this cannot happen without a bug
+        raise SystemExit(f"dataos-data: {sft_dir}/train.json could not be derived from the dataset")
     alpaca_rows, fingerprint = alpaca
     if alpaca_rows != hf_rows:
         raise SystemExit(
@@ -148,6 +175,9 @@ def verify(
         "rows": hf_rows,
         "fingerprint": fingerprint,
         "path": str(sft_dir),
+        # Whether the alpaca form is the recipe's own or this step's. It changes what the
+        # fingerprint identifies, so it is recorded rather than inferred later.
+        "alpaca": "derived" if derived is not None else "written by the recipe",
     }
     if stats:
         # The recipe's own funnel, kept verbatim under one key so it cannot collide with the

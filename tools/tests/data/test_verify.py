@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from dataos_data.verify import MANIFEST, main, verify
+from dataos_data.verify import MANIFEST, main, materialize_alpaca, verify
 
 
 def _sft(tmp_path: Path, rows: list[dict] | None, *, alpaca: bool = True) -> Path:
-    """A data/sft dir in both forms, the way a recipe is contracted to leave it."""
+    """A data/sft dir. ``alpaca=False`` is the normal recipe now: it writes the HF form only."""
     from datasets import Dataset
 
     d = tmp_path / "data" / "sft"
@@ -64,9 +64,44 @@ def test_the_hf_form_is_required_because_the_converter_reads_it(tmp_path):
         verify(d)
 
 
-def test_the_alpaca_form_is_required_too(tmp_path):
-    with pytest.raises(SystemExit, match="train.json is missing"):
-        verify(_sft(tmp_path, _ROWS, alpaca=False))
+def test_the_alpaca_form_is_derived_when_the_recipe_wrote_only_the_dataset(tmp_path):
+    """The recipe writes ONE form. It used to be told to write two, the second a hand
+    transcription of the first — a whole class of build failure that was only transcription."""
+    d = _sft(tmp_path, _ROWS, alpaca=False)
+    m = verify(d)
+    assert m["rows"] == 3 and m["alpaca"] == "derived"
+    assert json.loads((d / "train.json").read_text()) == [
+        {"instruction": "q", "input": "", "output": "a", "system": "", "history": []}
+    ] * 3
+    # and the LF registry that names it, written by the converter's own writer
+    assert json.loads((d / "dataset_info.json").read_text())["dataos_sft"]["file_name"] == "train.json"
+
+
+def test_a_recipe_that_wrote_its_own_alpaca_form_keeps_it(tmp_path):
+    """It is the authority on its own rows; deriving over it would silently reshape them."""
+    d = _sft(tmp_path, _ROWS)
+    before = (d / "train.json").read_text()
+    assert verify(d)["alpaca"] == "written by the recipe"
+    assert (d / "train.json").read_text() == before
+    assert materialize_alpaca(d) is None
+
+
+def test_a_messages_dataset_projects_through_the_converters_own_alpaca(tmp_path):
+    """Derived by the SAME function the training job's converter uses, so the two agree because
+    they are one implementation — not because two were checked against each other."""
+    rows = [{"messages": [{"role": "user", "content": "hi"},
+                          {"role": "assistant", "content": "yo"}]}] * 2
+    d = verify(_sft(tmp_path, rows, alpaca=False)) and (tmp_path / "data" / "sft")
+    written = json.loads((d / "train.json").read_text())
+    assert written[0]["instruction"] == "hi" and written[0]["output"] == "yo"
+
+
+def test_the_derived_form_still_faces_every_check(tmp_path):
+    """Deriving does not exempt the data from the scan — the reserved token came from a SOURCE
+    row, so it survives any transcription, hand-written or not."""
+    rows = [{"instruction": "describe <video>", "input": "", "output": "ok"}]
+    with pytest.raises(SystemExit, match="<video>"):
+        verify(_sft(tmp_path, rows, alpaca=False), template="gemma3")
 
 
 def test_the_two_forms_must_be_the_same_rows(tmp_path):

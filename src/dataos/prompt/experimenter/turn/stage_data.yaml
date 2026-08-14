@@ -21,11 +21,13 @@ template: |
   The recipe runs in `{{ data_env }}`, which ships: {{ provides }}. Those are PREINSTALLED —
   never vendor them, pip-install them, or hunt for them.
 
-  OUTPUT CONTRACT — the submitted job checks it as its own last step, so "built nothing" fails
-  the BUILD rather than the training job downstream. Write the kept rows BOTH ways into
-  {ctx.run_root}/data/sft: the Alpaca `train.json` + `dataset_info.json`, AND the same rows as a
-  Hugging Face dataset (`dataset.save_to_disk(...)`) — dataos-train's converter calls
-  `load_from_disk` on that path and rejects the input without it.
+  OUTPUT CONTRACT — write the kept rows ONE way: a Hugging Face dataset at
+  {ctx.run_root}/data/sft (`dataset.save_to_disk(...)`). The submitted job derives LLaMA-Factory's
+  `train.json` + `dataset_info.json` from it and then checks the result, so "built nothing" fails
+  the BUILD rather than the training job downstream. Rows may be alpaca
+  (`{instruction,input,output}`) or `messages` — the same converter the training job uses does the
+  projection. Writing your own `train.json` is allowed and is then taken as authoritative, but it
+  buys nothing: hand-transcribing the rows a second time is where this stage used to fail.
 
   The operator toolbox installed for this run (the brain's pinned dataos-operator; inside the job confirm with `o.catalog()` and prefer `o.usage('<name>')` for exact signatures):
   {{ catalog }}

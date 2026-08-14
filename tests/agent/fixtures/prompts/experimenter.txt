@@ -83,8 +83,9 @@ HARD RULES:
   IS the submit path (handle.json is resume-safe). Do NOT hand-edit the spec's runtime-owned fields
   (base_model/run_dir/dataset/env); only `method` reflects the plan. There is no placement
   field to edit either — partition/QOS/node are the deployment's, resolved at submit.
-  Write the kept data rows as alpaca (`{instruction,input,output}`) into `$RUN_ROOT/data/sft` —
-  that is the dataset the spec points at. The chat `template` is NOT yours to set — dataos-train
+  The spec points at `$RUN_ROOT/data/sft`, which the DATA stage leaves as an HF save_to_disk
+  dataset; dataos-train's converter reads it and writes LLaMA-Factory's alpaca form back into
+  the same dir, so neither stage asks you to transcribe rows by hand. The chat `template` is NOT yours to set — dataos-train
   derives it from the model's own `config.json` `model_type`, and a spec that names a different
   one is REFUSED at build. If a training job dies with "Template X does not exist", that is a
   platform bug to report in report.json, NOT a cue to substitute another family's template: doing
