@@ -87,8 +87,10 @@ def test_the_guard_prescription_follows_the_qos_choice(monkeypatch):
         # the QOS travels on the RUN, which is the whole point; env.yaml only says which one
         # is the guarded one
         env = {"access": {}, "slurm": {"guard_qos": "gpu_normal",
+                                       "qos_available": ["gpu_priv", "gpu_normal"],
                                        "mem_per_gpu_mb": 125000, "cpus_per_gpu": 11}}
-        res = ResourceConfig.from_dict({"gpus": 1, "cpus": 8, "qos": qos})
+        res = ResourceConfig.from_dict({"gpus": 1, "cpus": 8, "qos": qos},
+                                       qos_available=env["slurm"]["qos_available"])
         cfg = AutoRunConfig(project_id="t", workspace="/tmp/x", target_bench="gsm8k")
         cfg.runtime_config = {"cluster": _cluster(env, res)}
         return system_prompt("experimenter", cfg)
@@ -110,9 +112,10 @@ def test_the_machines_limits_are_numbers_from_the_env_not_prose():
     from dataos.agent.backend import system_prompt
     from dataos.agent.run_config import ResourceConfig, _cluster
 
-    env = {"access": {}, "slurm": {"mem_per_gpu_mb": 64000,
+    env = {"access": {}, "slurm": {"mem_per_gpu_mb": 64000, "qos_available": ["gpu_priv"],
                                    "cpus_per_gpu": 7, "gres_required": "gpu:2"}}
-    res = ResourceConfig.from_dict({"gpus": 1, "cpus": 8, "qos": "gpu_priv"})
+    res = ResourceConfig.from_dict({"gpus": 1, "cpus": 8, "qos": "gpu_priv"},
+                                   qos_available=["gpu_priv"])
     cfg = AutoRunConfig(project_id="t", workspace="/tmp/x", target_bench="gsm8k")
     cfg.runtime_config = {"cluster": _cluster(env, res)}
     text = system_prompt("experimenter", cfg)
@@ -142,5 +145,13 @@ def test_the_qos_is_the_runs_and_a_typo_is_refused_at_load():
         ResourceConfig.from_dict({"gpus": 1, "cpus": 8, "qos": "gpu_prov"},
                                  qos_available=["gpu_priv", "gpu_normal"])
 
-    with pytest.raises(ValueError, match="qos"):
-        ResourceConfig.from_dict({"gpus": 1, "cpus": 8})
+    with pytest.raises(ValueError, match="qos"):   # declared, so choosing is mandatory
+        ResourceConfig.from_dict({"gpus": 1, "cpus": 8},
+                                 qos_available=["gpu_priv", "gpu_normal"])
+
+    # ...and the same rule read the other way. A workstation declares no QOS, so there is
+    # nothing to choose: requiring one made the LOCAL environment unloadable, and accepting one
+    # would put a Slurm word in the prompt of a machine that has no Slurm.
+    assert ResourceConfig.from_dict({"gpus": 1, "cpus": 8}).qos is None
+    with pytest.raises(ValueError, match="no QOS here"):
+        ResourceConfig.from_dict({"gpus": 1, "cpus": 8, "qos": "gpu_priv"})

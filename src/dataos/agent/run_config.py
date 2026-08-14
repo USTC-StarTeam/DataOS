@@ -146,20 +146,31 @@ class ResourceConfig:
     gpus: int
     cpus: int
     node: str | None = None  # optional pin; None = let Slurm pick any free node
-    # REQUIRED, and deliberately not defaulted in env.yaml. The QOS is what the run buys with —
-    # it changes between batches, and while it sat in env.yaml with no run-level override the
-    # only way to switch was to switch ENVIRONMENTS, which is how two files came to be identical
-    # but for that one line. env.yaml says which QOS exist; the run says which one it wants.
-    qos: str = "gpu_priv"
+    # Required exactly when the environment declares any, and deliberately not defaulted in
+    # env.yaml. The QOS is what the run buys with — it changes between batches, and while it sat
+    # in env.yaml with no run-level override the only way to switch was to switch ENVIRONMENTS,
+    # which is how two files came to be identical but for that one line. env.yaml says which QOS
+    # exist; the run says which one it wants. A workstation declares none, so there is nothing to
+    # choose: demanding it there made the LOCAL environment unloadable, which is the same mistake
+    # in the other direction — a Slurm word required of a machine that has no Slurm.
+    qos: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], *, qos_available: list[str] | None = None):
-        _require(data, ["gpus", "cpus", "qos"], "resource")
-        qos = _nonempty_str(data["qos"], "resource.qos")
-        if qos_available and qos not in qos_available:
+        _require(data, ["gpus", "cpus"], "resource")
+        qos = None
+        if qos_available:
+            _require(data, ["qos"], "resource")
+            qos = _nonempty_str(data["qos"], "resource.qos")
+            if qos not in qos_available:
+                raise ValueError(
+                    f"resource.qos {qos!r} is not one of the environment's qos_available "
+                    f"({', '.join(qos_available)}) — a typo here PENDs forever with no error"
+                )
+        elif data.get("qos"):
             raise ValueError(
-                f"resource.qos {qos!r} is not one of the environment's qos_available "
-                f"({', '.join(qos_available)}) — a typo here PENDs forever with no error"
+                f"resource.qos {data['qos']!r} is set, but this environment declares no "
+                "slurm.qos_available — there is no QOS here to choose from"
             )
         return cls(
             gpus=_positive_int(data["gpus"], "resource.gpus"),
