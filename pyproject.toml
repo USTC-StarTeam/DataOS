@@ -19,6 +19,7 @@ dependencies = [
   "dataos-operator",
   "dataos-train",
   "dataos-eval",
+  "dataos-data",
   # --- autonomous layer (dataos.agent): main + sub agents drive code-agent CLIs
   #     (claude / kimi / qwen ...) via the in-repo dataos_agent package
   #     (src/dataos_agent — transport self-healing lives there) ---
@@ -39,6 +40,7 @@ dataos-launch = { workspace = true }
 dataos-operator = { workspace = true }
 dataos-train = { workspace = true }
 dataos-eval = { workspace = true }
+dataos-data = { workspace = true }
 
 [dependency-groups]
 dev = [

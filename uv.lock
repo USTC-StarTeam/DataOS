@@ -27,6 +27,7 @@ resolution-markers = [
 [manifest]
 members = [
     "dataos",
+    "dataos-data",
     "dataos-eval",
     "dataos-launch",
     "dataos-operator",
@@ -1086,6 +1087,7 @@ name = "dataos"
 version = "0.3.0a0"
 source = { editable = "." }
 dependencies = [
+    { name = "dataos-data" },
     { name = "dataos-eval" },
     { name = "dataos-launch" },
     { name = "dataos-operator" },
@@ -1128,6 +1130,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'eval'", specifier = ">=0.34" },
+    { name = "dataos-data", editable = "tools/data" },
     { name = "dataos-eval", editable = "tools/eval" },
     { name = "dataos-launch", editable = "tools/launch" },
     { name = "dataos-operator", editable = "src/operator" },
@@ -1158,6 +1161,30 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "ruff", specifier = ">=0.6.0" },
 ]
+
+[[package]]
+name = "dataos-data"
+version = "0.1.0"
+source = { editable = "tools/data" }
+dependencies = [
+    { name = "dataos-launch" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dataos-launch", editable = "tools/launch" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "dataos-eval"
