@@ -3,7 +3,7 @@
 Agents emit a :class:`~dataos_train.spec.TrainSpec` and get back a
 :class:`~dataos_train.types.TrainResult`; backends (LLaMA-Factory, verl) sit behind that
 contract. WHERE the resulting job runs is not this package's concern — a backend renders a
-launcher-agnostic ``JobSpec`` and :mod:`dataos_launch` runs it, on Slurm or bare metal.
+launcher-agnostic ``Job`` and :mod:`dataos_launch` runs it, on Slurm or bare metal.
 """
 
 from __future__ import annotations

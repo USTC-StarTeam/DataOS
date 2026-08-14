@@ -13,7 +13,7 @@ import shlex
 from pathlib import Path
 
 from dataos_launch.io import read_json
-from dataos_launch.types import JobSpec, LaunchPlan, SlurmExtras, Status
+from dataos_launch.types import Job, LaunchPlan, SlurmExtras, Status
 
 from ...spec import DPO, KTO, ORPO, PPO, TrainSpec
 from ...types import Capabilities, TrainResult
@@ -198,7 +198,7 @@ class LlamaFactoryBackend:
                 stacklevel=2,
             )
 
-    def build(self, spec: TrainSpec) -> JobSpec:
+    def build(self, spec: TrainSpec) -> Job:
         if spec.dataset is None:
             raise ValueError("dataset is required")
         m: LlamaFactoryMethod = spec.method  # type: ignore[assignment]  # validated in validate()
@@ -286,7 +286,7 @@ class LlamaFactoryBackend:
             )
         assets["run_train.sh"] = "\n".join(steps) + "\n"
 
-        return JobSpec(
+        return Job(
             backend=self.name,
             job_name=spec.name or m.kind,
             command=["bash", "run_train.sh"],

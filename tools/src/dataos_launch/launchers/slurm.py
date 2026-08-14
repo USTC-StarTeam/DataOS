@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 from ..io import atomic_write_json, atomic_write_text, utc_now_iso
-from ..types import Handle, JobSpec, Status
+from ..types import Handle, Job, Status
 from .base import build_preamble, compose_launch_line, materialize
 
 _FAIL = {"FAILED", "NODE_FAIL", "OUT_OF_MEMORY", "BOOT_FAIL", "PREEMPTED", "REVOKED"}
@@ -48,7 +48,7 @@ class SlurmLauncher:
         # cluster-level defaults (partition/qos/nodelist) e.g. from run_config.to_cluster()
         self.defaults = defaults
 
-    def render_sbatch(self, job: JobSpec) -> str:
+    def render_sbatch(self, job: Job) -> str:
         r = job.resources
         s = job.slurm
         partition = s.partition or self.defaults.get("partition")
@@ -85,7 +85,7 @@ class SlurmLauncher:
         lines.append(compose_launch_line(job))
         return "\n".join(lines) + "\n"
 
-    def submit(self, job: JobSpec) -> Handle:
+    def submit(self, job: Job) -> Handle:
         materialize(job)
         run_dir = Path(job.run_dir)
         script = run_dir / f"{job.job_name}.sbatch"

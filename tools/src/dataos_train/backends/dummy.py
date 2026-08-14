@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from dataos_launch.io import read_json
-from dataos_launch.types import JobSpec, LaunchPlan, Status
+from dataos_launch.types import Job, LaunchPlan, Status
 
 from ..spec import TrainSpec
 from ..types import Capabilities, TrainResult
@@ -34,7 +34,7 @@ class DummyBackend:
             errors.append("run_dir is required")
         return errors
 
-    def build(self, spec: TrainSpec) -> JobSpec:
+    def build(self, spec: TrainSpec) -> Job:
         run_dir = spec.run_dir
         # A tiny portable program: write final_model/config.json + metrics.json, then exit.
         # An optional overrides["exit"] forces a non-zero exit (failure-path testing).
@@ -50,7 +50,7 @@ class DummyBackend:
         exit_code = 0
         if isinstance(spec.overrides, dict):
             exit_code = int(spec.overrides.get("exit", 0))
-        return JobSpec(
+        return Job(
             backend=self.name,
             job_name=spec.name or "dummy",
             command=[sys.executable, "-c", py],

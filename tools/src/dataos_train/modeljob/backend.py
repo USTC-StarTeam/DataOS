@@ -1,7 +1,7 @@
 """ModelJob orchestration: validate / build / collect around :mod:`score_entry`.
 
 ``validate`` is the pre-submit gate (fail-fast, no GPU). ``build`` renders
-``run_score.sh`` + ``modeljob.json`` as JobSpec assets, so any launcher — or an external
+``run_score.sh`` + ``modeljob.json`` as Job assets, so any launcher — or an external
 sbatch wrapper — just runs ``bash run_score.sh`` in ``run_dir``. ``collect`` parses the
 resulting ``scores.jsonl`` into a :class:`ScoreResult` with row-count/finiteness checks
 and summary statistics. This module is torch-free; torch only enters at job time inside
@@ -17,13 +17,14 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-from dataos_launch.types import JobSpec, LaunchPlan, SlurmExtras, Status
-from pydantic import BaseModel, ConfigDict, Field
+from dataos_launch.model import Model
+from dataos_launch.types import Job, LaunchPlan, SlurmExtras, Status
+from pydantic import Field
 
 from ..data.convert import read_records
 from .spec import GradientInteraction, ModelJobSpec
 
-NAME = "modeljob"  # env domain + JobSpec.backend label
+NAME = "modeljob"  # env domain + Job.backend label
 
 SFT_FORMATS = ("auto", "alpaca", "messages", "sharegpt")
 
@@ -31,11 +32,7 @@ SCORES_FILE = "scores.jsonl"
 CONFIG_FILE = "modeljob.json"
 
 
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", protected_namespaces=())
-
-
-class ScoreResult(_Model):
+class ScoreResult(Model):
     """Canonical scoring outcome, produced by :func:`collect`.
 
     ``metrics`` carries ``n_scored`` / ``n_null`` (records whose assistant segment was
@@ -123,7 +120,7 @@ def _render_run_script(run_dir: str) -> str:
     return "\n".join(steps) + "\n"
 
 
-def build(spec: ModelJobSpec, run_dir: str | None = None) -> JobSpec:
+def build(spec: ModelJobSpec, run_dir: str | None = None) -> Job:
     """Render the scoring job: ``modeljob.json`` (spec) + ``run_score.sh`` (entry call)."""
     run_dir = run_dir or _default_run_dir(spec)
     assets = {
@@ -134,7 +131,7 @@ def build(spec: ModelJobSpec, run_dir: str | None = None) -> JobSpec:
     if spec.env.deploy_root and not pythonpath:
         pythonpath = [f"{spec.env.deploy_root}/src", spec.env.deploy_root]
     cluster = spec.cluster or {}
-    return JobSpec(
+    return Job(
         backend=NAME,
         job_name=spec.name or NAME,
         command=["bash", "run_score.sh"],

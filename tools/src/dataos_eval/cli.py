@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 import yaml
-from dataos_launch import Handle, JobSpec, Resources, SlurmExtras, Status, get_launcher
+from dataos_launch import Handle, Job, Resources, SlurmExtras, Status, get_launcher
 
 _HANDLE = "eval_handle.json"
 
@@ -23,7 +23,7 @@ def _launcher_name(env: dict) -> str:
     """Which launcher runs this evaluation — declared by the environment, never guessed.
 
     Defaults to ``slurm`` because every environment that predates this field is a Slurm
-    cluster; a workstation environment says ``launcher: local`` and the same JobSpec then runs
+    cluster; a workstation environment says ``launcher: local`` and the same Job then runs
     as a subprocess. This is the whole point of the split: the evaluation protocol does not
     change with the machine, only the thing that starts it does.
     """
@@ -73,8 +73,8 @@ def resolve_eval_template(repo: Path, task_config: str, bench: str, model_path: 
     return path
 
 
-def _build_job(args, env: dict) -> "JobSpec":
-    """Render this evaluation as a launcher-agnostic JobSpec.
+def _build_job(args, env: dict) -> "Job":
+    """Render this evaluation as a launcher-agnostic Job.
 
     Every hard-won environment lesson still lives here (short TMPDIR, libcuda link, cache
     redirects, offline HF) — but as ``pre_cmds`` and ``env`` on the spec rather than as text
@@ -131,7 +131,7 @@ def _build_job(args, env: dict) -> "JobSpec":
         "NO_PROXY": "127.0.0.1,localhost",
         "no_proxy": "127.0.0.1,localhost",
     }
-    return JobSpec(
+    return Job(
         backend="lmeval",
         job_name=f"eval_{args.task}",
         command=[

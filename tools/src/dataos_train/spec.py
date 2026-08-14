@@ -9,22 +9,19 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+from dataos_launch.model import Model
 from dataos_launch.types import Resources
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-class DatasetRef(_Model):
+class DatasetRef(Model):
     """Pointer to already-built canonical data on disk (offline operators run upstream)."""
 
     path: str
     format: Literal["auto", "alpaca", "messages", "sharegpt", "rl", "canonical"] = "auto"
 
 
-class EnvSpec(_Model):
+class EnvSpec(Model):
     """Conda / PYTHONPATH activation.
 
     ``backends`` maps an **env domain** to its conda env (name or prefix path). A domain is
@@ -72,7 +69,7 @@ class EnvSpec(_Model):
         return None
 
 
-class OnlineOpSpec(_Model):
+class OnlineOpSpec(Model):
     """A data operator that interacts with the training loop (online).
 
     Realized by the backend at the given ``hook`` point (offline operators run upstream
@@ -85,7 +82,7 @@ class OnlineOpSpec(_Model):
     hook: Literal["select", "reweight", "step"] | None = None
 
 
-class SFT(_Model):
+class SFT(Model):
     """SFT hyperparameters; forwarded ~1:1 to LLaMA-Factory YAML. Omit model_name_or_path.
 
     finetuning_type: ``lora`` (adapter, merged after), ``full`` (all params), ``freeze``
@@ -123,7 +120,7 @@ class SFT(_Model):
     extra: dict[str, Any] = Field(default_factory=dict)  # any extra LF training key, forwarded
 
 
-class _LlamaFactoryTuning(_Model):
+class _LlamaFactoryTuning(Model):
     """Common LLaMA-Factory tuning controls DataOS-train commits to exposing."""
 
     finetuning_type: Literal["lora", "full", "freeze"] = "lora"
@@ -146,7 +143,7 @@ class _LlamaFactoryTuning(_Model):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
-class _ReferenceModelMixin(_Model):
+class _ReferenceModelMixin(Model):
     """Optional reference model controls used by DPO/KTO/PPO."""
 
     ref_model: str | None = None
@@ -197,7 +194,7 @@ class PPO(_LlamaFactoryTuning, _ReferenceModelMixin):
     top_p: float = 0.7
 
 
-class Rollout(_Model):
+class Rollout(Model):
     engine: Literal["vllm"] = "vllm"
     n: int = 5
     max_prompt_len: int = 1024
@@ -208,7 +205,7 @@ class Rollout(_Model):
     tensor_parallel_size: int = 1
 
 
-class Reward(_Model):
+class Reward(Model):
     """RL reward. ``path`` is RUNTIME-OWNED: an absolute path to a reward file defining
     ``compute_score(data_source, solution_str, ground_truth, ...) -> float`` — typically
     WRITTEN BY THE DRIVING AGENT from the task's frozen format contract (verl loads it by
@@ -219,7 +216,7 @@ class Reward(_Model):
     path: str | None = None  # runtime-owned reward file path (required by the verl backend)
 
 
-class GRPO(_Model):
+class GRPO(Model):
     """GRPO/RL hyperparameters; map onto verl's ppo_trainer config."""
 
     kind: Literal["grpo"] = "grpo"
@@ -244,7 +241,7 @@ class GRPO(_Model):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
-class VerlPPO(_Model):
+class VerlPPO(Model):
     """Classic PPO (GAE + learned critic) on verl's ppo_trainer.
 
     Unlike GRPO there is no group baseline: ``rollout.n`` defaults to 1 and a critic model
@@ -280,7 +277,7 @@ class VerlPPO(_Model):
 Method = Annotated[SFT | DPO | PPO | KTO | ORPO | GRPO | VerlPPO, Field(discriminator="kind")]
 
 
-class TrainSpec(_Model):
+class TrainSpec(Model):
     name: str
     backend: str = "llamafactory"
     base_model: str  # resolved HF path, injected by DataOS (never written by the LLM)

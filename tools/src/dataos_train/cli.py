@@ -1,6 +1,6 @@
 """``dataos-train`` CLI — JSON in / JSON out; the deterministic surface an agent drives.
 
-Lifecycle: ``build`` (TrainSpec->JobSpec) · ``submit`` (->Handle, returns now) · ``status`` ·
+Lifecycle: ``build`` (TrainSpec->Job) · ``submit`` (->Handle, returns now) · ``status`` ·
 ``logs`` · ``collect`` (->TrainResult) · ``run`` (blocking submit+poll+collect) · ``capabilities``
 · ``schema``. Model jobs (score data with a model, no training) mirror the same shape:
 ``modeljob-validate`` / ``modeljob-build`` / ``modeljob-collect``.
@@ -22,7 +22,7 @@ from typing import Any
 from dataos_launch.io import atomic_write_json, read_json
 from dataos_launch.launchers.base import materialize
 from dataos_launch.registry import get_launcher
-from dataos_launch.types import Handle, JobSpec, Status
+from dataos_launch.types import Handle, Job, Status
 
 from .modeljob import ModelJobSpec
 from .modeljob import backend as modeljob_backend
@@ -48,7 +48,7 @@ def _emit(obj: Any) -> None:
     print(json.dumps(obj, ensure_ascii=False, default=str))
 
 
-def _persist_job(job: JobSpec) -> None:
+def _persist_job(job: Job) -> None:
     Path(job.run_dir).mkdir(parents=True, exist_ok=True)
     atomic_write_json(Path(job.run_dir) / "spec.json", job.model_dump())
     materialize(job)  # write rendered assets (run_train.sh, configs) into run_dir
@@ -125,7 +125,7 @@ def _looks_like_jobspec(data: dict) -> bool:
     return all(k in data for k in ("command", "run_dir", "backend", "job_name"))
 
 
-def _build_or_die(spec: TrainSpec) -> JobSpec:
+def _build_or_die(spec: TrainSpec) -> Job:
     """Validate (schema + disk) then build. The single funnel for ``build`` and ``submit``:
     submit used to skip validation entirely, so a spec the backend rejected at build time was
     still submitted when the caller passed a TrainSpec straight to ``submit``."""
@@ -137,10 +137,10 @@ def _build_or_die(spec: TrainSpec) -> JobSpec:
     return backend.build(spec)
 
 
-def _load_jobspec_or_build(arg: str) -> JobSpec:
+def _load_jobspec_or_build(arg: str) -> Job:
     data = _read_input(arg)
     if isinstance(data, dict) and _looks_like_jobspec(data):
-        return JobSpec.model_validate(data)
+        return Job.model_validate(data)
     return _build_or_die(TrainSpec.model_validate(data))
 
 
@@ -318,7 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="dataos-train", description="Unified multi-backend training.")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    b = sub.add_parser("build", help="TrainSpec -> JobSpec")
+    b = sub.add_parser("build", help="TrainSpec -> Job")
     b.add_argument("spec", help="path to TrainSpec JSON, or - for stdin")
     b.set_defaults(func=cmd_build)
 
@@ -326,7 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("spec")
     v.set_defaults(func=cmd_validate)
 
-    s = sub.add_parser("submit", help="JobSpec/TrainSpec -> Handle (returns immediately)")
+    s = sub.add_parser("submit", help="Job/TrainSpec -> Handle (returns immediately)")
     s.add_argument("spec")
     s.add_argument("--launcher", default="local", choices=["local", "slurm"])
     s.add_argument("--cluster-json", dest="cluster_json", default=None)
@@ -352,7 +352,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--force", action="store_true", help="finalize even if not terminal")
     c.set_defaults(func=cmd_collect)
 
-    r = sub.add_parser("run", help="TrainSpec/JobSpec -> TrainResult (blocking)")
+    r = sub.add_parser("run", help="TrainSpec/Job -> TrainResult (blocking)")
     r.add_argument("spec")
     r.add_argument("--launcher", default="local", choices=["local", "slurm"])
     r.add_argument("--cluster-json", dest="cluster_json", default=None)
@@ -364,7 +364,7 @@ def build_parser() -> argparse.ArgumentParser:
     mjv.add_argument("spec", help="path to ModelJobSpec JSON, or - for stdin")
     mjv.set_defaults(func=cmd_modeljob_validate)
 
-    mjb = sub.add_parser("modeljob-build", help="ModelJobSpec -> JobSpec (renders run_score.sh)")
+    mjb = sub.add_parser("modeljob-build", help="ModelJobSpec -> Job (renders run_score.sh)")
     mjb.add_argument("spec")
     mjb.add_argument(
         "--run-dir",

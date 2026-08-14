@@ -27,8 +27,7 @@ import sys
 from pathlib import Path
 
 import yaml
-
-from dataos_launch import Handle, JobSpec, Resources, SlurmExtras, Status, get_launcher
+from dataos_launch import Handle, Job, Resources, SlurmExtras, Status, get_launcher
 
 _HANDLE = "data_handle.json"
 
@@ -43,13 +42,13 @@ def _launcher_name(env: dict) -> str:
     """Which launcher runs this job — the environment's own declaration.
 
     A Slurm cluster says ``launcher: slurm`` (or says nothing, which means the same for the
-    deployments that predate the field); a workstation says ``local`` and the identical JobSpec
+    deployments that predate the field); a workstation says ``local`` and the identical Job
     then runs bare-metal.
     """
     return str(env.get("launcher") or ("local" if env.get("kind") == "local" else "slurm"))
 
 
-def _build_job(args, env: dict) -> JobSpec:
+def _build_job(args, env: dict) -> Job:
     """The recipe, wrapped in everything the recipe should not have to know."""
     run_root = shlex.quote(args.run_root)
     venv = env["tools"]["sft_env"]["path"]
@@ -89,7 +88,7 @@ def _build_job(args, env: dict) -> JobSpec:
     if args.stats:
         verify += ["--stats", args.stats]
 
-    return JobSpec(
+    return Job(
         backend="dataos-data",
         job_name=f"data_{Path(args.run_root).name}"[:64],
         # The recipe runs, then the contract is checked in the same job — so "built nothing"

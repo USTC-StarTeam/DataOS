@@ -1,9 +1,12 @@
-"""The backend <-> launcher contract types.
+"""What a stage hands the launcher, and what it gets back.
 
-A ``Backend`` turns a ``TrainSpec`` (see ``spec.py``) into a ``JobSpec``; a ``Launcher``
-runs the ``JobSpec`` and returns a ``Handle``; ``Backend.collect`` parses outputs into a
-``TrainResult``. These types are the wire format of the CLI (JSON in / JSON out), so they
-carry no heavy deps and round-trip cleanly.
+Three nouns, one per layer: a **Spec** says what a stage intends, a **Job** says what to run and
+what it needs, a **Handle** says who took it and what they call it. The middle one used to be
+``JobSpec``, which read as a kind of Spec and is not — it is what a Spec becomes once the
+deployment is resolved into it.
+
+These types are the CLI's wire format (JSON in, JSON out, written to disk and read back rounds
+later), so they carry no heavy deps and round-trip cleanly.
 """
 
 from __future__ import annotations
@@ -11,13 +14,10 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from .io import make_id
-
-
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+from .model import Model
 
 
 class Status(StrEnum):
@@ -31,7 +31,7 @@ class Status(StrEnum):
         return self in (Status.COMPLETED, Status.FAILED, Status.TIMEOUT)
 
 
-class Resources(_Model):
+class Resources(Model):
     nodes: int = 1
     gpus: int = 1  # PER NODE -> gres gpu:{gpus}; total devices = nodes * gpus
     cpus: int = 16
@@ -39,31 +39,21 @@ class Resources(_Model):
     mem_gb: int | None = None
 
 
-class RayPlan(_Model):
-    """How to bootstrap a Ray cluster for a ``launch.kind == 'ray'`` job (verl)."""
-
-    head_gpus: int = 0
-    start_head_cmd: list[str] | None = None
-    worker_join_cmd: list[str] | None = None
-    address_env: str = "RAY_ADDRESS"
-
-
-class LaunchPlan(_Model):
+class LaunchPlan(Model):
     """How the program ``command`` is fanned into processes.
 
     The launcher composes the actual exec line from ``kind`` — the only place launch
     topology is interpreted — so launchers stay backend-agnostic.
     """
 
-    kind: Literal["direct", "torchrun", "deepspeed", "ray"] = "direct"
+    kind: Literal["direct", "torchrun", "deepspeed"] = "direct"
     nproc_per_node: int | None = None  # defaults to resources.gpus
     nnodes: int | None = None  # defaults to resources.nodes
     rdzv: Literal["c10d", "static"] = "c10d"
     extra: list[str] = Field(default_factory=list)
-    ray: RayPlan | None = None
 
 
-class SlurmExtras(_Model):
+class SlurmExtras(Model):
     """Slurm placement, field names taken verbatim from ``run_config.to_cluster()``."""
 
     partition: str | None = None
@@ -75,8 +65,12 @@ class SlurmExtras(_Model):
     extra_sbatch: list[str] = Field(default_factory=list)
 
 
-class JobSpec(_Model):
-    """A backend's rendered, launcher-agnostic job."""
+class Job(Model):
+    """A stage's rendered job: what to run, and what it needs to run it.
+
+    Launcher-agnostic, which the ``slurm: SlurmExtras`` field below currently contradicts — that
+    is the next commit.
+    """
 
     spec_id: str = Field(default_factory=lambda: make_id("job"))
     backend: str
@@ -95,7 +89,7 @@ class JobSpec(_Model):
     slurm: SlurmExtras = Field(default_factory=SlurmExtras)
 
 
-class Handle(_Model):
+class Handle(Model):
     """A live or finished job, persisted to ``<run_dir>/handle.json``."""
 
     launcher: Literal["slurm", "local"]

@@ -13,7 +13,7 @@ import shlex
 from pathlib import Path
 
 from dataos_launch.io import read_json
-from dataos_launch.types import JobSpec, LaunchPlan, SlurmExtras, Status
+from dataos_launch.types import Job, LaunchPlan, SlurmExtras, Status
 
 from ...spec import GRPO, TrainSpec, VerlPPO
 from ...types import Capabilities, TrainResult
@@ -110,7 +110,7 @@ class VerlBackend:
             errors.append("verl conda env required at env.backends['verl'] (or 'verl:<method>')")
         return errors
 
-    def build(self, spec: TrainSpec) -> JobSpec:
+    def build(self, spec: TrainSpec) -> Job:
         rl: GRPO | VerlPPO = spec.method  # type: ignore[assignment]  # validated
         run_dir = spec.run_dir
         data_dir = f"{run_dir}/data/rl"
@@ -153,7 +153,7 @@ class VerlBackend:
             "run_train.sh": "\n".join(steps) + "\n",
             "dataos_meta.json": json.dumps(meta, indent=2),
         }
-        return JobSpec(
+        return Job(
             backend=self.name,
             job_name=spec.name or rl.kind,
             command=["bash", "run_train.sh"],

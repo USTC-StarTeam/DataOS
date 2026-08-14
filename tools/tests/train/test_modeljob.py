@@ -202,7 +202,7 @@ def test_cli_validate_build_collect(tmp_path: Path, capsys) -> None:  # noqa: AN
     )
     assert cli.main(["modeljob-validate", str(spec_path)]) == 0
     assert cli.main(["modeljob-build", str(spec_path), "--run-dir", str(run_dir)]) == 0
-    assert (run_dir / "spec.json").is_file()  # JobSpec, same落盘 convention as train build
+    assert (run_dir / "spec.json").is_file()  # Job, same落盘 convention as train build
     assert (run_dir / "modeljob.json").is_file()
     assert (run_dir / "run_score.sh").is_file()
     (run_dir / "scores.jsonl").write_text(

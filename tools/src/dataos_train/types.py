@@ -1,6 +1,6 @@
 """What a training backend declares and returns.
 
-A ``Backend`` turns a ``TrainSpec`` (see ``spec.py``) into a launcher-agnostic ``JobSpec``, and
+A ``Backend`` turns a ``TrainSpec`` (see ``spec.py``) into a launcher-agnostic ``Job``, and
 ``Backend.collect`` parses the run's outputs into a ``TrainResult``. The job/handle half of that
 contract lives in :mod:`dataos_launch.types`, because it is shared with evaluation — training is
 not the only thing that renders a job and needs it run somewhere.
@@ -13,11 +13,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from dataos_launch.types import Status, _Model
+from dataos_launch.model import Model
+from dataos_launch.types import Status
 from pydantic import Field
 
 
-class TrainResult(_Model):
+class TrainResult(Model):
     """Canonical training outcome, produced by ``Backend.collect``."""
 
     spec_id: str
@@ -33,7 +34,7 @@ class TrainResult(_Model):
     report_fragment: dict[str, Any] = Field(default_factory=dict)
 
 
-class Capabilities(_Model):
+class Capabilities(Model):
     name: str
     methods: list[str]
     finetuning_types: list[str] = Field(default_factory=list)

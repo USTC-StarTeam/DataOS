@@ -48,7 +48,7 @@ def _run_cli(argv: list[str]) -> int:
 
 
 def _dry_run_spec(tmp_path, capsys, **over) -> dict:
-    """The JobSpec a submit would hand the launcher. Since the launcher registry landed, this —
+    """The Job a submit would hand the launcher. Since the launcher registry landed, this —
     not a rendered sbatch — is what dataos-eval owns and what the caller cannot reach past."""
     assert _run_cli(["submit", *_argv(_submit_args(tmp_path, dry_run=True, **over))]) == 0
     return json.loads(capsys.readouterr().out)
@@ -132,11 +132,11 @@ def test_render_quotes_paren_paths(tmp_path, capsys):
     import subprocess as sp
 
     from dataos_launch.launchers.slurm import SlurmLauncher
-    from dataos_launch.types import JobSpec
+    from dataos_launch.types import Job
 
     spec = _dry_run_spec(tmp_path, capsys, run_root=str(tmp_path / "ptb-x(1)"),
                          output_dir=str(tmp_path / "ptb-x(1)/eval"))
-    script = SlurmLauncher().render_sbatch(JobSpec.model_validate(spec["job"]))
+    script = SlurmLauncher().render_sbatch(Job.model_validate(spec["job"]))
     assert script.startswith("#!/bin/bash")
     assert "ptb-x(1)" in script                                  # the risky path really is in there
     r = sp.run(["bash", "-n"], input=script, text=True, capture_output=True)

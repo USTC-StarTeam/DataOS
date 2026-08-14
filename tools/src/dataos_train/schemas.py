@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dataos_launch.types import Handle, JobSpec, LaunchPlan, Resources
+from dataos_launch.types import Handle, Job, LaunchPlan, Resources
 
 from .registry import backend_names, get_backend
 from .spec import (
@@ -56,7 +56,7 @@ _NAMED_SCHEMAS = {
     "reward": Reward,
     "resources": Resources,
     "launch": LaunchPlan,
-    "job": JobSpec,
+    "job": Job,
     "handle": Handle,
     "result": TrainResult,
     "capabilities": Capabilities,

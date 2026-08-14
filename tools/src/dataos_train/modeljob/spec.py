@@ -11,17 +11,14 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+from dataos_launch.model import Model
 from dataos_launch.types import Resources
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from ..spec import DatasetRef, EnvSpec
 
 
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-class LossInteraction(_Model):
+class LossInteraction(Model):
     """Per-sample loss scoring over the final assistant segment of each record.
 
     ``output_key`` is the field convention the score is written back to when the driving
@@ -35,7 +32,7 @@ class LossInteraction(_Model):
     output_key: str = "metadata.runtime.loss"
 
 
-class GradientInteraction(_Model):
+class GradientInteraction(Model):
     """LESS-style gradient-feature scoring (arXiv 2402.04333).
 
     Each record gets a low-dimensional feature: the completion-only CE gradient w.r.t. a
@@ -62,7 +59,7 @@ class GradientInteraction(_Model):
 Interaction = Annotated[LossInteraction | GradientInteraction, Field(discriminator="kind")]
 
 
-class ModelJobSpec(_Model):
+class ModelJobSpec(Model):
     """Facts for one scoring job. ``model`` is injected by the runtime, never the LLM."""
 
     name: str

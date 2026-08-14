@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from .types import Handle, JobSpec, Status
+from .types import Handle, Job, Status
 
 
 @runtime_checkable
 class Launcher(Protocol):
     name: str
 
-    def submit(self, job: JobSpec) -> Handle: ...
+    def submit(self, job: Job) -> Handle: ...
     def status(self, handle: Handle) -> Status: ...
     def logs(self, handle: Handle, *, tail: int | None = None) -> str: ...
     def cancel(self, handle: Handle) -> None: ...

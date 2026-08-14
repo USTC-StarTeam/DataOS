@@ -1,4 +1,4 @@
-"""Bare-metal launcher: run the JobSpec as a detached local subprocess."""
+"""Bare-metal launcher: run the Job as a detached local subprocess."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from ..io import atomic_write_json, atomic_write_text, utc_now_iso
-from ..types import Handle, JobSpec, Status
+from ..types import Handle, Job, Status
 from .base import build_preamble, compose_launch_line, materialize
 
 
@@ -22,7 +22,7 @@ class LocalLauncher:
         # accepts (and ignores) cluster kwargs for a uniform get_launcher(**cfg) signature
         pass
 
-    def _script(self, job: JobSpec) -> str:
+    def _script(self, job: Job) -> str:
         rc = f"{job.run_dir}/logs/{job.job_name}.rc"
         rc_q = shlex.quote(rc)
         lines = [
@@ -47,7 +47,7 @@ class LocalLauncher:
         ]
         return "\n".join(lines) + "\n"
 
-    def submit(self, job: JobSpec) -> Handle:
+    def submit(self, job: Job) -> Handle:
         materialize(job)
         run_dir = Path(job.run_dir)
         script_path = run_dir / f"{job.job_name}.run.sh"

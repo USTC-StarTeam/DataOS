@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataos_launch.launchers.slurm import SlurmLauncher, map_sacct_state
-from dataos_launch.types import JobSpec, LaunchPlan, Resources, SlurmExtras, Status
+from dataos_launch.types import Job, LaunchPlan, Resources, SlurmExtras, Status
 
 
-def _job(**kw) -> JobSpec:
+def _job(**kw) -> Job:
     base = dict(
         backend="llamafactory",
         job_name="exp1",
@@ -19,7 +19,7 @@ def _job(**kw) -> JobSpec:
         slurm=SlurmExtras(partition="gpu", qos="gpu_priv", nodelist="gpu04"),
     )
     base.update(kw)
-    return JobSpec(**base)
+    return Job(**base)
 
 
 def test_sbatch_contains_directives() -> None:

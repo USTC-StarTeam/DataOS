@@ -1,1 +1,1 @@
-"""Launchers: run a JobSpec on Slurm or bare-metal (local subprocess)."""
+"""Launchers: run a Job on Slurm or bare-metal (local subprocess)."""

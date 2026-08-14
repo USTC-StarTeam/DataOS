@@ -11,14 +11,14 @@ import shlex
 from pathlib import Path
 
 from ..io import atomic_write_text
-from ..types import JobSpec
+from ..types import Job
 
 
 class LaunchError(RuntimeError):
     pass
 
 
-def materialize(job: JobSpec) -> Path:
+def materialize(job: Job) -> Path:
     """Create ``run_dir`` (+ ``logs/``) and write all declared assets. Returns run_dir."""
     run_dir = Path(job.run_dir)
     (run_dir / "logs").mkdir(parents=True, exist_ok=True)
@@ -36,7 +36,7 @@ def materialize(job: JobSpec) -> Path:
 _ENV_DEFAULTS = {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
 
 
-def build_preamble(job: JobSpec) -> list[str]:
+def build_preamble(job: Job) -> list[str]:
     """Bash setup lines before the launch line (conda + PYTHONPATH + env + cd)."""
     lines = ["set -euo pipefail"]
     if job.conda_sh and job.conda_env:
@@ -56,7 +56,7 @@ def build_preamble(job: JobSpec) -> list[str]:
     return lines
 
 
-def compose_launch_line(job: JobSpec) -> str:
+def compose_launch_line(job: Job) -> str:
     """Render the exec line from ``launch.kind``. ``command`` is the user program's argv."""
     plan = job.launch
     quoted = " ".join(shlex.quote(c) for c in job.command)
@@ -82,23 +82,5 @@ def compose_launch_line(job: JobSpec) -> str:
     if plan.kind == "deepspeed":
         parts = ["deepspeed", "--num_gpus", str(nproc), *plan.extra, *job.command]
         return " ".join(shlex.quote(p) if " " in p else p for p in parts)
-    if plan.kind == "ray":
-        return _compose_ray(job)
     raise LaunchError(f"unknown launch kind: {plan.kind!r}")
 
-
-def _compose_ray(job: JobSpec) -> str:
-    quoted = " ".join(shlex.quote(c) for c in job.command)
-    ray = job.launch.ray
-    if ray is None or (job.resources.nodes or 1) <= 1:
-        # Single node: verl starts a local Ray cluster in-process; just run the trainer.
-        return quoted
-    # Multi-node (best-effort; gated behind needs_slurm tests): start ray on every node,
-    # then run the trainer once on the head.
-    head = " ".join(ray.start_head_cmd or ["ray", "start", "--head", "--port", "6379"])
-    join = " ".join(ray.worker_join_cmd or ["ray", "start", "--address", "$RAY_HEAD:6379"])
-    return (
-        'RAY_HEAD=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n1)\n'
-        f'if [ "$SLURMD_NODENAME" = "$RAY_HEAD" ]; then {head}; else {join}; fi\n'
-        f'if [ "$SLURMD_NODENAME" = "$RAY_HEAD" ]; then {quoted}; fi'
-    )
