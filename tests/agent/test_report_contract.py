@@ -265,3 +265,20 @@ def test_a_mid_flight_stage_keeps_the_word_it_was_killed_on():
     assert parsed.stages.train.status == "running"
     assert parsed.stages.eval.status == "not_started"
     assert parsed.model_path == "/runs/x/final_model"
+
+
+def test_a_malformed_report_is_unfinished_not_a_crash(caplog):
+    """`is_terminal` is the loop's control question and must always answer it.
+
+    Making `read()` raise (instead of laundering every failure into "failed") left three unguarded
+    `is_terminal` calls in the resume path, where a report.json that is not report-shaped would
+    have taken the whole experiment down instead of reading as unfinished — and the archive holds
+    a real one whose `stages` is a list. Answering False is right; answering it silently is what
+    this whole change was about, so it logs.
+    """
+    bad = {"id": "x", "stages": [{"detail": "a list, not a stage map"}]}
+    with caplog.at_level("ERROR"):
+        assert report_schema.is_terminal(bad) is False
+    assert "not report-shaped" in caplog.text
+    with pytest.raises(Exception):
+        report_schema.read(bad)  # callers that want the VALUE still get the error

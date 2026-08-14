@@ -70,9 +70,12 @@ declared is one the schema silently drops. That test needs no runtime validation
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+log = logging.getLogger(__name__)
 
 # Not a Literal. The vocabulary an experimenter is ASKED for is completed/failed/skipped, but
 # reports killed mid-flight carry `running` / `pending` / `not_started`, and a snapshot of a stage
@@ -354,8 +357,19 @@ def is_terminal(raw: dict) -> bool:
     ``review``. So a report carrying ``review`` is one whose author considered itself done, and a
     scored report without one is mid-run. A failed eval is terminal too: there is no review to
     wait for.
+
+    A file that is not report-shaped at all is not a finished experiment either, so it answers
+    False — but it says so first. That distinction is the whole point: the version this replaces
+    swallowed EVERY parse failure into the same False, which is how a report that was complete and
+    correct on disk kept reading as unfinished while the loop woke its author four times to
+    re-assert it. ``read()`` still raises for callers that want the value; the loop's control
+    question has to stay answerable.
     """
-    parsed = read(raw)
+    try:
+        parsed = read(raw)
+    except Exception as e:  # noqa: BLE001 — not report-shaped; unfinished, and worth saying
+        log.error("report.json is not report-shaped, treating as unfinished: %s", e)
+        return False
     return parsed.stages.review is not None or parsed.stages.eval.status == "failed"
 
 
