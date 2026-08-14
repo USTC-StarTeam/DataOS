@@ -5,15 +5,26 @@
   "task": "posttrainbench",
   "bench": "gsm8k",
   "inputs": {
-    "base_model_path": "/data/hcgu/users/tjh/models/Qwen3-1.7B-Base",
-    "fixed_pool": "/data/hcgu/users/tjh/pools/posttrainbench_fixed_pool_v2"
+    "base_model_path": "/data/hcgu/archive/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/ea980cb0a6c2ae4b936e82123acc929f1cec04c1",
+    "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2"
   },
   "exec": {
     "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
-    "runs_base": "/data2/hcgu/tjh/runs",
-    "resource": { "gpus": 1, "cpus": 8, "qos": "debug_normal", "partition": "debug" }
+    "runs_base": "/data2/hcgu/dataos_agentver_runs",
+    "resource": {
+      "gpus": 1,
+      "cpus": 8,
+      "qos": "debug_normal",
+      "partition": "debug"
+    }
   },
-  "budget": { "time_hours": 3, "eval_samples": 50 },
-  "agent": { "provider": "claude", "idle_timeout_s": 1800 },
+  "budget": {
+    "time_hours": 3,
+    "eval_samples": 50
+  },
+  "agent": {
+    "provider": "claude",
+    "idle_timeout_s": 1800
+  },
   "monitor_port": 8802
 }
