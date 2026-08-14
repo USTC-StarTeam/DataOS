@@ -78,9 +78,25 @@ def prompt_facts(cfg: AutoRunConfig) -> dict:
     limit = getattr(cfg, "eval_limit", None) or (
         20 if getattr(cfg, "ptb_profile", "") == "smoke" else 200
     )
+    cluster = runtime.get("cluster") or {}
+    qos = cluster.get("qos")
     return {
         "budget_hours": budget_hours,
         "gpus": gpus,
+        # Deployment facts a discipline block states as constraints. They arrive as VALUES so the
+        # block carries the rule once and the numbers come from the machine — the same move
+        # `eval_mode` below makes for the eval policy. Before this they were prose inside
+        # env.yaml, which meant no golden test, no review, and one copy per environment.
+        "qos": qos,
+        # the choice's CONSEQUENCE, resolved here rather than re-derived in prose: only the
+        # guarded QOS needs the memory-placeholder + idle-matmul prescription, and an environment
+        # that carried both branches as text is what produced two near-identical env files.
+        "has_gpu_guard": bool(qos) and qos == cluster.get("guard_qos"),
+        "mem_per_gpu_mb": cluster.get("mem_per_gpu_mb") or 125000,
+        "cpus_per_gpu": cluster.get("cpus_per_gpu") or 11,
+        "gres_required": cluster.get("gres_required") or "gpu:1",
+        "node_pool": cluster.get("node_pool") or "",
+        "nodes_without_libcuda_link": cluster.get("nodes_without_libcuda_link") or "",
         # the single PTB bench this run optimizes; lets a context block name it instead of
         # carrying prose about benches this run will never touch
         "bench": getattr(cfg, "target_bench", None) or "the target benchmark",

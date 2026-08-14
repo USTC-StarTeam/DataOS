@@ -18,9 +18,8 @@ def _baseline(tmp_path: Path, eval_block: dict | None) -> AutoRunConfig:
     cfg = AutoRunConfig(project_id="p", workspace=str(tmp_path), target_bench="gsm8k")
     d = tmp_path / "p" / "round-0000" / "experiments" / "baseline"
     d.mkdir(parents=True, exist_ok=True)
-    report = {"name": "baseline", "status": "completed", "score": 20.0}
-    if eval_block is not None:
-        report["eval"] = eval_block
+    stages = {"eval": {"status": "completed", **(eval_block or {"status": "failed"})}}
+    report = {"id": "n0001", "stages": stages}
     (d / "report.json").write_text(json.dumps(report), encoding="utf-8")
     return cfg
 

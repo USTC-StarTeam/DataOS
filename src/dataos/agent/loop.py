@@ -10,6 +10,7 @@ dialog reviews the report; Python writes the tree.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -25,6 +26,8 @@ from . import runtime
 from . import roles
 from .config import AutoRunConfig
 from .schemas import ExperimentPlan
+
+log = logging.getLogger(__name__)
 
 _MAIN_SESSION_FILE = "main_agent_session.json"
 _PLAN_RETRIES = 3
@@ -119,7 +122,11 @@ def _report_score(report: dict) -> float | None:
     was not defensive, it was ambiguity: nothing said which of the three a report SHOULD write, so
     each place was authoritative somewhere and every consumer had to re-implement the precedence.
     """
-    return report_schema.read(report).score
+    try:
+        return report_schema.read(report).score
+    except Exception as e:  # noqa: BLE001 — not report-shaped at all
+        log.error("unreadable report: %s", e)
+        return None
 
 
 def _read_report(exp_root: Path, name: str):
@@ -136,7 +143,14 @@ def _read_report(exp_root: Path, name: str):
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
         return None, None, None, {}, None, str(path)
-    parsed = report_schema.read(raw)
+    try:
+        parsed = report_schema.read(raw)
+    except Exception as e:  # noqa: BLE001 — a file that is not report-shaped at all
+        # Loud on purpose. The version this replaces answered the same situation with a legacy
+        # reader that produced `score=None, status="failed"` — indistinguishable from a genuine
+        # failed experiment, and it cost 22 real scores before anyone looked.
+        log.error("unreadable report at %s: %s", path, e)
+        return None, None, None, {}, None, str(path)
     scripts = {
         stage: ref.model_dump()
         for stage in ("data", "train", "eval", "review")
@@ -269,7 +283,11 @@ def _full_eval_size(cfg: AutoRunConfig) -> int | None:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
         return None
-    n = report_schema.read(report).stages.eval.n_samples
+    try:
+        n = report_schema.read(report).stages.eval.n_samples
+    except Exception as e:  # noqa: BLE001 — not report-shaped at all
+        log.error("unreadable baseline report at %s: %s", path, e)
+        return None
     return int(n) if isinstance(n, (int, float)) and n > 0 else None
 
 

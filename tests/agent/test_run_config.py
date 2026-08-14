@@ -21,7 +21,7 @@ def _run_json(ws, **over):
         "exec": {
             "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
             "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
-            "resource": {"gpus": 1, "cpus": 8},
+            "resource": {"gpus": 1, "cpus": 8, "qos": "gpu_priv"},
         },
         "budget": {"time_hours": 10, "eval_samples": -1},
     }
@@ -209,7 +209,8 @@ def test_auto_eval_limit_prompts(tmp_path):
     text = _prompt.render(
         "experimenter/turn/experiment", exp_name="e", bench="gsm8k", profile="formal",
         parent_model="/m", root_base_model="/m", node_id="n1", parent_node_id="n0",
-        eval_limit=256, is_smoke=False, recipe_json="{}", train_json="{}",
+        eval_limit=256, is_smoke=False, recipe_json="{}", resolved_sources_json="[]",
+        train_json="{}",
         train_spec_json="", subagent_brief="b", runtime_config_json="{}",
         run_root="/r", report_path="/r/report.json", state_path="/r/s.json",
         env_ops="", task_def="", stage_blocks="",
@@ -218,7 +219,7 @@ def test_auto_eval_limit_prompts(tmp_path):
 
     rc = {"environment": "PTB_H100_slurm", "task": "posttrainbench", "base_model": "/m",
           "bench": "gsm8k", "runs_base": "/r", "deploy_root": "/deploy",
-          "resource": {"gpus": 1, "cpus": 8, "node": None},
+          "resource": {"gpus": 1, "cpus": 8, "node": None, "qos": "gpu_priv"},
           "eval_limit": -2, "fixed_pool": "/p"}
     env_ops, task_def = render(resolve(rc))
     assert "评多少由 plan 决定" in task_def

@@ -149,8 +149,14 @@ def _build_job(args, env: dict) -> "JobSpec":
         pre_cmds=pre_cmds,
         slurm=SlurmExtras(
             partition=slurm.get("partition"),
-            qos=slurm.get("qos"),
-            nodelist=slurm.get("nodes"),
+            # The run chooses; env.yaml only declares what exists. Both of these read env-only
+            # until 2026-08-14, and `env.slurm.nodes` is not a pin but a POOL — a run pinned to
+            # gpu02 put 35 of 35 training jobs there and 68 of 94 eval jobs somewhere else,
+            # because this was the one submitter that never saw the pin. `qos` was worse: when it
+            # moved to the run config the env field vanished, jobs went out with no --qos at all,
+            # and Slurm applied the account default (the GUARDED queue) in silence.
+            qos=args.qos or slurm.get("qos") or (slurm.get("qos_available") or [None])[0],
+            nodelist=args.nodelist or slurm.get("nodes"),
             cpus_per_task=args.cpus,
             extra_sbatch=[f"--time={_clamped_time(args, env)}"],
         ),
@@ -303,8 +309,14 @@ def main() -> None:
     s.add_argument("--output-dir", required=True)
     s.add_argument("--run-root", required=True)
     s.add_argument("--limit", type=int, default=-1)
+    # The run's resource facts. Defaults are a fallback for a caller that has none, NOT the
+    # normal path — the caller has them and passes them (configs/tasks/*/task.yaml scoring.command).
     s.add_argument("--gpus", type=int, default=1)
     s.add_argument("--cpus", type=int, default=8)
+    s.add_argument("--nodelist", default=None,
+                   help="run-level node pin; overrides the environment's node pool")
+    s.add_argument("--qos", default=None,
+                   help="run-level QOS; env.yaml only declares which ones exist")
     s.add_argument("--time", default="12:00:00",
                    help="job time limit — must stay under the partition MaxTime (3d); "
                         "12h covers every full PTB eval with headroom")

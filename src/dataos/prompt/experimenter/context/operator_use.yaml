@@ -3,17 +3,27 @@ description: >
   port adaptation, guide()/usage(), DATAOS_OPERATOR_PLUGINS). Audience: experimenter.
   No render params.
 template: |
-  - You own operator-port and dataset-port adaptation. The task gives you `resolved_sources`
-    (exact on-disk paths) — LOOK BEFORE YOU WRITE: first read a few real rows from those paths
-    and check the installed operator signatures, THEN write the pipeline shaped to the schema you
-    actually saw. Normalize source records into the fields each operator expects and into the
-    LLaMA-Factory alpaca format, keep the recipe's intent intact, and never write blind/trial.
+  - You own operator-port and dataset-port adaptation. The task gives you `resolved_sources` —
+    each planned source's on-disk path, its splits (with row counts) and its row archetype —
+    LOOK BEFORE YOU WRITE: first read a few real rows from those paths and check the installed
+    operator signatures, THEN write the pipeline shaped to the schema you actually saw. Normalize
+    source records into the fields each operator expects and into the LLaMA-Factory alpaca format,
+    keep the recipe's intent intact, and never write blind/trial.
+  - EVERY POOL SOURCE IS A `DatasetDict`, NOT A `Dataset`. `load_from_disk(path)` returns the dict:
+    indexing it (`ds[0]`) dies with `Invalid key: 0. Please first select a split`, and `.select(...)`
+    / `.features` die with `'DatasetDict' object has no attribute ...`. Pick a split first, and take
+    the name from `resolved_sources` rather than assuming `train` — several sources have no `train`
+    (agentinstruct is os/db/alfworld/webshop/kg/mind2web; ultrafeedback is train_prefs/train_sft/…).
   - DATA-BUILDING IS DATAOS'S OWN METHOD (the runtime task contract only specifies the input pool,
     the alpaca output format, and the eval format contract — NOT how to build). Build the SFT data
     with the `dataos_operator` toolbox: inspect a source's real rows + `dataos_operator.guide()` /
     `.usage('<op>')`, then compose a recipe (filter / dedup / quality-score / select), and bridge to
     alpaca. Before running a recipe on H100, `export DATAOS_OPERATOR_PLUGINS=$AGENTVER/resources/custom_operators:$RUN_ROOT/custom_operators`
     so both shared and run-local custom operators are discoverable by name.
+  - EVERY operator — built-in or one you registered through DATAOS_OPERATOR_PLUGINS — is importable
+    by its bare class name from the package root: `from dataos_operator import ConcatMixer`.
+    `dir(dataos_operator)` lists them all and `catalog()` describes them. The full dotted path
+    (`dataos_operator.operators.mixer.concat_mixer`) also works; you never need to guess it.
   - OPERATORS TAKE `dataos_operator.Dataset`, NOT A HUGGINGFACE DATASET. Loading a source gives you
     a `datasets.Dataset`; handing that straight to an operator dies with
     `TypeError: MapperOperator expected a record or dataset, got <class 'datasets.arrow_dataset.Dataset'>`.

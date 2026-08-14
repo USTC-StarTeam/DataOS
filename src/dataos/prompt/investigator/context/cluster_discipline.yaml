@@ -1,7 +1,8 @@
 description: >
-  Investigator's cluster discipline block — login-node rules, no recursive scans, and how to
-  overlap the baseline eval with the pool profiling. Trimmed of the experimenter's training
-  discipline (this role never trains). No render params.
+  Investigator's cluster discipline block — login-node rules, no recursive scans, the machine's
+  hard limits, and how to overlap the baseline eval with the pool profiling. Trimmed of the
+  experimenter's training discipline (this role never trains). Render params (facts):
+  mem_per_gpu_mb, cpus_per_gpu, gres_required.
 template: |
   - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
     submit sbatch, poll sacct/squeue (sleep 30-60s between polls), and run BOUNDED internet steps
@@ -20,3 +21,14 @@ template: |
     something you can shorten, so the only thing that matters is that you are never blocked on
     it. Keep waiting through a PENDING job — do NOT abandon it, do NOT resubmit, and never write
     a failed baseline just because the queue was busy.
+  - THE MACHINE'S HARD LIMITS. Every job takes a card — `{{ gres_required }}` is forced by the
+    partition even for pure-CPU work like profiling the pool — and this account cannot submit to
+    the cpu partition at all (`Invalid qos specification`). Capacity is granted PER CARD:
+    **{{ mem_per_gpu_mb }} MB of memory and {{ cpus_per_gpu }} logical CPUs**, and `--mem` /
+    `--cpus-per-task` above that are refused by sbatch outright. The ceiling cannot be raised, so
+    a step that runs out of memory has to need less: sample before you expand, and never
+    materialise a whole source as Python objects (`list(hf)` turned 1.47M arrow rows into 120 GiB
+    of dicts).
+  - Every artifact lands under the run_root named in your task prompt; the agent host's
+    `/zssd/...` paths do not exist on the cluster, so a remote command may only name cluster
+    paths (deploy_root, runs_base, fixed_pool).

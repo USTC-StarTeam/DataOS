@@ -57,6 +57,17 @@ never use benchmark test questions/answers or other runs' outputs; stay within t
   something you can shorten, so the only thing that matters is that you are never blocked on
   it. Keep waiting through a PENDING job — do NOT abandon it, do NOT resubmit, and never write
   a failed baseline just because the queue was busy.
+- THE MACHINE'S HARD LIMITS. Every job takes a card — `gpu:1` is forced by the
+  partition even for pure-CPU work like profiling the pool — and this account cannot submit to
+  the cpu partition at all (`Invalid qos specification`). Capacity is granted PER CARD:
+  **125000 MB of memory and 11 logical CPUs**, and `--mem` /
+  `--cpus-per-task` above that are refused by sbatch outright. The ceiling cannot be raised, so
+  a step that runs out of memory has to need less: sample before you expand, and never
+  materialise a whole source as Python objects (`list(hf)` turned 1.47M arrow rows into 120 GiB
+  of dicts).
+- Every artifact lands under the run_root named in your task prompt; the agent host's
+  `/zssd/...` paths do not exist on the cluster, so a remote command may only name cluster
+  paths (deploy_root, runs_base, fixed_pool).
 
 - eval_format_contract — READ the evaluator's own code to learn what output the scorer parses.
   The bench task/scorer lives under the eval bridge named in your task prompt. Read the target

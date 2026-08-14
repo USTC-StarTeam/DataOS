@@ -22,6 +22,7 @@ On-disk layout::
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +35,8 @@ from dataos.core.ids import _make_id, _utc_now_iso
 from dataos.core.io import atomic_write_json
 from dataos.core.redact import redact
 from dataos.core.workspace import Workspace
+
+log = logging.getLogger(__name__)
 
 _JSON_KWARGS: dict[str, Any] = {
     "indent": 2,
@@ -167,7 +170,11 @@ class Study:
         """
         rows: list[dict[str, Any]] = []
         for raw in self._read_reports():
-            parsed = report_schema.read(raw)
+            try:
+                parsed = report_schema.read(raw)
+            except Exception as e:  # noqa: BLE001 — not report-shaped; say so, do not rank it
+                log.error("study %s: unreadable report skipped: %s", self.study_id, e)
+                continue
             stages = parsed.stages
             # an invalidated/failed/re-running eval's old numbers are forensics, not scores:
             # letting them rank (while the guards exclude them as not-completed) would crown

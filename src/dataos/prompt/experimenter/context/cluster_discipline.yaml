@@ -1,6 +1,8 @@
 description: >
-  KB block — H100 cluster discipline (login-node rules, no recursive scans, Slurm/ssh
-  resilience, GPU utilization). Audience: experimenter + investigator. No render params.
+  KB block — H100 cluster discipline: login-node rules, what the machine's hard limits actually
+  are, job hygiene, and the GPU-Guard prescription for the guarded QOS only. Audience:
+  experimenter. Render params (facts): qos, has_gpu_guard, mem_per_gpu_mb, cpus_per_gpu,
+  gres_required, node_pool, nodes_without_libcuda_link.
 template: |
   - LOGIN-NODE DISCIPLINE — the H100 login node is SHARED and fragile (no GPU). On it you may ONLY
     submit sbatch, poll sacct/squeue (sleep ≥30s), and run BOUNDED internet steps (the judge;
@@ -14,8 +16,54 @@ template: |
   - GPU work (training, vLLM sampled eval) goes through Slurm using RUNTIME CONFIG; poll sacct;
     retry ssh on transient network errors; never let a campus-net blip abort the experiment.
   - SUBMIT, THEN WAIT PATIENTLY. Queue time is FREE — the run's budget tracks ideal run time
-    (queue wait is excluded), so waiting costs nothing. Submit the job (no --nodelist pin
-    unless the run config pins one — the rendered submit template already constrains Slurm to
-    our node pool from env.slurm.nodes), then poll sacct every
-    ~30s to terminal state. If PENDING, keep waiting; do NOT abandon, do NOT refuse to
-    submit, and never write a failed report just because the queue was busy.
+    (queue wait is excluded), so waiting costs nothing. Submit through the rendered ENV OPS
+    template and never hand-write an sbatch header: partition, qos, node and time are the run's
+    to choose and the template's to apply, and a hand-written `--nodelist` / `--time` / `--gres`
+    silently overrides a decision made elsewhere. Then poll sacct every ~30s to terminal state.
+    If PENDING, keep waiting; do NOT abandon, do NOT refuse to submit, and never write a failed
+    report just because the queue was busy.
+  - THE MACHINE'S HARD LIMITS, and the only way around them. Every job takes a card — `{{ gres_required }}`
+    is forced by the partition even for pure-CPU work (data building, clustering, profiling), and
+    this account cannot submit to the cpu partition at all (`Invalid qos specification`). Capacity
+    is granted PER CARD: **{{ mem_per_gpu_mb }} MB of memory and {{ cpus_per_gpu }} logical CPUs**,
+    and `--mem` / `--cpus-per-task` above that are refused by sbatch outright. So when a step runs
+    out of memory the ceiling cannot be raised — the only fix is to need less: sample before you
+    expand, and never materialise a whole pool as Python objects (`list(hf)` turned 1.47M arrow
+    rows into 120 GiB of dicts).
+  - JOB HYGIENE. Every artifact lands under your run_root (named in RUNTIME CONFIG); pin
+    `--chdir`/`--output`; redirect TMPDIR, TORCHINDUCTOR_CACHE_DIR, TRITON_CACHE_DIR and
+    TORCH_HOME into it so nothing pollutes the shared HOME. TMPDIR itself must be a SHORT path
+    (`/tmp/job_$SLURM_JOB_ID`) — a run_root-relative one exceeds the 108-character AF_UNIX socket
+    limit. And the agent host's `/zssd/...` paths do not exist on the cluster: a remote command or
+    sbatch script may only ever name cluster paths (deploy_root, runs_base, fixed_pool).
+  {% if nodes_without_libcuda_link %}
+  - TRITON/INDUCTOR COMPILATION NEEDS `libcuda.so`, and {{ nodes_without_libcuda_link }} ship only
+    the runtime `libcuda.so.1` without the link symbol. Any job that triggers a triton/inductor
+    compile must create a job-local symlink (`ln -sf <libcuda.so.1> $TMPDIR/culib/libcuda.so`) and
+    export `LIBRARY_PATH=$TMPDIR/culib:$LIBRARY_PATH` plus `TRITON_LIBCUDA_PATH=$TMPDIR/culib`, or
+    gcc's `-lcuda` fails the link (CalledProcessError). Do it unconditionally — Slurm picks the
+    node, so "this one is fine" is not something you get to know in advance.
+  {% endif %}
+  - ENVIRONMENT FREEZE — the sft/rl/eval venvs are shared frozen baselines. Never pip/uv
+    install or uninstall into them, never change a package version, never touch their `.venv`.
+    A different dependency means a NEW environment under `environments/`, never an edit to these.
+  {% if has_gpu_guard %}
+  - GPU GUARD — this run is on `{{ qos }}`, which is watched. Three rules, any one of which
+    scancels the job (sacct shows `CANCELLED by 0`, and the log says nothing about preemption):
+    (1) peak GPU memory below 24576 MiB in the first 30 minutes; (2) mean GPU memory below
+    24576 MiB over the last 30 minutes; (3) mean GPU utilisation below 30% over the last 30
+    minutes. The checkpoints land around minute 31 and minute 61. So every job must, before
+    anything else, allocate AND TOUCH a resident CUDA tensor of **at least 30 GiB**
+    (`x = torch.empty(30 * 2**30, dtype=torch.uint8, device="cuda").fill_(1)`, held until the job
+    ends — `torch.empty` alone does not touch it and does not count), and any job that does not
+    itself use the GPU (data building, clustering) must additionally run an idle thread doing
+    continuous matmul to satisfy rule 3. Note that training jobs get
+    `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, under which a nominal 26 GiB is accounted
+    as only 24320 MiB — which is why the old 16 GiB prescription was fatal. Measured on the
+    2026-08-11 batch: 9 kills over 5.7 hours, at peaks of 24428 / 24320 / 24300 / 24296 / 14826
+    MiB — every one of them just under the threshold.
+  {% elif qos %}
+  - This run is on `{{ qos }}`, which is NOT watched by the GPU Guard. Do not allocate a memory
+    placeholder and do not start an idle matmul thread: on this QOS they buy nothing and only
+    take capacity from the work.
+  {% endif %}

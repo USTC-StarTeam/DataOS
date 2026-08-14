@@ -95,3 +95,26 @@ def test_sft_field_mirror_matches_dataos_train():
         f"missing here: {sorted(declared - _SFT_FIELDS)}; "
         f"stale here: {sorted(_SFT_FIELDS - declared)}"
     )
+
+
+def test_the_qos_reaches_training_from_the_run(tmp_path):
+    """Training was the third submitter to read the QOS from the environment only.
+
+    When `qos` moved to the run config, the field train_spec read simply vanished: the sbatch went
+    out with no --qos, Slurm applied the account default — the GUARDED queue — and the job's own
+    prompt told it it was unguarded. Nothing errored; it showed up as `QOS=gpu_normal` in squeue
+    an hour into a batch that had asked for gpu_priv everywhere.
+    """
+    from dataos.agent.train_spec import build_train_spec
+
+    resolved = _resolved()
+    resolved["run"]["resource"]["qos"] = "gpu_priv"
+    resolved["environment"]["slurm"]["qos"] = "gpu_normal"   # env default must NOT win
+    ts = build_train_spec(resolved, name="e1", plan_train={"finetuning_type": "lora"},
+                          parent_model="/m", run_root="/r", time_h=2.0)
+    assert ts["cluster"]["qos"] == "gpu_priv"
+
+    resolved["run"]["resource"].pop("qos")                   # no run choice -> env default
+    ts = build_train_spec(resolved, name="e1", plan_train={"finetuning_type": "lora"},
+                          parent_model="/m", run_root="/r", time_h=2.0)
+    assert ts["cluster"]["qos"] == "gpu_normal"

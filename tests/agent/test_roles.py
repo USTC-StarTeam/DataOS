@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from dataos.agent import runtime
 from dataos.agent import roles as role_runner
+from dataos.agent import report as report_schema
 
 
 def _cfg(ws):
@@ -46,10 +47,13 @@ def test_subagent_resumes_same_session_until_report(tmp_path, monkeypatch):
             report_path.write_text(
                 json.dumps(
                     {
-                        "name": "explore-0",
-                        "status": "completed",
-                        "score": 95.0,
-                        "model": {"path": "/remote/final_model"},
+                        "id": "n0001",
+                        "stages": {
+                            "eval": {"status": "completed", "score": 95.0, "limit": -1},
+                            "train": {"status": "completed",
+                                      "model_path": "/remote/final_model"},
+                            "review": {"status": "completed", "conclusion": "stub"},
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -70,8 +74,9 @@ def test_subagent_resumes_same_session_until_report(tmp_path, monkeypatch):
         _cfg(tmp_path / "ws"), "round-0000", spec, tmp_path / "experiments", timeout=10
     )
 
-    assert report["status"] == "completed"
-    assert report["score"] == 95.0
+    parsed = report_schema.read(report)
+    assert parsed.status == "completed"
+    assert parsed.score == 95.0
     assert calls[1]["resume"] == "session-123"
     state = json.loads(
         (tmp_path / "experiments" / "explore-0" / "subagent_state.json").read_text()

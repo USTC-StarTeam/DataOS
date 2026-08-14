@@ -27,7 +27,7 @@ def _submit_args(tmp_path, **over):
         "task": "gsm8k", "model_path": _model_dir(tmp_path), "model_name": "baseline",
         "output_dir": str(tmp_path / "eval" / "gsm8k_limit-1"),
         "run_root": str(tmp_path), "limit": -1, "gpus": 1, "cpus": 8, "time": "12:00:00",
-        "dry_run": False,
+        "nodelist": None, "qos": "gpu_priv", "dry_run": False,
     }
     argv.update(over)
     return argv
@@ -110,6 +110,8 @@ def test_collect_fails_clean_without_score(tmp_path, capsys):
 def _argv(d: dict) -> list[str]:
     argv = []
     for k, v in d.items():
+        if v is None:          # an optional flag the caller omits, not the string "None"
+            continue
         if isinstance(v, bool):
             if v:
                 argv.append(f"--{k.replace('_', '-')}")
@@ -175,3 +177,36 @@ def test_judge_flag_comes_from_the_protocol_not_a_tool_table(tmp_path):
         (REPO / "tools" / "eval" / "src" / "dataos_eval" / "cli.py").read_text(encoding="utf-8")
     )
     del yaml
+
+
+def test_a_run_node_pin_overrides_the_env_node_pool(tmp_path, capsys):
+    """The run's pin wins — the precedence dataos.agent.train_spec already uses.
+
+    `env.slurm.nodes` is not a pin, it is a POOL: `--nodelist=gpu01,gpu02,gpu03` legally means
+    "any of these", and Slurm obliged. A run pinned to gpu02 put 35 of 35 training jobs on gpu02
+    and 68 of 94 eval jobs elsewhere, because this was the one submitter that never saw the pin.
+    """
+    job = _dry_run_spec(tmp_path, capsys, nodelist="gpu02")["job"]
+    assert job["slurm"]["nodelist"] == "gpu02"
+
+
+def test_without_a_pin_it_still_falls_back_to_the_env_pool(tmp_path, capsys):
+    job = _dry_run_spec(tmp_path, capsys)["job"]
+    assert job["slurm"]["nodelist"] == "gpu01,gpu02,gpu03"
+
+
+def test_the_run_chooses_the_qos(tmp_path, capsys):
+    """`qos` was env-only until it moved to the run config, at which point the field this read
+    simply vanished: jobs went out with no --qos and Slurm applied the account default — the
+    GUARDED queue — while the job's own prompt said it was unguarded. Nothing errored."""
+    job = _dry_run_spec(tmp_path, capsys, qos="gpu_normal")["job"]
+    assert job["slurm"]["qos"] == "gpu_normal"
+
+
+def test_the_runs_gpus_and_cpus_are_not_defaults(tmp_path, capsys):
+    """Latent half of the same gap: the caller passed neither, so both fell to argparse
+    defaults — and every run config happened to ask for exactly those (1 and 8). The first run
+    to ask for 2 GPUs would have trained on 2 and evaluated on 1."""
+    job = _dry_run_spec(tmp_path, capsys, gpus=2, cpus=11)["job"]
+    assert job["resources"]["gpus"] == 2
+    assert job["slurm"]["cpus_per_task"] == 11
