@@ -104,7 +104,12 @@ def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_mode
         },
         "cluster": {
             "partition": env.get("slurm", {}).get("partition"),
-            "qos": env.get("slurm", {}).get("qos"),
+            # Run first, environment second — the same precedence as `nodelist` below, and the
+            # third submitter to learn it. It read env-only, and when `qos` moved to the run
+            # config the field it read simply vanished: training jobs went out with no --qos at
+            # all and Slurm put them on the account default, which is the GUARDED queue, while
+            # their own prompt told them they were on an unguarded one. Nothing errored.
+            "qos": resource.get("qos") or env.get("slurm", {}).get("qos"),
             # run pin wins; else the env's node pool (env.slurm.nodes)
             "nodelist": resource.get("node") or env.get("slurm", {}).get("nodes"),
             "gres": f"gpu:{gpus}",
