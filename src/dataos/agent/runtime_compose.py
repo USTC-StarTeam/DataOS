@@ -56,7 +56,9 @@ def _require(d: dict, keys: list[str], where: str) -> None:
 
 
 def _validate(env: dict, task: dict) -> None:
-    _require(env, ["name", "kind", "access", "tools", "operations", "discipline"], "env.yaml")
+    # no `discipline`: constraints are prompt text now (src/dataos/prompt/*/context/
+    # cluster_discipline), stated once and golden-tested, not prose duplicated per env.
+    _require(env, ["name", "kind", "access", "tools", "operations"], "env.yaml")
     for verb in ("submit", "poll", "fetch", "cancel", "activate"):
         if verb not in env["operations"]:
             raise ValueError(f"env.yaml.operations missing verb: {verb}")
@@ -84,7 +86,6 @@ def resolve(run_config: dict, configs_root: str | Path = CONFIGS_DIR) -> dict:
 
     resolved_env = dict(env)
     resolved_env["operations"] = {k: _render_str(v, ns).strip() for k, v in env["operations"].items()}
-    resolved_env["discipline"] = [_render_str(d, ns) for d in env["discipline"]]
 
     resolved_task = dict(task)
     resolved_task["constraints"] = [_render_str(c, ns) for c in task["constraints"]]

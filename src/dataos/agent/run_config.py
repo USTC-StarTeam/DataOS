@@ -105,6 +105,17 @@ def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
         "nodelist": resource.node,
         "gres": f"gpu:{resource.gpus}",
         "cpus_per_task": resource.cpus,
+        # Machine facts the prompt layer states as constraints. They live here as NUMBERS rather
+        # than as prose in env.yaml's old `discipline` list, because a constraint is knowledge
+        # about the machine and belongs where the other prompt text is — reviewed, golden-tested,
+        # written once. The list was neither: two environments carried 12 near-identical rules,
+        # 1807 characters, differing in one line, and it was re-sent on every experiment turn.
+        "mem_per_gpu_mb": slurm.get("mem_per_gpu_mb"),
+        "cpus_per_gpu": slurm.get("cpus_per_gpu"),
+        "gres_required": slurm.get("gres_required"),
+        "node_pool": slurm.get("nodes"),
+        "nodes_without_libcuda_link": slurm.get("nodes_without_libcuda_link"),
+        "guard_qos": slurm.get("guard_qos"),
     }
 
 

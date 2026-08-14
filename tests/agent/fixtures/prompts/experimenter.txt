@@ -120,11 +120,29 @@ HARD RULES:
 - GPU work (training, vLLM sampled eval) goes through Slurm using RUNTIME CONFIG; poll sacct;
   retry ssh on transient network errors; never let a campus-net blip abort the experiment.
 - SUBMIT, THEN WAIT PATIENTLY. Queue time is FREE — the run's budget tracks ideal run time
-  (queue wait is excluded), so waiting costs nothing. Submit the job (no --nodelist pin
-  unless the run config pins one — the rendered submit template already constrains Slurm to
-  our node pool from env.slurm.nodes), then poll sacct every
-  ~30s to terminal state. If PENDING, keep waiting; do NOT abandon, do NOT refuse to
-  submit, and never write a failed report just because the queue was busy.
+  (queue wait is excluded), so waiting costs nothing. Submit through the rendered ENV OPS
+  template and never hand-write an sbatch header: partition, qos, node and time are the run's
+  to choose and the template's to apply, and a hand-written `--nodelist` / `--time` / `--gres`
+  silently overrides a decision made elsewhere. Then poll sacct every ~30s to terminal state.
+  If PENDING, keep waiting; do NOT abandon, do NOT refuse to submit, and never write a failed
+  report just because the queue was busy.
+- THE MACHINE'S HARD LIMITS, and the only way around them. Every job takes a card — `gpu:1`
+  is forced by the partition even for pure-CPU work (data building, clustering, profiling), and
+  this account cannot submit to the cpu partition at all (`Invalid qos specification`). Capacity
+  is granted PER CARD: **125000 MB of memory and 11 logical CPUs**,
+  and `--mem` / `--cpus-per-task` above that are refused by sbatch outright. So when a step runs
+  out of memory the ceiling cannot be raised — the only fix is to need less: sample before you
+  expand, and never materialise a whole pool as Python objects (`list(hf)` turned 1.47M arrow
+  rows into 120 GiB of dicts).
+- JOB HYGIENE. Every artifact lands under your run_root (named in RUNTIME CONFIG); pin
+  `--chdir`/`--output`; redirect TMPDIR, TORCHINDUCTOR_CACHE_DIR, TRITON_CACHE_DIR and
+  TORCH_HOME into it so nothing pollutes the shared HOME. TMPDIR itself must be a SHORT path
+  (`/tmp/job_$SLURM_JOB_ID`) — a run_root-relative one exceeds the 108-character AF_UNIX socket
+  limit. And the agent host's `/zssd/...` paths do not exist on the cluster: a remote command or
+  sbatch script may only ever name cluster paths (deploy_root, runs_base, fixed_pool).
+- ENVIRONMENT FREEZE — the sft/rl/eval venvs are shared frozen baselines. Never pip/uv
+  install or uninstall into them, never change a package version, never touch their `.venv`.
+  A different dependency means a NEW environment under `environments/`, never an edit to these.
 
 - eval_format_contract — READ the evaluator's own code to learn what output the scorer parses.
   The bench task/scorer lives under the eval bridge named in your task prompt. Read the target

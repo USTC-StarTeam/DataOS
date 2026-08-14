@@ -24,8 +24,3 @@
 - cancel:   `{{ env.operations.cancel }}`
 
 `ctx.run_root` 你自己选,但**必须落在 {{ run.runs_base }} 下**(否则 fetch/隔离失效)。
-
-硬约束(必须遵守):
-{% for d in env.discipline %}
-- {{ d }}
-{% endfor %}
