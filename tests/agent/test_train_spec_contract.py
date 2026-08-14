@@ -10,6 +10,7 @@ as the defects in audit batch 12 — an outdated external copy silently beating 
 """
 
 import pytest
+from pydantic import ValidationError
 
 from dataos.agent.train_spec import build_train_spec
 
@@ -63,18 +64,25 @@ def test_full_env_menu_is_in_the_spec():
     assert spec.env.env_for("llamafactory", "sft") == "/envs/Llama"
 
 
-def test_cluster_nodelist_prefers_run_pin_then_env_pool():
-    # run pin wins
+def test_the_spec_states_no_placement_at_all():
+    """The rule two tests used to guard here did not go away; it moved.
+
+    `nodelist` (run pin over env pool) and `qos` (run choice over env default) were asserted on
+    a `cluster` block this function wrote into every TrainSpec — the third hand-written copy of
+    a precedence dataos-eval and dataos-data already read from env.yaml, and the copy that went
+    stale when `qos` moved into the run config. Both now live in `dataos_launch.placement`,
+    covered by tools/tests/launch/test_placement.py; dataos-train resolves them at submit from
+    --repo/--environment.
+
+    What is left to protect here is the absence. A spec that could state placement would outrank
+    the config again, silently, exactly the way the old one did.
+    """
     spec = build_train_spec(_resolved(), name="e0", plan_train={"finetuning_type": "lora"},
                             parent_model="/models/base", run_root="/rb/e0", time_h=2.0)
-    assert spec["cluster"]["nodelist"] == "gpu04"
-    # no pin -> env.slurm.nodes pool
-    r = _resolved()
-    r["run"]["resource"]["node"] = None
-    r["environment"]["slurm"]["nodes"] = "gpu01,gpu02,gpu03"
-    spec = build_train_spec(r, name="e0", plan_train={"finetuning_type": "lora"},
-                            parent_model="/models/base", run_root="/rb/e0", time_h=2.0)
-    assert spec["cluster"]["nodelist"] == "gpu01,gpu02,gpu03"
+    assert "cluster" not in spec
+    assert not {"partition", "qos", "nodelist", "gres"} & set(spec)
+    with pytest.raises(ValidationError):   # and dataos-train refuses one that tries
+        TrainSpec.model_validate({**spec, "cluster": {"qos": "gpu_normal"}})
 
 
 def test_sft_field_mirror_matches_dataos_train():
@@ -95,26 +103,3 @@ def test_sft_field_mirror_matches_dataos_train():
         f"missing here: {sorted(declared - _SFT_FIELDS)}; "
         f"stale here: {sorted(_SFT_FIELDS - declared)}"
     )
-
-
-def test_the_qos_reaches_training_from_the_run(tmp_path):
-    """Training was the third submitter to read the QOS from the environment only.
-
-    When `qos` moved to the run config, the field train_spec read simply vanished: the sbatch went
-    out with no --qos, Slurm applied the account default — the GUARDED queue — and the job's own
-    prompt told it it was unguarded. Nothing errored; it showed up as `QOS=gpu_normal` in squeue
-    an hour into a batch that had asked for gpu_priv everywhere.
-    """
-    from dataos.agent.train_spec import build_train_spec
-
-    resolved = _resolved()
-    resolved["run"]["resource"]["qos"] = "gpu_priv"
-    resolved["environment"]["slurm"]["qos"] = "gpu_normal"   # env default must NOT win
-    ts = build_train_spec(resolved, name="e1", plan_train={"finetuning_type": "lora"},
-                          parent_model="/m", run_root="/r", time_h=2.0)
-    assert ts["cluster"]["qos"] == "gpu_priv"
-
-    resolved["run"]["resource"].pop("qos")                   # no run choice -> env default
-    ts = build_train_spec(resolved, name="e1", plan_train={"finetuning_type": "lora"},
-                          parent_model="/m", run_root="/r", time_h=2.0)
-    assert ts["cluster"]["qos"] == "gpu_normal"

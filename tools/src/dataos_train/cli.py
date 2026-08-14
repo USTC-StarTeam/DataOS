@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -21,7 +20,9 @@ from typing import Any
 
 from dataos_launch.io import atomic_write_json, read_json
 from dataos_launch.launchers.base import materialize
+from dataos_launch.placement import launcher_from_config
 from dataos_launch.registry import get_launcher
+from dataos_launch.spec import SpecError
 from dataos_launch.types import Handle, Job, Status
 
 from .modeljob import ModelJobSpec
@@ -35,7 +36,9 @@ from .schemas import (
     model_schema,
     schema_names,
 )
+from .precheck import precheck_disk
 from .spec import TrainSpec
+from .stage import TrainStage
 
 
 def _read_input(arg: str) -> Any:
@@ -50,117 +53,58 @@ def _emit(obj: Any) -> None:
 
 def _persist_job(job: Job) -> None:
     Path(job.run_dir).mkdir(parents=True, exist_ok=True)
-    atomic_write_json(Path(job.run_dir) / "spec.json", job.model_dump())
+    # `job.json`, not `spec.json`. The agent authors a TrainSpec and this used to overwrite it
+    # with the rendered Job at the same path, so "the spec" meant two different documents
+    # depending on whether build had run — and re-submitting the same path submitted the Job.
+    atomic_write_json(Path(job.run_dir) / "job.json", job.model_dump())
     materialize(job)  # write rendered assets (run_train.sh, configs) into run_dir
     # (build IS the render step)
 
 
-#: Free space required before a run is allowed to start, as a multiple of the base model's
-#: weight files. A full-SFT run writes back roughly one model (``final_model``); a LoRA run writes
-#: an adapter plus a merged export. The headroom covers the export and a little slack. It is
-#: still a FLOOR, not a guarantee: nothing here reserves the space against another job filling
-#: the same filesystem in the meantime.
-_DISK_HEADROOM = 1.5
+def _stage(args: argparse.Namespace) -> TrainStage:
+    """The stage, built from the deployment — the same way dataos-eval and dataos-data do it.
 
-
-def _retained_models(spec: TrainSpec) -> float:
-    """How many model-sized artifacts this run keeps on disk.
-
-    Trajectory checkpoints (``save_steps``) each cost one model's worth — ``save_only_model`` is
-    forced in the rendered config, so no optimizer state — but only for full/freeze tuning. A
-    LoRA checkpoint is an adapter, orders of magnitude smaller, so it does not move this number.
+    ``--repo``/``--environment`` replace ``--launcher`` and ``--cluster-json``. The environment
+    declares which launcher runs here and what the partition's limits are; the run's own choices
+    (``--qos``, ``--nodelist``) go to the launcher beside them. Naming a launcher on the command
+    line was a fourth place placement could be decided, and the one furthest from the config.
     """
-    method = spec.method
-    if not getattr(method, "save_steps", None):
-        return _DISK_HEADROOM
-    if getattr(method, "finetuning_type", None) == "lora":
-        return _DISK_HEADROOM
-    return _DISK_HEADROOM + int(getattr(method, "save_total_limit", 0) or 0)
+    return TrainStage.from_repo(args.repo, args.environment)
 
 
-def _model_bytes(path: str) -> int:
-    """Size of the model's weight files, or 0 when the path is not a readable model dir."""
-    root = Path(path)
-    if not root.is_dir():
-        return 0
-    return sum(
-        f.stat().st_size
-        for f in root.iterdir()
-        if f.is_file() and f.suffix in {".safetensors", ".bin", ".pt"}
-    )
-
-
-def precheck_disk(spec: TrainSpec) -> list[str]:
-    """Refuse a run that cannot fit its own output.
-
-    The 4b2 v5 batch exhausted ``/data2`` mid-run: training finished, then ``save_pretrained``
-    died writing the weights, so the GPU hours were spent and nothing came back. The signature is
-    unhelpful too — a full filesystem surfaces as safetensors' "File too large (os error 27)",
-    which reads like a size bug rather than a space one. Checking before submit turns hours of
-    wasted compute into one line of output.
-    """
-    factor = _retained_models(spec)
-    need = int(_model_bytes(spec.base_model) * factor)
-    if not need:  # unreadable base (e.g. a spec built off-cluster) — nothing to compare against
-        return []
-    probe = Path(spec.run_dir)
-    while not probe.exists() and probe != probe.parent:  # run_dir is created by the job
-        probe = probe.parent
-    free = shutil.disk_usage(probe).free
-    if free >= need:
-        return []
-    gb = 1024**3
-    keep = getattr(spec.method, "save_steps", None) and getattr(spec.method, "save_total_limit", 0)
-    return [
-        f"not enough free space under {spec.run_dir}: {free / gb:.1f} GiB free, this run needs "
-        f"at least {need / gb:.1f} GiB ({factor}x the base model's "
-        f"{_model_bytes(spec.base_model) / gb:.1f} GiB of weights) to write its output"
-        + (f", including {keep} retained checkpoints" if keep else "")
-        + ". Free space, lower save_total_limit, or point run_dir at another filesystem — "
-        "training to completion and then failing on save wastes the whole allocation."
-    ]
+def _resource(args: argparse.Namespace) -> dict:
+    return {"qos": getattr(args, "qos", None), "node": getattr(args, "nodelist", None)}
 
 
 def _looks_like_jobspec(data: dict) -> bool:
     return all(k in data for k in ("command", "run_dir", "backend", "job_name"))
 
 
-def _build_or_die(spec: TrainSpec) -> Job:
-    """Validate (schema + disk) then build. The single funnel for ``build`` and ``submit``:
+def _build_or_die(stage: TrainStage, spec: TrainSpec) -> Job:
+    """Validate (schema + disk) then build. The funnel both ``build`` and ``submit`` go through:
     submit used to skip validation entirely, so a spec the backend rejected at build time was
     still submitted when the caller passed a TrainSpec straight to ``submit``."""
-    backend = get_backend(spec.backend)
-    errors = backend.validate(spec) + precheck_disk(spec)
-    if errors:
-        _emit({"ok": False, "errors": errors})
-        raise SystemExit(1)
-    return backend.build(spec)
+    try:
+        return stage.prepare(spec)
+    except SpecError as exc:
+        _emit({"ok": False, "errors": exc.errors})
+        raise SystemExit(1) from None
 
 
-def _load_jobspec_or_build(arg: str) -> tuple[Job, dict]:
+def _load_jobspec_or_build(stage: TrainStage, arg: str) -> Job:
     """The Job to run, and the placement its spec carried.
 
-    Two values because the Job no longer carries a scheduler block: placement is the launcher's,
-    built from config. ``spec.cluster`` is that config as the brain resolved it (partition, QOS,
-    node), so submitting a TrainSpec hands it straight to the launcher. A pre-built Job has no
-    spec left to ask, so it brings none — pass ``--cluster-json``.
-
-    It carries placement but not the partition's CAPS, so a train job gets no clamping from
-    ``dataos_launch.placement``: it is a hand-built dict, third-hand from ``env.yaml``. The fix is
-    for this CLI to read ``env.yaml`` itself, as dataos-eval and dataos-data already do, and for
-    ``TrainSpec.cluster`` to go away — the commit that gives the three stages one Spec base.
-    Nothing regresses meanwhile: ``time_h`` is already clamped brain-side against
-    ``env.slurm.max_time``, and the GPU Guard never applies to a job that trains on its card.
+    Accepts either document: a TrainSpec (validated and built here) or an already-built Job
+    from ``job.json``, for a caller that inspected or hand-patched the render before going.
     """
     data = _read_input(arg)
     if isinstance(data, dict) and _looks_like_jobspec(data):
-        return Job.model_validate(data), {}
-    spec = TrainSpec.model_validate(data)
-    return _build_or_die(spec), dict(spec.cluster or {})
+        return Job.model_validate(data)
+    return _build_or_die(stage, TrainSpec.model_validate(data))
 
 
 def _backend_for_run(run_dir: str, fallback: str) -> str:
-    spec_path = Path(run_dir) / "spec.json"
+    spec_path = Path(run_dir) / "job.json"
     if spec_path.is_file():
         try:
             return read_json(spec_path).get("backend", fallback)
@@ -225,7 +169,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def cmd_build(args: argparse.Namespace) -> int:
     spec = TrainSpec.model_validate(_read_input(args.spec))
     try:
-        job = _build_or_die(spec)
+        job = _build_or_die(_stage(args), spec)
     except SystemExit:
         return 1
     _persist_job(job)
@@ -234,12 +178,10 @@ def cmd_build(args: argparse.Namespace) -> int:
 
 
 def cmd_submit(args: argparse.Namespace) -> int:
-    job, cluster = _load_jobspec_or_build(args.spec)
+    stage = _stage(args)
+    job = _load_jobspec_or_build(stage, args.spec)
     _persist_job(job)
-    if args.cluster_json:
-        cluster = _read_input(args.cluster_json)
-    launcher = get_launcher(args.launcher, **cluster)
-    handle = launcher.submit(job)
+    handle = launcher_from_config(stage.env, _resource(args)).submit(job)
     _emit(handle.model_dump())
     return 0
 
@@ -285,11 +227,10 @@ def cmd_collect(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    job, cluster = _load_jobspec_or_build(args.spec)
+    stage = _stage(args)
+    job = _load_jobspec_or_build(stage, args.spec)
     _persist_job(job)
-    if args.cluster_json:
-        cluster = _read_input(args.cluster_json)
-    launcher = get_launcher(args.launcher, **cluster)
+    launcher = launcher_from_config(stage.env, _resource(args))
     handle = launcher.submit(job)
     deadline = (time.monotonic() + args.timeout) if args.timeout else None
     st = launcher.status(handle)
@@ -337,6 +278,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("build", help="TrainSpec -> Job")
     b.add_argument("spec", help="path to TrainSpec JSON, or - for stdin")
+    b.add_argument("--repo", required=True,
+                   help="deploy checkout root (configs/ lives there)")
+    b.add_argument("--environment", default="PTB_H100_slurm")
     b.set_defaults(func=cmd_build)
 
     v = sub.add_parser("validate", help="TrainSpec -> {ok, errors}")
@@ -345,8 +289,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("submit", help="Job/TrainSpec -> Handle (returns immediately)")
     s.add_argument("spec")
-    s.add_argument("--launcher", default="local", choices=["local", "slurm"])
-    s.add_argument("--cluster-json", dest="cluster_json", default=None)
     s.set_defaults(func=cmd_submit)
 
     st = sub.add_parser("status", help="Handle -> status")
@@ -371,8 +313,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     r = sub.add_parser("run", help="TrainSpec/Job -> TrainResult (blocking)")
     r.add_argument("spec")
-    r.add_argument("--launcher", default="local", choices=["local", "slurm"])
-    r.add_argument("--cluster-json", dest="cluster_json", default=None)
+    for sub_p in (s, r):  # NOT `p`: that name is the top-level parser this function returns
+        sub_p.add_argument("--repo", required=True,
+                           help="deploy checkout root (configs/ lives there)")
+        sub_p.add_argument("--environment", default="PTB_H100_slurm")
+        sub_p.add_argument("--qos", default=None,
+                           help="run-level QOS; env.yaml only declares which ones exist")
+        sub_p.add_argument("--nodelist", default=None,
+                           help="run-level node pin; overrides the environment's node pool")
     r.add_argument("--poll", type=float, default=10.0)
     r.add_argument("--timeout", type=float, default=None)
     r.set_defaults(func=cmd_run)

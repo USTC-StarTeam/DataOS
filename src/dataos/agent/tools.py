@@ -137,9 +137,20 @@ class DataosTrainCli:
             ),
             None,
         ) or "<train_cli_env>"
+        # The same four flags dataos-eval takes (see task.yaml scoring.command): the
+        # deployment to read, and the run's own placement choices. dataos-train used to take
+        # `--launcher slurm` plus a cluster block riding on the spec — a fourth opinion on
+        # placement, and the one furthest from the config that decides it.
+        run = resolved.get("run", {}) or {}
+        resource = run.get("resource", {}) or {}
+        placement = " ".join(filter(None, [
+            f"--repo {run.get('deploy_root')} --environment {run.get('environment')}",
+            f"--qos {resource['qos']}" if resource.get("qos") else "",
+            f"--nodelist {resource['node']}" if resource.get("node") else "",
+        ]))
         return _prompt.render(
             "experimenter/turn/stage_train", frozen_command="", frozen_produces="",
-            cli_path=f"{te_path}/bin/dataos-train",
+            cli_path=f"{te_path}/bin/dataos-train", placement=placement,
         )
 
 

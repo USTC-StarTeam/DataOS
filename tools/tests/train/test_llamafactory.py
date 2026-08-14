@@ -241,7 +241,6 @@ def test_build_lora(tmp_path: Path) -> None:
         method=SFT(finetuning_type="lora", template="qwen3"),
         resources=Resources(nodes=1, gpus=2, cpus=8, time_h=2),
         env=EnvSpec(conda_sh="/c.sh", backends={"llamafactory": "Llama"}, deploy_root="/deploy"),
-        cluster={"partition": "gpu", "gres": "gpu:2", "nodelist": "gpu04"},
     )
     job = LlamaFactoryBackend().build(spec)
     assert job.command == ["bash", "run_train.sh"]

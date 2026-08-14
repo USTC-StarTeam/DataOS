@@ -9,7 +9,7 @@ template: |
     1. submit: `{{ command }}`
        → prints {"job_id", "handle"}; the Slurm job is submitted FOR you — ONE node from the
          pool, qos/gres/caches/offline-HF all owned by the tool. NEVER hand-write sbatch for eval.
-    2. poll:   `{{ eval_bin }} status --repo {{ repo }} <handle>`
+    2. poll:   `{{ eval_bin }} status <handle>`
        → {"state": ...}; exit 2 = still queued/running, 0 = terminal (COMPLETED/FAILED/...).
     3. score:  `{{ eval_bin }} collect --repo {{ repo }} --environment {{ environment }} --task-config {{ task_config }} <handle>`
        → prints {"score": ...} and leaves {{ result_file }} in place; judge benches

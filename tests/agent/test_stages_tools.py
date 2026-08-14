@@ -21,7 +21,8 @@ def _resolved(*, frozen: bool = False) -> dict:
         task["train"] = {"command": "bash train.sh", "produces": "out/model"}
     return {
         "task": task,
-        "run": {"deploy_root": "/deploy", "environment": "PTB_H100_slurm", "task": "posttrainbench"},
+        "run": {"deploy_root": "/deploy", "environment": "PTB_H100_slurm", "task": "posttrainbench",
+                "resource": {"qos": "gpu_priv", "node": "gpu04", "gpus": 1, "cpus": 8}},
         "environment": {
             "tools": {
                 "sft_env": {"path": "/envs/Llama",
@@ -56,7 +57,7 @@ def test_data_invoke_carries_the_installed_catalog():
 def test_eval_invoke_from_the_resolved_contract():
     invoke = _stage(_resolved(), name="eval").invoke
     assert "1. submit: `bash {ctx.eval_dir}/run_eval.sh {ctx.model_path}`" in invoke
-    assert "`/envs/Llama/bin/dataos-eval status --repo /deploy <handle>`" in invoke
+    assert "`/envs/Llama/bin/dataos-eval status <handle>`" in invoke
     assert "collect --repo /deploy --environment PTB_H100_slurm --task-config posttrainbench" in invoke
     assert "`score` (range [0, 100])" in invoke
     assert "NEVER hand-write sbatch for eval" in invoke
@@ -70,7 +71,11 @@ def test_train_invoke_is_the_registered_trainer():
     assert invoke.startswith("DETERMINISTIC via dataos-train")
     # the launcher lifecycle, NOT a hand-written sbatch wrapper; cli from provides
     assert "`/envs/train-cli/bin/dataos-train validate {ctx.run_root}/trainspec.json`" in invoke
-    assert "submit {ctx.run_root}/spec.json --launcher slurm" in invoke
+    # placement comes from the run config, the same four flags dataos-eval takes — never from
+    # a `--launcher` on the command line, and never from a cluster block on the spec
+    assert "submit {ctx.run_root}/trainspec.json --repo /deploy --environment PTB_H100_slurm" in invoke
+    assert "--qos gpu_priv" in invoke
+    assert "--launcher" not in invoke
     assert "handle.json" in invoke
 
 
@@ -119,7 +124,7 @@ def test_rendered_blocks_parity():
     assert "- invoke: dataos_operator recipe (discover: `python -c \"import dataos_operator as o;" in blocks
     assert "custom ops via DATAOS_OPERATOR_PLUGINS — full mechanics in your system prompt" in blocks
     assert "FALLBACK only if dataos-train is broken/unavailable: hand-write the LF config" in blocks
-    assert "submit {ctx.run_root}/spec.json --launcher slurm" in blocks
+    assert "submit {ctx.run_root}/trainspec.json --repo /deploy" in blocks
     assert "want a high score? read how the scorer parses output first: /deploy/configs/tasks/posttrainbench/contracts/gsm8k.md" in blocks
 
 
@@ -170,11 +175,13 @@ def test_train_spec_clamps_time_to_the_partition_max():
 def test_templates_render_with_declared_params():
     assert "o.guide()" in prompt.render("experimenter/turn/stage_data", catalog="CATALOG")
     frozen = prompt.render(
-        "experimenter/turn/stage_train", frozen_command="cmd", frozen_produces="prod", cli_path=""
+        "experimenter/turn/stage_train", frozen_command="cmd", frozen_produces="prod",
+        cli_path="", placement="",
     )
     assert "`cmd` → model at prod" in frozen
     ours = prompt.render(
-        "experimenter/turn/stage_train", frozen_command="", frozen_produces="", cli_path="/te/bin/dataos-train"
+        "experimenter/turn/stage_train", frozen_command="", frozen_produces="",
+        cli_path="/te/bin/dataos-train", placement="--repo /deploy --environment E --qos gpu_priv",
     )
     assert ours.startswith("DETERMINISTIC via dataos-train")
     minimal = prompt.render(
@@ -184,7 +191,9 @@ def test_templates_render_with_declared_params():
     )
     assert minimal.startswith("run the eval through the `dataos-eval` CLI")
     assert "1. submit: `cmd`" in minimal
-    assert "`/env/bin/dataos-eval status --repo /deploy <handle>`" in minimal
+    # status takes only the handle: polling needs no deployment config, and the parser it used
+    # to be given did not even declare --repo.
+    assert "`/env/bin/dataos-eval status <handle>`" in minimal
     # the label no longer selects the template (the runner reads the model's config.json), and the
     # prompt must say so: the old rule told the experimenter its label WAS the protocol
     assert "the eval label is yours to name freely" in minimal

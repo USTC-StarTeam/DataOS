@@ -46,7 +46,7 @@ def _train_invoke(resolved: dict, registry: _tools.ToolRegistry) -> str:
             "experimenter/turn/stage_train",
             frozen_command=str(frozen.get("command", "")).strip(),
             frozen_produces=frozen.get("produces", "the harness run_dir model"),
-            cli_path="",
+            cli_path="", placement="",
         )
     if registry.trainer is None:
         raise ValueError("no Trainer registered in the tool registry (train stage)")

@@ -19,6 +19,7 @@ from dataos_train.backends.dummy import DummyBackend
 from dataos_train.spec import SFT, TrainSpec
 
 _SRC = str(Path(__file__).resolve().parents[1] / "src")
+_REPO = Path(__file__).resolve().parents[3]  # the DataOS repo root (configs/ lives there)
 
 
 def _spec(run_dir: Path, exit_code: int = 0) -> TrainSpec:
@@ -73,8 +74,13 @@ def test_cli_run_dummy(tmp_path: Path) -> None:
             "dataos_train.cli",
             "run",
             str(spec_path),
-            "--launcher",
-            "local",
+            # The environment names the launcher (LOCAL declares `launcher: local`); there is no
+            # --launcher flag any more, because naming one was a fourth place placement could be
+            # decided and the one furthest from the config.
+            "--repo",
+            str(_REPO),
+            "--environment",
+            "LOCAL",
             "--poll",
             "0.05",
         ],
@@ -87,7 +93,7 @@ def test_cli_run_dummy(tmp_path: Path) -> None:
     assert payload["status"] == "COMPLETED"
     assert payload["model_path"].endswith("final_model")
     assert (run_dir / "result.json").is_file()
-    assert (run_dir / "spec.json").is_file()
+    assert (run_dir / "job.json").is_file()
 
 
 def test_cli_capabilities() -> None:

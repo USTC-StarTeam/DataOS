@@ -9,7 +9,7 @@ submit / status / collect), same reused building blocks (``DatasetRef``, ``Resou
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from dataos_launch.model import Model
 from dataos_launch.types import Resources
@@ -68,4 +68,3 @@ class ModelJobSpec(Model):
     interaction: Interaction = Field(default_factory=LossInteraction)
     resources: Resources = Field(default_factory=Resources)
     env: EnvSpec = Field(default_factory=EnvSpec)
-    cluster: dict[str, Any] | None = None  # from run_config.to_cluster()

@@ -172,17 +172,14 @@ def test_unknown_model_family_is_refused(tmp_path):
 
 def test_judge_flag_comes_from_the_protocol_not_a_tool_table(tmp_path):
     """`JUDGE_BENCHES` used to be hardcoded in cli.py — bench knowledge inside the tool."""
-    import yaml
+    from dataos_eval.stage import EvalStage
 
-    from dataos_eval.cli import _load
-
-    _, _, protocol = _load(REPO, "PTB_H100_slurm", "posttrainbench")
-    declared = {b for b, c in protocol["benches"].items() if c["judge"]}
+    stage = EvalStage.from_repo(REPO, "PTB_H100_slurm", "posttrainbench")
+    declared = {b for b, c in stage.benches.items() if c["judge"]}
     assert declared == {"healthbench", "arenahardwriting"}
-    assert "JUDGE_BENCHES" not in (
-        (REPO / "tools" / "src" / "dataos_eval" / "cli.py").read_text(encoding="utf-8")
-    )
-    del yaml
+    src = REPO / "tools" / "src" / "dataos_eval"
+    assert "JUDGE_BENCHES" not in (src / "cli.py").read_text(encoding="utf-8")
+    assert "JUDGE_BENCHES" not in (src / "stage.py").read_text(encoding="utf-8")
 
 
 def test_a_run_node_pin_overrides_the_env_node_pool(tmp_path, capsys):

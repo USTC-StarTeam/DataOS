@@ -104,7 +104,6 @@ def test_build_run_dir_default_and_env_resolution() -> None:
     assert job_dir.run_dir == "/data/curated/modeljobs/l2"
     spec = _spec(
         env={"conda_sh": "/c/conda.sh", "backends": {"modeljob": "train-env"}},
-        cluster={"partition": "gpu", "gres": "gpu:1"},
     )
     job = mj.build(spec, run_dir="/r")
     assert job.conda_sh == "/c/conda.sh"
@@ -202,7 +201,7 @@ def test_cli_validate_build_collect(tmp_path: Path, capsys) -> None:  # noqa: AN
     )
     assert cli.main(["modeljob-validate", str(spec_path)]) == 0
     assert cli.main(["modeljob-build", str(spec_path), "--run-dir", str(run_dir)]) == 0
-    assert (run_dir / "spec.json").is_file()  # Job, same落盘 convention as train build
+    assert (run_dir / "job.json").is_file()  # the rendered Job, as train build writes it
     assert (run_dir / "modeljob.json").is_file()
     assert (run_dir / "run_score.sh").is_file()
     (run_dir / "scores.jsonl").write_text(

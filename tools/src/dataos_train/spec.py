@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from dataos_launch.model import Model
-from dataos_launch.types import Resources
+from dataos_launch.spec import Spec
 from pydantic import Field
 
 
@@ -277,15 +277,25 @@ class VerlPPO(Model):
 Method = Annotated[SFT | DPO | PPO | KTO | ORPO | GRPO | VerlPPO, Field(discriminator="kind")]
 
 
-class TrainSpec(Model):
-    name: str
+class TrainSpec(Spec):
+    """The one spec an agent writes by hand — the method is what DataOS searches.
+
+    ``name``/``run_dir``/``resources`` come from :class:`~dataos_launch.spec.Spec`; what is
+    special here is ``method``, and nothing else. It also carried a ``cluster`` block until
+    2026-08-14 — partition, QOS, node, filled by the brain from ``env.yaml`` and forwarded to the
+    launcher on the Job. That was a third hand-written copy of a rule the other two instruments
+    read from config, and it went stale the way a third copy does: when ``qos`` moved into the
+    run config, this one kept reading a field that no longer existed and its jobs went to the
+    account default in silence. Placement is now the launcher's, resolved at submit from
+    ``--repo``/``--environment`` plus the run's own choices.
+    """
+
+    stage = "train"
+
     backend: str = "llamafactory"
     base_model: str  # resolved HF path, injected by DataOS (never written by the LLM)
-    run_dir: str
     dataset: DatasetRef | None = None
     method: Method = Field(default_factory=SFT)
     online_ops: list[OnlineOpSpec] = Field(default_factory=list)
-    resources: Resources = Field(default_factory=Resources)
     env: EnvSpec = Field(default_factory=EnvSpec)
-    cluster: dict[str, Any] = Field(default_factory=dict)  # from run_config.to_cluster()
     overrides: Any = Field(default_factory=dict)  # dict|list: raw native-config escape hatch

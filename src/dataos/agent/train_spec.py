@@ -2,8 +2,12 @@
 
 Pure dict construction — the brain does NOT import dataos_train (zero build-time
 dependency; the spec crosses the boundary as data, per runtime-contract.md §12).
-Runtime-owned fields (base_model / run_dir / dataset.path / env / cluster) are
-injected HERE from the resolved contract — single source of truth. The planner
+Runtime-owned fields (base_model / run_dir / dataset.path / env) are injected HERE
+from the resolved contract — single source of truth. PLACEMENT is not among them:
+partition/qos/nodelist used to be written into a ``cluster`` block here and forwarded
+to the launcher on the Job, which made this the third hand-written copy of a rule
+dataos-eval and dataos-data already read from ``env.yaml``. dataos-train now resolves
+it at submit from ``--repo``/``--environment`` plus the run's own choices. The planner
 only ever contributes the ``method`` body (plan.train); unknown train keys are
 forwarded via ``method.extra`` (dataos-train validates them).
 """
@@ -101,18 +105,5 @@ def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_mode
         "resources": {"nodes": 1, "gpus": gpus, "cpus": cpus, "time_h": time_h},
         "env": {
             "backends": env_backends,
-        },
-        "cluster": {
-            "partition": env.get("slurm", {}).get("partition"),
-            # Run first, environment second — the same precedence as `nodelist` below, and the
-            # third submitter to learn it. It read env-only, and when `qos` moved to the run
-            # config the field it read simply vanished: training jobs went out with no --qos at
-            # all and Slurm put them on the account default, which is the GUARDED queue, while
-            # their own prompt told them they were on an unguarded one. Nothing errored.
-            "qos": resource.get("qos") or env.get("slurm", {}).get("qos"),
-            # run pin wins; else the env's node pool (env.slurm.nodes)
-            "nodelist": resource.get("node") or env.get("slurm", {}).get("nodes"),
-            "gres": f"gpu:{gpus}",
-            "cpus_per_task": cpus,
         },
     }
