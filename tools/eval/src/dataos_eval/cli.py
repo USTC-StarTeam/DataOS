@@ -142,6 +142,13 @@ def _sbatch_argv(args, env: dict) -> list[str]:
     (1 and 8). The first run to ask for 2 GPUs would have trained on 2 and evaluated on 1.
     """
     slurm = env["slurm"]
+    # The QOS is the RUN's choice, like the node pin and the card count. env.yaml only declares
+    # which ones this account may use, so there is nothing here to fall back to: a submit without
+    # one would silently pick whatever Slurm defaults to, which is how a job ends up on a QOS
+    # whose guard then kills it with `CANCELLED by 0` and no explanation.
+    qos = args.qos or (slurm.get("qos_available") or [None])[0]
+    if not qos:
+        raise SystemExit("dataos-eval: --qos is required (env.yaml declares slurm.qos_available)")
     limit = args.time
     max_time = slurm.get("max_time")
     if max_time and _time_s(limit) > _time_s(max_time):
@@ -152,7 +159,7 @@ def _sbatch_argv(args, env: dict) -> list[str]:
         "sbatch", "--parsable",
         "-N1", "-n1",
         f"--partition={slurm['partition']}",
-        f"--qos={slurm['qos']}",
+        f"--qos={qos}",
         f"--gres=gpu:{args.gpus}",
         f"--cpus-per-task={args.cpus}",
         f"--time={limit}",
@@ -313,6 +320,8 @@ def main() -> None:
     s.add_argument("--cpus", type=int, default=8)
     s.add_argument("--nodelist", default=None,
                    help="run-level node pin; overrides the environment's node pool")
+    s.add_argument("--qos", default=None,
+                   help="run-level QOS; env.yaml only declares which ones exist")
     s.add_argument("--time", default="12:00:00",
                    help="job time limit — must stay under the partition MaxTime (3d); "
                         "12h covers every full PTB eval with headroom")

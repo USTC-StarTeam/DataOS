@@ -101,7 +101,7 @@ def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
         "port": access.get("port", 22),
         "key": access.get("key_ref"),
         "partition": slurm.get("partition"),
-        "qos": slurm.get("qos"),
+        "qos": resource.qos,   # the run's choice; env.yaml only declares qos_available
         "nodelist": resource.node,
         "gres": f"gpu:{resource.gpus}",
         "cpus_per_task": resource.cpus,
@@ -144,18 +144,31 @@ class ResourceConfig:
     gpus: int
     cpus: int
     node: str | None = None  # optional pin; None = let Slurm pick any free node
+    # REQUIRED, and deliberately not defaulted in env.yaml. The QOS is what the run buys with —
+    # it changes between batches, and while it sat in env.yaml with no run-level override the
+    # only way to switch was to switch ENVIRONMENTS, which is how two files came to be identical
+    # but for that one line. env.yaml says which QOS exist; the run says which one it wants.
+    qos: str = "gpu_priv"
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ResourceConfig":
-        _require(data, ["gpus", "cpus"], "resource")
+    def from_dict(cls, data: dict[str, Any], *, qos_available: list[str] | None = None):
+        _require(data, ["gpus", "cpus", "qos"], "resource")
+        qos = _nonempty_str(data["qos"], "resource.qos")
+        if qos_available and qos not in qos_available:
+            raise ValueError(
+                f"resource.qos {qos!r} is not one of the environment's qos_available "
+                f"({', '.join(qos_available)}) — a typo here PENDs forever with no error"
+            )
         return cls(
             gpus=_positive_int(data["gpus"], "resource.gpus"),
             cpus=_positive_int(data["cpus"], "resource.cpus"),
             node=_nonempty_str(data["node"], "resource.node") if data.get("node") else None,
+            qos=qos,
         )
 
     def to_record(self) -> dict[str, Any]:
-        return {"gpus": self.gpus, "cpus": self.cpus, "node": self.node}
+        return {"gpus": self.gpus, "cpus": self.cpus, "node": self.node,
+                "qos": self.qos}
 
 
 
@@ -254,7 +267,11 @@ class PtbRunConfig:
             exec=ExecConfig(
                 deploy_root=_nonempty_str(exec_["deploy_root"], "exec.deploy_root"),
                 runs_base=_nonempty_str(exec_["runs_base"], "exec.runs_base"),
-                resource=ResourceConfig.from_dict(_object(exec_["resource"], "exec.resource")),
+                resource=ResourceConfig.from_dict(
+                    _object(exec_["resource"], "exec.resource"),
+                    qos_available=(_env(_nonempty_str(data["environment"], "environment"))
+                                   .get("slurm") or {}).get("qos_available"),
+                ),
             ),
             budget=BudgetConfig(
                 time_hours=_positive_float(budget["time_hours"], "budget.time_hours"),

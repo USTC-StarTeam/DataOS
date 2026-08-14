@@ -156,6 +156,8 @@ def build_run_config(cfg, *, parent_model: str, eval_limit: int) -> dict:
             "node": cluster.get("nodelist"),
             "gpus": gpus,
             "cpus": cluster.get("cpus_per_task"),
+            # every submitter reads the QOS from here now — env.yaml only declares which exist
+            "qos": cluster.get("qos"),
         },
         "eval_limit": eval_limit,
         "fixed_pool": paths.get("fixed_pool"),

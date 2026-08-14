@@ -21,7 +21,7 @@ def _run_json(ws, **over):
         "exec": {
             "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
             "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
-            "resource": {"gpus": 1, "cpus": 8},
+            "resource": {"gpus": 1, "cpus": 8, "qos": "gpu_priv"},
         },
         "budget": {"time_hours": 10, "eval_samples": -1},
     }
@@ -219,7 +219,7 @@ def test_auto_eval_limit_prompts(tmp_path):
 
     rc = {"environment": "PTB_H100_slurm", "task": "posttrainbench", "base_model": "/m",
           "bench": "gsm8k", "runs_base": "/r", "deploy_root": "/deploy",
-          "resource": {"gpus": 1, "cpus": 8, "node": None},
+          "resource": {"gpus": 1, "cpus": 8, "node": None, "qos": "gpu_priv"},
           "eval_limit": -2, "fixed_pool": "/p"}
     env_ops, task_def = render(resolve(rc))
     assert "评多少由 plan 决定" in task_def

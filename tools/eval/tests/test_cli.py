@@ -27,7 +27,7 @@ def _submit_args(tmp_path, **over):
         "task": "gsm8k", "model_path": _model_dir(tmp_path), "model_name": "baseline",
         "output_dir": str(tmp_path / "eval" / "gsm8k_limit-1"),
         "run_root": str(tmp_path), "limit": -1, "gpus": 1, "cpus": 8, "time": "12:00:00",
-        "nodelist": None, "dry_run": False,
+        "nodelist": None, "qos": "gpu_priv", "dry_run": False,
     }
     argv.update(over)
     return argv
