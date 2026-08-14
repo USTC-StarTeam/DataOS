@@ -82,10 +82,23 @@ def resolve(run_config: dict, configs_root: str | Path = CONFIGS_DIR) -> dict:
     task["assets_root"] = str(task_dir)
     _validate(env, task)
 
-    ns = {"env": env, "run": run_config, "task": task, "ctx": _Ctx()}
-
     resolved_env = dict(env)
-    resolved_env["operations"] = {k: _render_str(v, ns).strip() for k, v in env["operations"].items()}
+    # `slurm:` collapses to the partition this run chose BEFORE anything renders against it, so
+    # `ns` below carries the resolved env, not the raw one. Templates and prompts then read one
+    # flat block that is true for THIS run, instead of each reader deciding for itself whether a
+    # key was machine-wide or partition-scoped — which is how `debug` came to be handed the `gpu`
+    # partition's node pool, its 3-day limit and its QOS list.
+    if env.get("slurm"):
+        from dataos_launch.placement import partition_facts
+
+        resolved_env["slurm"] = partition_facts(
+            env, (run_config.get("resource") or {}).get("partition")
+        )
+
+    ns = {"env": resolved_env, "run": run_config, "task": task, "ctx": _Ctx()}
+    resolved_env["operations"] = {
+        k: _render_str(v, ns).strip() for k, v in env["operations"].items()
+    }
 
     resolved_task = dict(task)
     resolved_task["constraints"] = [_render_str(c, ns) for c in task["constraints"]]

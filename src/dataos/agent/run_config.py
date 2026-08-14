@@ -93,21 +93,39 @@ def train_cli_path(env: dict[str, Any]) -> str:
 
 
 def _slurm_facts(data: dict[str, Any]) -> dict[str, Any]:
-    """The environment's `slurm:` block — what it DECLARES exists, for the run to choose from."""
-    return (_env(_nonempty_str(data["environment"], "environment")).get("slurm") or {})
+    """The `slurm:` facts in effect for the partition this run chose.
+
+    Not the raw block: almost everything a scheduler enforces is per-partition, and reading the
+    flat block gave `debug` the `gpu` partition's node pool, time limit and allowed QOS. The
+    merge rule lives in :func:`dataos_launch.placement.partition_facts`, once, so the brain and
+    the launcher cannot disagree about which limits a run is under.
+    """
+    from dataos_launch.placement import partition_facts
+
+    env = _env(_nonempty_str(data["environment"], "environment"))
+    chosen = (data.get("exec") or {}).get("resource") or {}
+    return partition_facts(env, chosen.get("partition"))
+
+
+def _partitions_available(data: dict[str, Any]) -> list[str]:
+    from dataos_launch.placement import partitions_available
+
+    return partitions_available(_env(_nonempty_str(data["environment"], "environment")))
 
 
 def _cluster(env: dict[str, Any], resource: "ResourceConfig") -> dict[str, Any]:
     """Where the job runs, as flat facts. A local environment leaves the ssh/Slurm half None —
     :func:`dataos.agent.runtime._missing_runtime_config_keys` requires them only for kind=slurm."""
+    from dataos_launch.placement import partition_facts
+
     access = env.get("access") or {}
-    slurm = env.get("slurm") or {}
+    slurm = partition_facts(env, resource.partition)  # per-partition, not the flat block
     return {
         "host": access.get("host"),
         "user": access.get("user"),
         "port": access.get("port", 22),
         "key": access.get("key_ref"),
-        "partition": resource.partition or slurm.get("partition"),  # run first, env second
+        "partition": slurm.get("partition"),  # resolved above: run first, env second
         "qos": resource.qos,   # the run's choice; env.yaml only declares qos_available
         "nodelist": resource.node,
         "gres": f"gpu:{resource.gpus}",
@@ -302,7 +320,7 @@ class PtbRunConfig:
                 resource=ResourceConfig.from_dict(
                     _object(exec_["resource"], "exec.resource"),
                     qos_available=_slurm_facts(data).get("qos_available"),
-                    partitions_available=_slurm_facts(data).get("partitions_available"),
+                    partitions_available=_partitions_available(data),
                 ),
             ),
             budget=BudgetConfig(
