@@ -95,9 +95,7 @@ def _build_job(args, env: dict) -> "JobSpec":
 
     run_root = shlex.quote(args.run_root)
     eval_py = f"{env['tools']['eval_env']['path']}/bin/python"
-    # resolved: the job runs with cwd=run_dir, so a relative --repo would break every path
-    # below. Production always passes an absolute deploy root; this makes it true regardless.
-    repo = Path(args.repo).resolve()
+    repo = args.repo  # already absolute — resolved by the argument parser
     bridge = repo / "configs" / "tasks" / args.task_config / "eval" / "scripts"
     benchmarks = repo / "configs" / "tasks" / args.task_config / "benchmarks"
     slurm = env.get("slurm") or {}
@@ -125,6 +123,13 @@ def _build_job(args, env: dict) -> "JobSpec":
         "HF_HUB_OFFLINE": "1",
         "HF_DATASETS_OFFLINE": "1",
         "PYTORCH_CUDA_ALLOC_CONF": "",  # see docstring: a training default, not an eval one
+        # Server benches start a vLLM server and poll ITS OWN /health on 127.0.0.1. With an
+        # HTTP proxy in the environment and no NO_PROXY, that request goes to the proxy, which
+        # cannot reach a port on this machine — so the server comes up healthy and the poller
+        # still times out after 10 minutes, blaming vLLM. No proxy is set on the cluster, which
+        # is why this only ever appeared on a workstation.
+        "NO_PROXY": "127.0.0.1,localhost",
+        "no_proxy": "127.0.0.1,localhost",
     }
     return JobSpec(
         backend="lmeval",
@@ -182,7 +187,7 @@ def _clamped_time(args, env: dict) -> str:
 
 
 def cmd_submit(args) -> int:
-    repo = Path(args.repo)
+    repo = args.repo
     env, _, protocol = _load(repo, args.environment, args.task_config)
     bench_cfg = (protocol.get("benches") or {}).get(args.task)
     if bench_cfg is None:
@@ -232,7 +237,7 @@ def cmd_status(args) -> int:
     second copy of dataos-train's — its own docstring said "same policy as dataos-train's
     map_sacct_state", which is the sentence that precedes every drift."""
     record = json.loads(Path(args.handle).read_text())
-    env, _, _ = _load(Path(args.repo), args.environment, args.task_config)
+    env, _, _ = _load(args.repo, args.environment, args.task_config)
     handle = Handle.model_validate(record["launch"])
     state = get_launcher(_launcher_name(env), **(env.get("access") or {})).status(handle)
     print(json.dumps({"job_id": record.get("job_id"), "state": str(state)}))
@@ -240,7 +245,7 @@ def cmd_status(args) -> int:
 
 
 def cmd_collect(args) -> int:
-    repo = Path(args.repo)
+    repo = args.repo
     env, task_cfg, _protocol = _load(repo, args.environment, args.task_config)
     handle = json.loads(Path(args.handle).read_text())
     summary_path = Path(handle["output_dir"]) / "summary.json"
@@ -252,8 +257,8 @@ def cmd_collect(args) -> int:
 
         judge = (task_cfg.get("scoring") or {}).get("judge") or {}
         gateway = env.get("gateway") or {}
-        bridge = Path(args.repo) / "configs" / "tasks" / args.task_config / "eval" / "scripts"
-        benchmarks = Path(args.repo) / "configs" / "tasks" / args.task_config / "benchmarks"
+        bridge = args.repo / "configs" / "tasks" / args.task_config / "eval" / "scripts"
+        benchmarks = args.repo / "configs" / "tasks" / args.task_config / "benchmarks"
         env_vars = (
             f"OPENAI_API_KEY=$(cat {shlex.quote(gateway['key_file'])}) "
             f"OPENAI_BASE_URL={shlex.quote(gateway['base_url'])} "
@@ -282,7 +287,11 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def common(p):
-        p.add_argument("--repo", required=True, help="deploy checkout root (configs/ lives there)")
+        # Resolved at the boundary: every path this tool bakes into a job must be absolute,
+        # because the job runs with cwd=run_dir, not cwd=repo. A relative --repo used to survive
+        # on Slurm only because callers there happened to pass the deploy root absolute.
+        p.add_argument("--repo", required=True, type=lambda v: Path(v).resolve(),
+                       help="deploy checkout root (configs/ lives there)")
         p.add_argument("--environment", default="PTB_H100_slurm")
         p.add_argument("--task-config", default="posttrainbench")
 

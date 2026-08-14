@@ -33,6 +33,16 @@ class LocalLauncher:
             "code=$?",
             # Atomic rc so status sees the whole file.
             f"echo $code > {rc_q}.tmp && mv {rc_q}.tmp {rc_q}",
+            # Reap whatever the job left in this process group. A Slurm job gets this free from
+            # cgroup teardown; here nothing does it, and a leaked grandchild holds its GPU. Seen
+            # for real: an eval timed out, killed the vLLM server it had spawned, and vLLM's
+            # EngineCore *grandchild* survived holding 30 GiB — the next run then failed with
+            # "Free memory on device (1.11/31.37 GiB)", which reads as a config error, not a leak.
+            # Written inline rather than as a trap: job.pre_cmds may install its own EXIT trap
+            # (the eval bridge does, to remove TMPDIR) and a second one would silently replace it.
+            # `trap '' TERM` first so the group-wide signal does not take down this shell before
+            # it can return the real exit code; $$ is the pgid because submit() starts a session.
+            "trap '' TERM; kill -- -$$ 2>/dev/null",
             "exit $code",
         ]
         return "\n".join(lines) + "\n"
