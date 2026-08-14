@@ -59,7 +59,13 @@ def _validate(env: dict, task: dict) -> None:
     # no `discipline`: constraints are prompt text now (src/dataos/prompt/*/context/
     # cluster_discipline), stated once and golden-tested, not prose duplicated per env.
     _require(env, ["name", "kind", "access", "tools", "operations"], "env.yaml")
-    for verb in ("submit", "poll", "fetch", "cancel", "activate"):
+    # `submit`/`poll`/`cancel` used to be required here and rendered into the prompt as a
+    # ready-to-run ssh+sbatch line. That was a second submission path, advertised by us, next to
+    # the three instruments — and an experimenter used it: job 29154 went out through it and
+    # hand-re-derived the TMPDIR, offline-HF and venv setup dataos-data already owns. The tools
+    # provide submit/status/cancel now, including `dataos-data probe` for a script that produces
+    # nothing, so the escape hatch has nothing left to be an escape from.
+    for verb in ("fetch", "activate"):
         if verb not in env["operations"]:
             raise ValueError(f"env.yaml.operations missing verb: {verb}")
     _require(task, ["name", "inputs", "objective", "constraints", "produce", "scoring"], "task.yaml")

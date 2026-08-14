@@ -36,6 +36,13 @@ class DataSpec(Spec):
     recipe: str  # file name, resolved inside run_dir — the job runs with cwd=run_dir
     stats: str | None = None  # optional JSON the recipe writes with per-source counts
     shared_operators: str | None = None  # deployment-wide operator dir, prepended to the path
+    #: Whether this script is contracted to PRODUCE the dataset. False makes it a probe: same
+    #: job shell, no output contract, nothing appended. An experimenter that wants to look at a
+    #: pool's schema before writing its recipe has to run python on a compute node, and with no
+    #: way to say "this one produces nothing" it hand-wrote an sbatch and re-derived the short
+    #: TMPDIR, the offline-HF flags, the cache redirects and the venv activation this stage
+    #: already owns — the exact boilerplate the stage exists to stop anyone rewriting.
+    verify: bool = True
 
 
 class DataStage(Stage):
@@ -85,19 +92,19 @@ class DataStage(Stage):
         ]
 
         py = f"{self.venv}/bin/python"
-        verify = [py, "-m", "dataos_data.verify", "--dir", f"{spec.run_dir}/data/sft"]
-        if spec.stats:
-            verify += ["--stats", spec.stats]
+        line = shlex.quote(py) + " " + shlex.quote(recipe)
+        if spec.verify:
+            # The recipe runs, then the contract is checked in the same job — so "built nothing"
+            # is a failed build rather than a training job that dies on an empty dataset.
+            verify = [py, "-m", "dataos_data.verify", "--dir", f"{spec.run_dir}/data/sft"]
+            if spec.stats:
+                verify += ["--stats", spec.stats]
+            line += " && " + shlex.join(verify)
 
         return Job(
             backend="dataos-data",
             job_name=spec.name,
-            # The recipe runs, then the contract is checked in the same job — so "built nothing"
-            # is a failed build rather than a training job that dies on an empty dataset.
-            command=[
-                "bash", "-lc",
-                f"{shlex.quote(py)} {shlex.quote(recipe)} && {shlex.join(verify)}",
-            ],
+            command=["bash", "-lc", line],
             env=job_env,
             run_dir=spec.run_dir,
             conda_env=self.venv,

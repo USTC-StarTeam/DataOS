@@ -85,6 +85,16 @@ class Stage(ABC):
         """Poll. Needs no placement — the handle already says who took the job."""
         return get_launcher(handle.launcher).status(handle)
 
+    @staticmethod
+    def cancel(handle: Handle) -> None:
+        """Stop it. Also needs no placement, and for the same reason.
+
+        Every ``Launcher`` has had ``cancel`` since the split; no CLI exposed it, so an agent
+        that wanted to stop its own job ssh'd to the cluster and ran ``scancel`` — cluster
+        knowledge it should not need, and a verb that does the wrong thing on a workstation.
+        """
+        get_launcher(handle.launcher).cancel(handle)
+
     @abstractmethod
     def validate(self, spec: Spec) -> list[str]:
         """Every reason this spec cannot run here, or an empty list."""

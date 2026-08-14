@@ -94,6 +94,14 @@ def cmd_status(args) -> int:
     return 0 if state.is_terminal() else 2
 
 
+def cmd_cancel(args) -> int:
+    record = json.loads(Path(args.handle).read_text())
+    handle = Handle.model_validate(record["launch"])
+    EvalStage.cancel(handle)
+    print(json.dumps({"cancelled": handle.job_id}))
+    return 0
+
+
 def cmd_collect(args) -> int:
     stage = _stage(args)
     record = json.loads(Path(args.handle).read_text())
@@ -153,6 +161,10 @@ def main() -> None:
     p = sub.add_parser("status")
     p.add_argument("handle")
     p.set_defaults(fn=cmd_status)
+
+    p = sub.add_parser("cancel")
+    p.add_argument("handle")
+    p.set_defaults(fn=cmd_cancel)
 
     p = sub.add_parser("collect")
     common(p)

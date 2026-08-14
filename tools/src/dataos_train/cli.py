@@ -196,6 +196,13 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cancel(args: argparse.Namespace) -> int:
+    handle = Handle.model_validate(_read_input(args.handle))
+    get_launcher(handle.launcher).cancel(handle)
+    _emit({"cancelled": handle.job_id})
+    return 0
+
+
 def cmd_logs(args: argparse.Namespace) -> int:
     handle = Handle.model_validate(_read_input(args.handle))
     launcher = get_launcher(handle.launcher)
@@ -295,6 +302,10 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("status", help="Handle -> status")
     st.add_argument("handle")
     st.set_defaults(func=cmd_status)
+
+    cn = sub.add_parser("cancel", help="Handle -> stop the job it names")
+    cn.add_argument("handle")
+    cn.set_defaults(func=cmd_cancel)
 
     lg = sub.add_parser("logs", help="Handle -> logs")
     lg.add_argument("handle")

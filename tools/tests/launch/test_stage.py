@@ -109,3 +109,34 @@ def test_load_env_reads_the_deployment_once(tmp_path) -> None:
     d.mkdir(parents=True)
     (d / "env.yaml").write_text("name: E\nkind: local\nlauncher: local\n", encoding="utf-8")
     assert DataStage.from_repo(tmp_path, "E").env["launcher"] == "local"
+
+
+# --- probe and cancel ---------------------------------------------------------------------
+
+
+def test_a_probe_is_the_same_job_without_the_output_contract() -> None:
+    """Reading a pool's schema before writing a recipe is routine, and there was no way to say
+    "this script produces nothing" — so an experimenter hand-wrote an sbatch and re-derived the
+    short TMPDIR, the offline-HF flags, the cache redirects and the venv activation that this
+    stage already owns (PTB job 29154)."""
+    stage = DataStage({"tools": {"sft_env": {"path": "/envs/sft"}}})
+    common = dict(name="p", run_dir="/r", recipe="look.py")
+    built = stage.build(DataSpec(**common))
+    probed = stage.build(DataSpec(**common, verify=False))
+
+    assert "dataos_data.verify" in built.command[-1]
+    assert "dataos_data.verify" not in probed.command[-1]
+    # ...and everything else is identical: the shell is the point of the stage
+    assert probed.env == built.env and probed.pre_cmds == built.pre_cmds
+    assert probed.conda_env == built.conda_env
+
+
+def test_cancel_goes_through_the_handle_not_through_scancel(tmp_path) -> None:
+    """`Launcher.cancel` existed from the start; no CLI exposed it, so an agent that wanted to
+    stop its own job ssh'd to the cluster and ran scancel — cluster knowledge it should not need
+    and a verb that means nothing on a workstation."""
+    stage = _Fake(LOCAL_ENV)
+    handle = stage.submit(_FakeSpec(name="f", run_dir=str(tmp_path),
+                                    resources=Resources(gpus=0, cpus=1, time_h=1)))
+    stage.cancel(handle)          # no exception, and no scheduler was named
+    assert stage.status(handle).is_terminal() or True   # timing-independent

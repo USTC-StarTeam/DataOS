@@ -13,14 +13,12 @@
 
 ⚠️ 资源限制:本 run 只允许使用 **{{ run.resource.gpus }} 张 GPU × {{ run.resource.cpus }} CPU,单个节点**——任何 job 不许超过这个规模,不许多节点/多卡并行,不许分片。
 
-命令模板(env/run 已填好;`{ctx.*}` 由你在执行时替换 —— run_root/env_path/script/jobid/model_path/eval_dir/label/remote/local):
+命令模板(env/run 已填好;`{ctx.*}` 由你在执行时替换 —— run_root/env_path/remote/local):
 - activate: `{{ env.operations.activate }}`
-- submit:   `{{ env.operations.submit }}`
-{% if env.operations.submit_cpu is defined %}
-- submit_cpu(纯 CPU 活,无 gres): `{{ env.operations.submit_cpu }}`
-{% endif %}
-- poll:     `{{ env.operations.poll }}`
 - fetch:    `{{ env.operations.fetch }}`
-- cancel:   `{{ env.operations.cancel }}`
+
+提交/轮询/取消**不在这里**:三个阶段各有自己的工具(dataos-data / dataos-train / dataos-eval),
+submit·status·cancel 都由它们提供,调度参数由配置解析,你不需要也不应该手写 sbatch。
+临时脚本(探查 pool schema 之类)用 `dataos-data probe` —— 同一套作业环境,不检查数据产出。
 
 `ctx.run_root` 你自己选,但**必须落在 {{ run.runs_base }} 下**(否则 fetch/隔离失效)。
