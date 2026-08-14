@@ -27,7 +27,7 @@ def _submit_args(tmp_path, **over):
         "task": "gsm8k", "model_path": _model_dir(tmp_path), "model_name": "baseline",
         "output_dir": str(tmp_path / "eval" / "gsm8k_limit-1"),
         "run_root": str(tmp_path), "limit": -1, "gpus": 1, "cpus": 8, "time": "12:00:00",
-        "dry_run": False,
+        "nodelist": None, "dry_run": False,
     }
     argv.update(over)
     return argv
@@ -102,6 +102,8 @@ def test_collect_fails_clean_without_score(tmp_path, capsys):
 def _argv(d: dict) -> list[str]:
     argv = []
     for k, v in d.items():
+        if v is None:          # an optional flag the caller omits, not the string "None"
+            continue
         if isinstance(v, bool):
             if v:
                 argv.append(f"--{k.replace('_', '-')}")
@@ -185,3 +187,33 @@ def test_judge_flag_comes_from_the_protocol_not_a_tool_table(tmp_path):
         (REPO / "tools" / "eval" / "src" / "dataos_eval" / "cli.py").read_text(encoding="utf-8")
     )
     del yaml
+
+
+def test_a_run_node_pin_overrides_the_env_node_pool(tmp_path, capsys):
+    """The run's pin wins — the precedence dataos.agent.train_spec already uses.
+
+    `env.slurm.nodes` is not a pin, it is a POOL: `--nodelist=gpu01,gpu02,gpu03` legally means
+    "any of these", and Slurm obliged. A run pinned to gpu02 put 35 of 35 training jobs on gpu02
+    and 68 of 94 eval jobs elsewhere, because this was the one submitter that never saw the pin.
+    """
+    rc = _run_cli(["submit", *_argv(_submit_args(tmp_path, nodelist="gpu02", dry_run=True))])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "--nodelist=gpu02" in out
+    assert "gpu01,gpu02,gpu03" not in out
+
+
+def test_without_a_pin_it_still_falls_back_to_the_env_pool(tmp_path, capsys):
+    rc = _run_cli(["submit", *_argv(_submit_args(tmp_path, dry_run=True))])
+    assert rc == 0
+    assert "--nodelist=gpu01,gpu02,gpu03" in capsys.readouterr().out
+
+
+def test_the_runs_gpus_and_cpus_are_not_defaults(tmp_path, capsys):
+    """Latent half of the same gap: the caller passed neither, so both fell to argparse
+    defaults — and all 62 run configs happen to ask for exactly those (1 and 8). The first run
+    to ask for 2 GPUs would have trained on 2 and evaluated on 1."""
+    rc = _run_cli(["submit", *_argv(_submit_args(tmp_path, gpus=2, cpus=11, dry_run=True))])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "--gres=gpu:2" in out and "--cpus-per-task=11" in out

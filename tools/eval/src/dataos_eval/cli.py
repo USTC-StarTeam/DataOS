@@ -121,11 +121,26 @@ def _time_s(v: str) -> int:
 
 
 def _sbatch_argv(args, env: dict) -> list[str]:
-    """Scheduling facts, written here and ONLY here: single node, env node pool,
-    partition/qos from env.yaml, gres/cpus from the run's resource facts. --time is
-    explicit: with none, sbatch falls back to the QOS's 7d limit, which EXCEEDS the
-    partition's 3d MaxTime and pends forever (PartitionTimeLimit); anything above
-    slurm.max_time is clamped to it for the same reason."""
+    """Scheduling facts, written here and ONLY here: single node, partition/qos from env.yaml,
+    and the RUN's resource facts where it has them.
+
+    ``--time`` is explicit: with none, sbatch falls back to the QOS's 7d limit, which EXCEEDS the
+    partition's 3d MaxTime and pends forever (PartitionTimeLimit); anything above slurm.max_time
+    is clamped to it for the same reason.
+
+    ``--nodelist`` follows the run first and the environment second, the same precedence
+    ``dataos.agent.train_spec`` uses. It used to read only ``env.slurm.nodes``, which is not a pin
+    but a POOL — ``--nodelist=gpu01,gpu02,gpu03`` is a legal instruction meaning "any of these",
+    and Slurm obliged. So a run pinned to gpu02 put all 35 of its training jobs on gpu02 and 68 of
+    its 94 eval jobs somewhere else. Nothing was wrong with the scores (same partition, same
+    cards), and that is the hazard: a placement decision honoured by two of three submitters looks
+    like nothing until the day a node has something wrong with it, and then it looks like whatever
+    ran there — a vLLM bug, an OOM — rather than like a config that was half applied.
+
+    ``--gpus``/``--cpus`` have the same shape of problem in latent form: the caller passed neither,
+    so both fell to the argparse defaults, and all 62 run configs happen to ask for exactly those
+    (1 and 8). The first run to ask for 2 GPUs would have trained on 2 and evaluated on 1.
+    """
     slurm = env["slurm"]
     limit = args.time
     max_time = slurm.get("max_time")
@@ -142,8 +157,9 @@ def _sbatch_argv(args, env: dict) -> list[str]:
         f"--cpus-per-task={args.cpus}",
         f"--time={limit}",
     ]
-    if slurm.get("nodes"):
-        argv.append(f"--nodelist={slurm['nodes']}")
+    nodes = args.nodelist or slurm.get("nodes")
+    if nodes:
+        argv.append(f"--nodelist={nodes}")
     return argv
 
 
@@ -291,8 +307,12 @@ def main() -> None:
     s.add_argument("--output-dir", required=True)
     s.add_argument("--run-root", required=True)
     s.add_argument("--limit", type=int, default=-1)
+    # The run's resource facts. Defaults are a fallback for a caller that has none, NOT the
+    # normal path — the caller has them and passes them (configs/tasks/*/task.yaml scoring.command).
     s.add_argument("--gpus", type=int, default=1)
     s.add_argument("--cpus", type=int, default=8)
+    s.add_argument("--nodelist", default=None,
+                   help="run-level node pin; overrides the environment's node pool")
     s.add_argument("--time", default="12:00:00",
                    help="job time limit — must stay under the partition MaxTime (3d); "
                         "12h covers every full PTB eval with headroom")
