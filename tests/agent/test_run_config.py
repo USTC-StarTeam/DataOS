@@ -209,7 +209,8 @@ def test_auto_eval_limit_prompts(tmp_path):
     text = _prompt.render(
         "experimenter/turn/experiment", exp_name="e", bench="gsm8k", profile="formal",
         parent_model="/m", root_base_model="/m", node_id="n1", parent_node_id="n0",
-        eval_limit=256, is_smoke=False, recipe_json="{}", train_json="{}",
+        eval_limit=256, is_smoke=False, recipe_json="{}", resolved_sources_json="[]",
+        train_json="{}",
         train_spec_json="", subagent_brief="b", runtime_config_json="{}",
         run_root="/r", report_path="/r/report.json", state_path="/r/s.json",
         env_ops="", task_def="", stage_blocks="",

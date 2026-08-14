@@ -286,6 +286,52 @@ def _runtime_prompt_block(*, cfg, study_id: str, spec: dict, exp_dir: Path,
     return runtime_config
 
 
+def _resolved_sources(cfg, sources: list) -> list[dict]:
+    """The planned source ids, resolved to what an experimenter has to know before it can read one.
+
+    The contract has told experimenters "the task gives you ``resolved_sources`` (exact on-disk
+    paths)" for as long as it has existed, and the task never gave them anything of the kind — a
+    promised input that is not there is worse than no promise, because it stops nobody from
+    guessing. Four of four runs of the 2026-08-13 batch guessed, in four different spellings
+    (``POOL / name``, ``os.path.join(pool, name)``, ...), and then crashed twice more on the shape:
+
+        KeyError: "Invalid key: 0. Please first select a split. For example:
+                   `my_dataset_dictionary['test'][0]`."   <- mmlu_aux, whose splits are
+        AttributeError: 'DatasetDict' object has no attribute 'select'/'features'
+
+    Every one of the pool's 106 sources is a ``DatasetDict``, so this is not a source-dependent
+    hazard, it is certain. And "just take ['train']" is not a rule that can be written down: 47
+    sources carry more than one split and 5 carry no ``train`` at all (agentinstruct's are
+    os/db/alfworld/webshop/kg/mind2web; ultrafeedback's are train_prefs/train_sft/...). Split names
+    are per-source DATA. Data has to be handed over, not documented.
+
+    Nothing here is newly discovered: recon profiled all 106 sources with their split names and row
+    counts, and ``_validate_plan`` already reads that file to check the plan's source ids against
+    it. The profile simply never reached the experimenter that had to open the files.
+    """
+    profiles = _read_json(Path(cfg.workspace) / cfg.project_id / _RECON_FILE) or {}
+    by_id = {
+        p.get("source"): p
+        for p in (profiles.get("source_profiles") or [])
+        if isinstance(p, dict) and p.get("source")
+    }
+    pool = (runtime._runtime_config(cfg).get("paths") or {}).get("fixed_pool") or ""
+    resolved = []
+    for sid in sources:
+        profile = by_id.get(sid) or {}
+        resolved.append(
+            {
+                "id": sid,
+                "path": f"{pool.rstrip('/')}/{sid}" if pool else None,
+                # every source is a DatasetDict; this is the only place the split names exist
+                "splits": profile.get("splits"),
+                "shape": profile.get("shape"),
+                "n_rows": profile.get("n_rows"),
+            }
+        )
+    return resolved
+
+
 def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
                  remaining_minutes: int | None = None) -> str:
     bench = cfg.target_bench
@@ -330,6 +376,9 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         eval_limit=eval_limit,
         is_smoke=cfg.ptb_profile == "smoke",
         recipe_json=json.dumps(recipe, ensure_ascii=False),
+        resolved_sources_json=json.dumps(
+            _resolved_sources(cfg, data.get("sources") or []), ensure_ascii=False, indent=1
+        ),
         train_json=json.dumps(spec.get("train") or {}, ensure_ascii=False),
         subagent_brief=str(spec.get("subagent_brief") or "(none)"),
         runtime_config_json=json.dumps(runtime_block, ensure_ascii=False, indent=2, sort_keys=True),
