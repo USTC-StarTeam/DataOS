@@ -66,8 +66,8 @@ def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_mode
         time_h = min(time_h, _slurm_time_hours(max_time))
     backend = "llamafactory"  # code default (plan-driven backend selection: verl work)
     env_backends: dict[str, str] = {}
-    for name in tools:
-        tool = tools.get(name)
+    for tool_env in tools:   # NOT `name`: that is this function's parameter, see below
+        tool = tools.get(tool_env)
         tool = tool if isinstance(tool, dict) else {"path": tool}
         for b in ("llamafactory", "verl"):
             if b not in (tool.get("provides") or []):
@@ -96,6 +96,11 @@ def build_train_spec(resolved: dict, *, name: str, plan_train: dict, parent_mode
         method["extra"] = extra
 
     return {
+        # The node's name, from the caller. It used to be whatever the `for name in tools` loop
+        # above left behind — the LAST env key, which is `eval_env` on both deployments. Every
+        # training job in every batch was therefore named `eval_env`, in its spec, in its Job, in
+        # the generated script's filename and in `sbatch -J`, so squeue and sacct could not tell
+        # one experiment from another and a training job read as an evaluation one.
         "name": name,
         "backend": backend,
         "base_model": parent_model,

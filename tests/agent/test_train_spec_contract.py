@@ -103,3 +103,20 @@ def test_sft_field_mirror_matches_dataos_train():
         f"missing here: {sorted(declared - _SFT_FIELDS)}; "
         f"stale here: {sorted(_SFT_FIELDS - declared)}"
     )
+
+
+def test_the_spec_is_named_after_the_node_not_after_an_env_key():
+    """Found in the first end-to-end run on the new stack, in the artifacts rather than in a test.
+
+    `build_train_spec` took `name` as a keyword argument and then wrote `for name in tools:` a few
+    lines below, so by the time the return dict read `"name": name` the parameter was gone and
+    the value was the LAST key of `env.tools` — `eval_env` on both deployments. Every training
+    job in every batch was therefore called `eval_env`: in its spec, in its Job, in the generated
+    script's filename, and in `sbatch -J`. squeue and sacct could not tell one experiment from
+    another, and a training job read as an evaluation one.
+    """
+    spec = build_train_spec(_resolved(), name="fmt-full-sft-ckpt",
+                            plan_train={"finetuning_type": "lora"}, parent_model="/m",
+                            run_root="/r", time_h=2.0)
+    assert spec["name"] == "fmt-full-sft-ckpt"
+    assert spec["name"] not in (_resolved()["environment"]["tools"] or {})
