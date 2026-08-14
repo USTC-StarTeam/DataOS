@@ -197,7 +197,7 @@ invariants and hard-won cluster facts. Human contributors will find it useful to
 |---|---|
 | [`configs/CONTRACT.md`](configs/CONTRACT.md) | Environment / task / run-JSON specification |
 | [`AGENTS.md`](AGENTS.md) | Conventions and invariants for agents editing this repo |
-| [`src/tools/docs/train/README.md`](src/tools/docs/train/README.md) | TrainSpec, backends, online operators |
+| [`src/dataos-tools/docs/train/README.md`](src/dataos-tools/docs/train/README.md) | TrainSpec, backends, online operators |
 | [`src/operator/README.md`](src/operator/README.md) | The operator catalog |
 | `docs/eval/` | Eval protocol decisions and baseline results |
 | `docs/dataos_agent/` | The CLI driver layer |

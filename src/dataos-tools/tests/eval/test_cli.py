@@ -180,7 +180,7 @@ def test_judge_flag_comes_from_the_protocol_not_a_tool_table(tmp_path):
     stage = EvalStage.from_repo(REPO, "PTB_H100_slurm", "posttrainbench")
     declared = {b for b, c in stage.benches.items() if c["judge"]}
     assert declared == {"healthbench", "arenahardwriting"}
-    src = REPO / "src" / "tools" / "src" / "dataos_eval"
+    src = REPO / "src" / "dataos-tools" / "src" / "dataos_eval"
     assert "JUDGE_BENCHES" not in (src / "cli.py").read_text(encoding="utf-8")
     assert "JUDGE_BENCHES" not in (src / "stage.py").read_text(encoding="utf-8")
 

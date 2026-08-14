@@ -34,9 +34,9 @@ def _ssh(host: str, cmd: str) -> str:
 
 
 #: Where a declared tool's source lives, tried in order. Both are under `src/` now
-#: (`src/tools`, `src/operator`); the bare "" and "tools" entries keep an older checkout
+#: (`src/dataos-tools`, `src/operator`); the bare "" and "tools" entries keep an older checkout
 #: resolvable. Searched rather than mapped, so a move costs no edit here — which is why this
-#: file needed none when `tools/` became `src/tools/`.
+#: file needed none when `tools/` became `src/tools/` and then `src/dataos-tools/`.
 _PKG_BASES = ("src", "", "tools")
 
 

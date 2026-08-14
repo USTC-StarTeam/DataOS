@@ -27,12 +27,12 @@ dependencies = [
 ]
 
 [tool.uv.workspace]
-# Both members live under src/, beside dataos/ and dataos_agent/: `src/tools` is one
-# distribution holding the agent's three instruments and the launcher they submit through,
-# `src/operator` is the platform's own operator library. Separate distributions because the
-# cluster venvs install them
+# Both members live under src/, beside dataos/ and dataos_agent/, and each directory is named
+# for the distribution it holds: `src/dataos-tools` is the agent's three instruments plus the
+# launcher they submit through, `src/operator` is dataos-operator. Separate distributions
+# because the cluster venvs install them
 # WITHOUT the platform.
-members = ["src/tools", "src/operator"]
+members = ["src/dataos-tools", "src/operator"]
 
 [tool.uv.sources]
 dataos-operator = { workspace = true }
@@ -83,7 +83,7 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "src/tools/tests", "src/operator/tests"]
+testpaths = ["tests", "src/dataos-tools/tests", "src/operator/tests"]
 # integration tests drive real code-agent CLIs (kimi/codex/...) — run on demand only
 addopts = "--ignore=tests/dataos_agent/integration"
 asyncio_mode = "auto"

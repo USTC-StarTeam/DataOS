@@ -1,7 +1,7 @@
 # Troubleshooting — 运维与集群真实坑
 
 这份文件收集 DataOS 在真实运行中踩过的、难以重新获得的运维坑。训练超参/数据层面的坑见
-`src/tools/docs/train/training_pitfalls.md`；两次全量批次的系统性复盘见 `docs/known-issues.md`。
+`src/dataos-tools/docs/train/training_pitfalls.md`；两次全量批次的系统性复盘见 `docs/known-issues.md`。
 
 ## SSH / 远程执行
 

@@ -43,7 +43,7 @@ def test_dataos_tools_declarations_match_tool_versions():
                 actual = _tool_version(tool)
                 assert declared == actual, (
                     f"{env_yaml.parent.name}: tools.{tool_env}.dataos_tools.{tool}="
-                    f"{declared} but tools/{tool}/pyproject.toml says {actual} — bump "
+                    f"{declared} but {tool}/pyproject.toml says {actual} — bump "
                     "both together, then run scripts/sync_envs.py on the cluster"
                 )
                 checked += 1

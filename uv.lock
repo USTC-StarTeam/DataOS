@@ -1125,7 +1125,7 @@ dev = [
 requires-dist = [
     { name = "accelerate", marker = "extra == 'eval'", specifier = ">=0.34" },
     { name = "dataos-operator", editable = "src/operator" },
-    { name = "dataos-tools", editable = "src/tools" },
+    { name = "dataos-tools", editable = "src/dataos-tools" },
     { name = "datasets", specifier = ">=2.19.0" },
     { name = "evaluate", marker = "extra == 'eval'", specifier = ">=0.4.0" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
@@ -1215,7 +1215,7 @@ provides-extras = ["dev", "image", "hf", "llm", "train", "llamafactory"]
 [[package]]
 name = "dataos-tools"
 version = "0.4.0"
-source = { editable = "src/tools" }
+source = { editable = "src/dataos-tools" }
 dependencies = [
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.13'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.13'" },

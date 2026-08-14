@@ -41,7 +41,7 @@ The data-centric idiom: an **evaluator** writes a score, then a
 
 ### Online (policy) — run inside dataos-train training
 
-Online operators run inside **dataos-train** (the dataos-train instrument of `src/tools` in the DataOS
+Online operators run inside **dataos-train** (the dataos-train instrument of `src/dataos-tools` in the DataOS
 monorepo) via its online-ops protocol — the old vendored LLaMA-Factory fork that used
 to drive the runtime was deleted once this path existed.
 
@@ -55,7 +55,7 @@ to drive the runtime was deleted once this path existed.
 2. dataos-train resolves the name through the `dataos_train.online_ops` entry-point
    group (registered by this package, see `integrations/dataos_train.py`), and the
    trainer feeds live per-sample losses to the hook every batch — no extra model is
-   loaded. Hook contract (`reweight` / `select` / `step`): `src/tools/docs/train/online_ops.md`.
+   loaded. Hook contract (`reweight` / `select` / `step`): `src/dataos-tools/docs/train/online_ops.md`.
 
    Bridged to dataos-train today: `loss_reweighter` (reweight), `loss_selector` and
    `delta_loss_selector` (select). Selectors that need eval/query sets

@@ -30,7 +30,7 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   DataOS-Operator repos are archived): `dataos_agent` (code-agent CLI drivers:
   claude/kimi/codex/qwen + transport self-healing) is a brain component at
   `src/dataos_agent/` (ships inside the dataos distribution); the experimenter's tools are
-  uv-workspace members under `src/` — `src/tools` (dataos-tools: the three instruments
+  uv-workspace members under `src/` — `src/dataos-tools` (dataos-tools: the three instruments
   plus the launcher) and `src/operator` (dataos-operator). No git pins anywhere; `uv lock` resolves
   the workspace.
 - Core deps: `datasets`, `pyarrow`, `pydantic`, `tenacity`, + the in-repo tools.
@@ -47,7 +47,7 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
 - `src/dataos_agent` — the CLI driver layer (neutral Event/Result, healing stream, stall
   watchdog; providers under `providers/`). Docs: `docs/dataos_agent/`; tests:
   `tests/dataos_agent/`.
-- `src/tools` — ONE distribution (dataos-tools) holding the agent's three instruments and
+- `src/dataos-tools` — ONE distribution (dataos-tools) holding the agent's three instruments and
   the launcher they submit through: `dataos_data` / `dataos_train` / `dataos_eval` /
   `dataos_launch`. Each instrument owns a stage (submit/status/cancel; train adds
   validate/build/collect, data adds probe, eval adds collect) — owns all
