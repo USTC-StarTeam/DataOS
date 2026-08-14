@@ -282,3 +282,33 @@ def test_a_malformed_report_is_unfinished_not_a_crash(caplog):
     assert "not report-shaped" in caplog.text
     with pytest.raises(Exception):
         report_schema.read(bad)  # callers that want the VALUE still get the error
+
+
+def test_prose_in_a_runtime_stamped_field_does_not_void_the_report():
+    """Found live: a finished node read as unfinished, and the run resumed it to no purpose.
+
+    `checkpoint_sweep` is stamped by the runtime and never asked of the experimenter, but the
+    field is in the schema and one experimenter filled it with a sentence explaining why it had
+    skipped the sweep. Typed as a list, pydantic rejected the WHOLE document — so `is_terminal`
+    logged "not report-shaped" and the loop went back to a node that had a score and a review
+    already written, with 18 minutes of budget left.
+
+    `read()` promises not to validate; only a file that is not report-shaped at all may raise.
+    A prose leaf is not that, and `None` already means what the sentence said.
+    """
+    raw = {
+        "stages": {
+            "eval": {"status": "completed", "score": 28.0,
+                     "checkpoint_sweep": "NOT RUN - dropped per the leader's budget order"},
+            "review": {"status": "completed"},
+        }
+    }
+    parsed = report_schema.read(raw)
+    assert parsed.stages.eval.score == 28.0
+    assert parsed.stages.eval.checkpoint_sweep is None
+    assert report_schema.is_terminal(raw) is True
+
+    # a real sweep still parses as one
+    swept = {"stages": {"eval": {"status": "completed", "score": 1.0, "checkpoint_sweep": [
+        {"eval_dir": "/e/ck1", "score": 1.0}]}, "review": {"status": "done"}}}
+    assert len(report_schema.read(swept).stages.eval.checkpoint_sweep) == 1

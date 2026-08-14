@@ -73,7 +73,7 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 log = logging.getLogger(__name__)
 
@@ -224,6 +224,24 @@ class EvalStage(Stage):
         "runtime from the harness's own files, so 'the midpoint beat the final' reaches the next "
         "round whether or not the experimenter thought to mention it.",
     )
+
+    @field_validator("checkpoint_sweep", mode="before")
+    @classmethod
+    def _sweep_prose_is_no_sweep(cls, v):
+        """A non-list here means no sweep, not a broken report.
+
+        The runtime stamps this field; the experimenter is not asked for it. One wrote
+        ``"NOT RUN - dropped per the leader's budget order (only final_model scored)"`` — a
+        perfectly sensible sentence in a field typed as a list, and pydantic then rejected the
+        WHOLE document. `read()` promises the opposite: it does not validate, so that the only
+        thing that can raise is a file which is not report-shaped at all. A prose leaf is not
+        that. The node in question was finished — score 28.0, review written — and the run spent
+        its last minutes resuming a session that had nothing left to do.
+
+        Dropping the sentence is not lossy: `None` already means "no sweep", which is what it
+        said.
+        """
+        return v if isinstance(v, list) else None
     n_samples: int | None = Field(
         default=None,
         description="items the scorer ACTUALLY scored, copied from summary.json. Distinct from "
