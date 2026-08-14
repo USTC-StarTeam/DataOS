@@ -74,6 +74,85 @@ def _report_from_disk(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def _sweep_point(eval_dir: str, summary: dict) -> dict:
+    """One eval dir's numbers, in the report's own units.
+
+    ``summary.json`` carries the metric twice: ``score`` already scaled to a percentage, and
+    ``metrics`` in the harness's native fraction. Copying stderr straight out of ``metrics`` next
+    to a percentage score is how the same report ended up saying ``score=0.89, stderr=0.0044``
+    while its siblings said ``30.36 / 2.13`` — the same quantity, two scales, one block.
+    """
+    metrics = summary.get("metrics") if isinstance(summary.get("metrics"), dict) else {}
+    metric_key = summary.get("metric_key")
+    stderr = None
+    if isinstance(metric_key, str):
+        raw = metrics.get(metric_key.replace(",", "_stderr,", 1))
+        stderr = float(raw) * 100 if isinstance(raw, (int, float)) else None
+    return {
+        "eval_dir": eval_dir,
+        "score": _numeric_score(summary),
+        "limit": summary.get("limit") if isinstance(summary.get("limit"), int) else None,
+        "n_samples": summary.get("n_samples") if isinstance(summary.get("n_samples"), int) else None,
+        "stderr": stderr,
+        "elapsed_s": (summary.get("elapsed_seconds")
+                      if isinstance(summary.get("elapsed_seconds"), (int, float)) else None),
+    }
+
+
+def _stamp_measurements(*, cfg, study_id: str, name: str, report: dict) -> None:
+    """Replace the eval block's numbers with the frozen harness's own, in place.
+
+    The experimenter restating ``score`` / ``limit`` / ``n_samples`` / ``stderr`` from
+    ``summary.json`` makes it a courier of numbers that already exist in a machine-written file,
+    and a courier is the wrong thing to validate — so the runtime reads the files instead. Two
+    things fall out of doing it here:
+
+    * the whole sweep becomes visible. 15 of the 29 nodes of the 2026-08-13 batch scored between
+      two and six checkpoints on the FULL benchmark and reported only the maximum; a champion's
+      30.36 came from checkpoint 12 while its own final weights scored 28.12, and nothing
+      downstream could see it. The eval dirs were on disk the whole time.
+    * the declared score gets checked. Picking the eval dir whose score MATCHES what the
+      experimenter claimed both identifies the winning checkpoint and turns "claimed a number no
+      eval produced" from an invisible event into a logged one.
+    """
+    try:
+        summaries = runtime._remote_eval_summaries(cfg, study_id, name)
+    except Exception as e:  # noqa: BLE001 — the exec host is an I/O boundary, not a contract
+        log.warning("experimenter[%s]: cannot read eval summaries (%s); "
+                    "leaving the experimenter's own numbers in place", name, e)
+        return
+    points = [_sweep_point(d, s) for d, s in summaries if _numeric_score(s) is not None]
+    if not points:
+        return
+    stages = report.setdefault("stages", {})
+    if not isinstance(stages, dict):
+        return
+    eval_stage = stages.setdefault("eval", {})
+    if not isinstance(eval_stage, dict):
+        return
+
+    claimed = eval_stage.get("score")
+    winner = next(
+        (p for p in points
+         if isinstance(claimed, (int, float)) and abs(p["score"] - claimed) < 1e-6),
+        None,
+    )
+    if winner is None:
+        winner = points[0]  # newest
+        if isinstance(claimed, (int, float)):
+            log.warning(
+                "experimenter[%s]: reported score=%s matches none of the %d scored eval dirs %s "
+                "— stamping the newest (%s) instead",
+                name, claimed, len(points), [p["score"] for p in points], winner["score"],
+            )
+    eval_stage.update({k: v for k, v in winner.items() if k != "eval_dir" and v is not None})
+    eval_stage["summary_dir"] = winner["eval_dir"]
+    if len(points) > 1:
+        eval_stage["checkpoint_sweep"] = points
+        log.info("experimenter[%s]: %d scored eval dirs, winner %s @ %s",
+                 name, len(points), winner["score"], winner["eval_dir"])
+
+
 def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
                   report: dict) -> dict:
     """Attach runtime-owned provenance to any report the experimenter wrote.
@@ -84,46 +163,29 @@ def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: 
     invents is not provenance. Paths live in ``state.json`` now; a script the experimenter actually
     wrote is declared per stage, with a hash.
 
-    The one thing still worth stamping is the model path: the tree continues nodes from it, and an
-    experimenter that trained into the standard location often does not bother repeating it. Both
-    report shapes are filled during the transition — the prompt contract now asks for
-    ``stages.train.model_path``, but a report written by an older cached prompt is still legal input.
+    Two things are worth stamping, and they are worth it for opposite reasons. The model path
+    because the tree continues from it and an experimenter that trained into the standard location
+    often does not bother repeating it. The eval measurements because they are not the
+    experimenter's to report at all — see :func:`_stamp_measurements`.
     """
     name = spec["name"]
     report.setdefault("id", _make_id("exp"))
-    default_model = runtime._paths(cfg, study_id, name, exp_dir)["model"]
-    stages = report.get("stages")
-    train = stages.get("train") if isinstance(stages, dict) else None
-    if isinstance(train, dict):
-        if not train.get("model_path"):
-            train["model_path"] = default_model
-        return report
-    # legacy shape: `model` arrives as a bare path string, a dict, or missing
-    model = report.get("model")
-    if isinstance(model, str):
-        model = {"path": model}
-    elif not isinstance(model, dict):
-        model = {}
-    report["model"] = model
-    if not model.get("path"):
-        model["path"] = default_model
+    stages = report.setdefault("stages", {})
+    if isinstance(stages, dict):
+        train = stages.get("train")
+        if isinstance(train, dict) and not train.get("model_path"):
+            train["model_path"] = runtime._paths(cfg, study_id, name, exp_dir)["model"]
+    _stamp_measurements(cfg=cfg, study_id=study_id, name=name, report=report)
     return report
 
 
-def _failed_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
-                   error: str) -> dict:
-    report = {
+def _failed_report(*, error: str) -> dict:
+    # `limit: 0` is the honest value here: nothing was scored. Writing the requested eval_limit
+    # would claim a caliber this node never had. The caller stamps.
+    return {
         "id": _make_id("exp"),
-        "stages": {
-            # `limit` is required by the contract and 0 is the honest value here: nothing was
-            # scored. Writing the requested eval_limit would claim a caliber this node never had.
-            "eval": {"status": "failed", "score": None, "limit": 0, "error": error},
-        },
+        "stages": {"eval": {"status": "failed", "score": None, "limit": 0, "error": error}},
     }
-    return _stamp_report(
-        cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
-        eval_limit=eval_limit, report=report,
-    )
 
 
 def _numeric_score(data: dict) -> float | None:
@@ -175,8 +237,6 @@ def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit
             "anomalies": "unknown",
             "conclusion": f"no review: the experimenter was cut off after the eval scored ({error})",
         }
-    if isinstance(report.get("status"), str):  # legacy partial — keep its own dialect consistent
-        report["status"] = "completed"
     report["salvaged"] = True
     report["error"] = f"salvaged from {source}; the experimenter was cut off: {error}"
     log.warning("experimenter[%s]: salvaged score=%s from %s",
@@ -398,10 +458,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
             cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
             eval_limit=eval_limit, partial=report, error=err,
         )
-        report = salvaged if salvaged is not None else _failed_report(
-            cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
-            eval_limit=eval_limit, error=err,
-        )
+        report = salvaged if salvaged is not None else _failed_report(error=err)
     report = _stamp_report(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
         eval_limit=eval_limit, report=report,

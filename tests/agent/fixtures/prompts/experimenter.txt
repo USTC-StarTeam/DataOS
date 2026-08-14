@@ -166,8 +166,7 @@ stage answers for itself:
      "eval":  {"status":"completed","score":<float native % from summary.json>,
                "limit":<int items evaluated; -1 = the full frozen benchmark>,
                "n_samples":<int the scorer ACTUALLY scored, from summary.json>,
-               "stderr":<float from summary.json>,"elapsed_s":<float wall clock>,
-               "checkpoint_sweep":[{"step":<int or "final">,"score":<float>}]},
+               "stderr":<float from summary.json>,"elapsed_s":<float wall clock>},
      "review":{"status":"completed","failure_classes":{"<your class name>":<count>},
                "sampled":<true if the counts come from a SAMPLE, false for a full census>,
                "sample_size":{"correct":<k>,"wrong":<k>},
@@ -191,10 +190,14 @@ RULES
 - `n_samples` is what the scorer actually scored; `limit` is what was REQUESTED. They differ
   whenever the run is AUTO-sized or gets cut short, and only `n_samples` says how big the
   measurement really was. Giving `sample_size` lets you omit `sampled` — it is derived from it.
-- `limit` is required. A subset score is not comparable with a full-benchmark score, and it is
-  also systematically noisier — the leader is the one who decides what to do about that, so it
-  has to be able to see it. If the run's eval limit is AUTO (-2), record the count you actually
-  used, not -2.
+- The eval NUMBERS are not yours to be careful about. After you finish, the runtime reads every
+  `summary.json` under this node's `eval/` and overwrites `score` / `limit` / `n_samples` /
+  `stderr` / `elapsed_s` with the frozen harness's own values, adds `summary_dir` for the one
+  the score came from, and — when you scored more than one checkpoint — a `checkpoint_sweep` of
+  all of them. So restate them for your own reasoning, but a typo costs nothing, and there is no
+  reason to omit an eval you ran: every checkpoint you scored will be visible whether or not it
+  won, which is the point. It also means the score you write is CHECKED against the eval dirs:
+  claiming a number none of them produced gets logged.
 - `requested_rows` vs `rows`: a selector with `strict=false` silently returns whatever the pool
   had. If they differ by more than 10%, say so in the data stage's `fixes`.
 - On a BASELINE run omit `data` and `train` entirely (a baseline has no data and no training),
