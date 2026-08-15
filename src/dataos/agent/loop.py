@@ -158,7 +158,7 @@ def _read_report(exp_root: Path, name: str):
     }
     return (
         parsed.score,
-        parsed.stages.eval.limit,
+        parsed.stages.eval.limit if parsed.stages.eval else None,
         parsed.model_path,
         scripts,
         parsed.status,
@@ -284,10 +284,11 @@ def _full_eval_size(cfg: AutoRunConfig) -> int | None:
     except (OSError, json.JSONDecodeError, ValueError):
         return None
     try:
-        n = report_schema.read(report).stages.eval.n_samples
+        eval_stage = report_schema.read(report).stages.eval
     except Exception as e:  # noqa: BLE001 — not report-shaped at all
         log.error("unreadable baseline report at %s: %s", path, e)
         return None
+    n = eval_stage.n_samples if eval_stage else None
     return int(n) if isinstance(n, (int, float)) and n > 0 else None
 
 

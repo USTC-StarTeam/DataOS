@@ -79,7 +79,7 @@ class DummyBackend:
             rows=rows,
             artifacts={"final_model": final},
             report_fragment={
-                "stages": {"train": {"status": "completed" if ok else "failed"}},
+                "stages": {"train": {"model_path": final}},
                 "model": {"path": final},
                 "dataset": {"rows": rows},
             },

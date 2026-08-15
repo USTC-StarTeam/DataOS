@@ -9,10 +9,11 @@ plan, ``_validate_plan`` checks it, and Python applies it. So the three are peer
 jobs, and the old name encoded a hierarchy that no longer exists (and arguably never did).
 
 The two roles run under separate lifecycles rather than a shared one, because what "finished"
-means differs: an experimenter is done when its report.json is terminal (score first, review
-second — see :func:`dataos.agent.report.is_terminal`), while the investigator is done when both
-recon.json and the round-0 baseline report parse. Cluster and layout facts live in
-:mod:`dataos.agent.runtime`; this module only knows how to drive an agent.
+means differs: an experimenter is done when its report.json is terminal, while the investigator is
+done when recon.json has its source profiles AND the round-0 baseline report is terminal. Both
+lifecycles ask :func:`dataos.agent.report.is_terminal` — one function, so the two cannot drift
+apart, which they had. Cluster and layout facts live in :mod:`dataos.agent.runtime`; this module
+only knows how to drive an agent.
 
 PTB allows only ONE H100 for the whole run, so experiments run SEQUENTIALLY (never in parallel)
 under a shared single-GPU / 10h budget; ``report.json`` on disk is the source of truth.
@@ -111,9 +112,11 @@ def _stamp_measurements(*, cfg, study_id: str, name: str, report: dict) -> None:
       two and six checkpoints on the FULL benchmark and reported only the maximum; a champion's
       30.36 came from checkpoint 12 while its own final weights scored 28.12, and nothing
       downstream could see it. The eval dirs were on disk the whole time.
-    * the declared score gets checked. Picking the eval dir whose score MATCHES what the
-      experimenter claimed both identifies the winning checkpoint and turns "claimed a number no
-      eval produced" from an invisible event into a logged one.
+    * the experimenter stops being asked for numbers at all. It names the eval dir it stands
+      behind (``stages.eval.summary_dir``) — a decision, since a node may have scored several
+      checkpoints — and the numbers come from that dir's own summary.json. This replaces matching
+      the dirs against a score the experimenter claimed, which existed only to catch a claim the
+      contract no longer invites: a score that no eval produced now has nowhere to come from.
     """
     try:
         summaries = runtime._remote_eval_summaries(cfg, study_id, name)
@@ -131,19 +134,19 @@ def _stamp_measurements(*, cfg, study_id: str, name: str, report: dict) -> None:
     if not isinstance(eval_stage, dict):
         return
 
-    claimed = eval_stage.get("score")
-    winner = next(
-        (p for p in points
-         if isinstance(claimed, (int, float)) and abs(p["score"] - claimed) < 1e-6),
-        None,
-    )
+    # The experimenter names the dir it stands behind; we supply what that dir measured. When it
+    # names one we do not have (a typo, a path from another node) the newest is the fallback, and
+    # the mismatch is worth a line — but it is not worth refusing to stamp, because the numbers
+    # from a real eval dir are still better than the nothing that would otherwise reach the leader.
+    declared = eval_stage.get("summary_dir")
+    winner = next((p for p in points if p["eval_dir"] == declared), None)
     if winner is None:
         winner = points[0]  # newest
-        if isinstance(claimed, (int, float)):
+        if isinstance(declared, str) and declared:
             log.warning(
-                "experimenter[%s]: reported score=%s matches none of the %d scored eval dirs %s "
-                "— stamping the newest (%s) instead",
-                name, claimed, len(points), [p["score"] for p in points], winner["score"],
+                "experimenter[%s]: summary_dir %s is none of the %d scored eval dirs %s "
+                "— stamping the newest instead",
+                name, declared, len(points), [p["eval_dir"] for p in points],
             )
     eval_stage.update({k: v for k, v in winner.items() if k != "eval_dir" and v is not None})
     eval_stage["summary_dir"] = winner["eval_dir"]
@@ -180,12 +183,16 @@ def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: 
 
 
 def _failed_report(*, error: str) -> dict:
-    # `limit: 0` is the honest value here: nothing was scored. Writing the requested eval_limit
-    # would claim a caliber this node never had. The caller stamps.
-    return {
-        "id": _make_id("exp"),
-        "stages": {"eval": {"status": "failed", "score": None, "limit": 0, "error": error}},
-    }
+    """The report for a node that produced nothing — no stages, because none finished.
+
+    It used to synthesise an eval stage of `{"status": "failed", "score": null, "limit": 0}`. Every
+    part of that was a claim about a stage that never ran, and `limit: 0` in particular was a value
+    no real eval can produce (-1 is full, positive is a sample) — which is how it became legible as
+    a fingerprint: the four nodes lost on 2026-08-15 all carried it, copied verbatim out of the
+    prompt block that mirrored this function. The run-level `error` says what happened; a stage
+    that did not happen says nothing.
+    """
+    return {"id": _make_id("exp"), "status": "failed", "error": error}
 
 
 def _numeric_score(data: dict) -> float | None:
@@ -193,8 +200,8 @@ def _numeric_score(data: dict) -> float | None:
     return float(score) if isinstance(score, (int, float)) else None
 
 
-def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
-                    partial: dict | None, error: str) -> dict | None:
+def _salvage_report(*, cfg, study_id: str, spec: dict, partial: dict | None,
+                    error: str) -> dict | None:
     """Rescue a COMPLETED score when the experimenter died after the eval produced one
     (CLI stall / budget cut mid-analysis) but before writing a terminal report.
 
@@ -208,35 +215,22 @@ def _salvage_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit
     else:
         for eval_dir, summary in runtime._remote_eval_summaries(cfg, study_id, spec["name"]):
             if _numeric_score(summary) is not None:
-                report, source = {
-                    "stages": {
-                        "eval": {
-                            "status": "completed",
-                            "score": _numeric_score(summary),
-                            "limit": summary.get("limit")
-                            if isinstance(summary.get("limit"), int)
-                            else eval_limit,
-                        }
-                    },
-                }, f"remote summary.json ({eval_dir})"
+                # Name the dir, not the numbers: _stamp_measurements reads it and fills the rest.
+                report, source = (
+                    {"stages": {"eval": {"summary_dir": eval_dir}}},
+                    f"remote summary.json ({eval_dir})",
+                )
                 break
     if report is None:
         return None
-    # The score IS real; the cut was operational — so the EVAL stage completed even though the
-    # experiment did not. Salvage cannot invent the review that was never written, and a report
-    # with no review would read as mid-run to the resume check, so say plainly why it stops here.
-    stages = report.setdefault("stages", {})
-    if isinstance(stages, dict):
-        eval_stage = stages.setdefault("eval", {})
-        if isinstance(eval_stage, dict):
-            eval_stage["status"] = "completed"
-        stages["review"] = {
-            "status": "skipped",
-            "failure_classes": {},
-            "sampled": False,
-            "anomalies": "unknown",
-            "conclusion": f"no review: the experimenter was cut off after the eval scored ({error})",
-        }
+    # The score IS real; the cut was operational. Moving the cursor to `completed` is the whole of
+    # it — the previous version also had to FABRICATE a review stage (`failure_classes: {}`,
+    # `anomalies: "unknown"`, `sampled: false`) because the old resume check inferred "the author
+    # considered itself done" from a review being present, so a salvaged report without one read as
+    # mid-run. That invention went to the leader verbatim, as a node that had reviewed its rollouts
+    # and found no failure classes at all. A cursor says "done" by itself, so the lie is unnecessary
+    # and gone; a `completed` report with no review now means exactly what it looks like.
+    report["status"] = "completed"
     report["salvaged"] = True
     report["error"] = f"salvaged from {source}; the experimenter was cut off: {error}"
     log.warning("experimenter[%s]: salvaged score=%s from %s",
@@ -503,10 +497,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
         if state.get("last_error"):
             err = f"{err}: {state['last_error']}"
         # the eval may have finished before the cut — rescue a real score if one exists
-        salvaged = _salvage_report(
-            cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
-            eval_limit=eval_limit, partial=report, error=err,
-        )
+        salvaged = _salvage_report(cfg=cfg, study_id=study_id, spec=spec, partial=report, error=err)
         report = salvaged if salvaged is not None else _failed_report(error=err)
     report = _stamp_report(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
@@ -598,13 +589,21 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
         session_id = getattr(res, "session_id", None) or session_id
         last_text = (getattr(res, "text", "") or "").strip()
         recon = _read_json(recon_path)
+        # "Is the baseline report finished?" is the same question the experimenter loop asks, so it
+        # gets the same answer from the same function. It used to be re-implemented here as a test
+        # on a TOP-LEVEL `status` — a field the investigator's own prompt forbids writing, because
+        # the report's status is derived. So the compliant investigator hung: healthbench's had
+        # both deliverables on disk at 02:27 (106 source profiles, a baseline scoring 6.70) and was
+        # still being told to finish them three hours later, while two runs whose investigators
+        # ignored the instruction sailed through. A predicate no one is allowed to satisfy is worse
+        # than no predicate.
         baseline_done = _read_json(baseline_report) or {}
         if isinstance(recon, dict) and recon.get("source_profiles") \
-                and baseline_done.get("status") in {"completed", "failed"}:
+                and report_schema.is_terminal(baseline_done):
             log.info("recon: done — %d source profiles, base_cause=%s, baseline=%s",
                      len(recon.get("source_profiles") or []),
                      (recon.get("baseline_diagnosis") or {}).get("cause"),
-                     baseline_done.get("score"))
+                     report_schema.read(baseline_done).score)
             return recon
         prompt = (
             "recon.json is not yet complete at %s, or the baseline report is missing at %s. "
@@ -643,10 +642,10 @@ def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -
         name = spec["name"]
         if deadline is not None and time.monotonic() >= deadline:
             log.info("fan_out: wall-clock budget spent — skipping remaining experiment %s", name)
+            # No stages: this node never started, so it has nothing to say about train or eval.
             reports[name] = {
-                "id": _make_id("exp"), "name": name, "status": "failed", "score": None,
+                "id": _make_id("exp"), "name": name, "status": "failed",
                 "error": "skipped: wall-clock budget exhausted",
-                "stages": {"train": {"status": "failed"}, "eval": {"status": "failed"}},
             }
             continue
         _, report = _run_one(cfg, study_id, spec, exp_root, timeout=_exp_timeout(cfg, deadline))

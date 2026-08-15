@@ -175,11 +175,11 @@ class Study:
             except Exception as e:  # noqa: BLE001 — not report-shaped; say so, do not rank it
                 log.error("study %s: unreadable report skipped: %s", self.study_id, e)
                 continue
-            stages = parsed.stages
             # an invalidated/failed/re-running eval's old numbers are forensics, not scores:
             # letting them rank (while the guards exclude them as not-completed) would crown
-            # exactly the least trustworthy row
-            eval_current = stages.eval.status == "completed"
+            # exactly the least trustworthy row. The cursor answers it directly — a report still
+            # sitting on `eval` is one whose numbers, if any, belong to a superseded run.
+            eval_current = parsed.status == "completed"
             rows.append(
                 {
                     "report": raw,

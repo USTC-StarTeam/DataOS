@@ -191,8 +191,9 @@ class VerlBackend:
                 "ckpt": str(rd / "verl" / "ckpt"),
                 "logs": str(rd / "logs"),
             },
+            # see the llamafactory backend: DataOS report.json has one status, at the top level
             report_fragment={
-                "stages": {"train": {"status": "completed" if ok else "failed"}},
+                "stages": {"train": {"model_path": final}},
                 "model": {
                     "path": final,
                     "base_model": meta.get("base_model"),
