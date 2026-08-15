@@ -164,7 +164,7 @@ def build_run_config(cfg, *, parent_model: str, eval_limit: int) -> dict:
     except ValueError:
         gpus = 1
     return {
-        "environment": rt.get("environment", "PTB_H100_slurm"),
+        "environment": rt.get("environment", "example-slurm"),
         "task": rt.get("task", "posttrainbench"),
         "runtime_ref": rt.get("runtime_ref", "main"),
         "base_model": parent_model,

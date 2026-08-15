@@ -97,5 +97,5 @@ class AutoRunConfig:
 
     runtime_config: dict = field(default_factory=dict)  # cluster paths/envs injected into experimenters
     runtime_config_path: str | None = None  # provenance for runtime_config when loaded from disk
-    h100_base_model: str | None = None  # H100 -Base model path (e.g. /data/hcgu/hf_cache/hub/Qwen3-1.7B-Base)
+    h100_base_model: str | None = None  # exec-host -Base model path (e.g. <hf_cache>/hub/Qwen3-1.7B-Base)
     base_model_id: str | None = None  # logical HF id for the downstream local eval

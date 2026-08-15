@@ -131,7 +131,7 @@ def main() -> None:
         # on Slurm only because callers there happened to pass the deploy root absolute.
         p.add_argument("--repo", required=True, type=lambda v: Path(v).resolve(),
                        help="deploy checkout root (configs/ lives there)")
-        p.add_argument("--environment", default="PTB_H100_slurm")
+        p.add_argument("--environment", default="example-slurm")
         p.add_argument("--task-config", default="posttrainbench")
 
     s = sub.add_parser("submit")

@@ -17,8 +17,8 @@ cd configs/environments/PTB_H100_slurm/envs
 (Llama-op020 / lm-eval / dataos-verl).
 
 The venvs DataOS uses are built inside the deploy checkout (`configs/environments/PTB_H100_slurm/
-envs/*/.venv`, git-ignored) — except the rl/eval baselines, which still live at the legacy
-`/data/hcgu/users/tjh/dataos_runtime/...` location (absolute paths in env.yaml).
+envs/*/.venv`, git-ignored) — except the rl/eval baselines, which still live at a legacy
+location outside the checkout (absolute paths in env.yaml).
 
 flash-attn: no prebuilt wheel exists for these torch combos and the system nvcc (13.2) mismatches
 torch's CUDA — build.sh reuses the exact-matching flash_attn from the source conda env (same

@@ -67,7 +67,7 @@ def test_salvage_from_partial_report(tmp_path):
 def test_salvage_from_remote_summary(tmp_path, monkeypatch):
     """No local report at all; the remote eval summary has the score."""
     summary = {"score": 18.08, "task": "gsm8k", "limit": 164}
-    eval_dir = "/data/hcgu/users/tjh/dataos_agentver_runs/p/round-0000/explore-0/eval/gsm8k_full"
+    eval_dir = "/deploy/dataos_runs/p/round-0000/explore-0/eval/gsm8k_full"
 
     def _ssh(cfg, cmd, **kw):
         # the executor ASKS which eval dirs exist rather than reconstructing the name: the tag it

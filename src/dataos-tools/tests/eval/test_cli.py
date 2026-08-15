@@ -23,7 +23,7 @@ def _model_dir(tmp_path, model_type: str = "qwen3") -> str:
 
 def _submit_args(tmp_path, **over):
     argv = {
-        "repo": str(REPO), "environment": "PTB_H100_slurm", "task_config": "posttrainbench",
+        "repo": str(REPO), "environment": "example-slurm", "task_config": "posttrainbench",
         "task": "gsm8k", "model_path": _model_dir(tmp_path), "model_name": "baseline",
         "output_dir": str(tmp_path / "eval" / "gsm8k_limit-1"),
         "run_root": str(tmp_path), "limit": -1, "gpus": 1, "cpus": 8, "time": "12:00:00",
@@ -60,7 +60,7 @@ def test_submit_dry_run_bakes_everything(tmp_path, capsys):
     job = spec["job"]
     res = job["resources"]
     assert (res["nodes"], res["gpus"], res["cpus"]) == (1, 1, 8)   # single node, one GPU
-    assert spec["placement"]["nodelist"] == "gpu01,gpu02,gpu03"   # the env node pool
+    assert spec["placement"]["nodelist"] == "<node-a>,<node-b>,<node-c>"   # the env node pool
     assert res["time_h"] == 12.0   # the launcher always emits --time; no --time pends forever
     cmd = " ".join(job["command"])
     assert "run_lmeval_eval.py" in cmd and "--limit -1" in cmd
@@ -177,7 +177,7 @@ def test_judge_flag_comes_from_the_protocol_not_a_tool_table(tmp_path):
     """`JUDGE_BENCHES` used to be hardcoded in cli.py — bench knowledge inside the tool."""
     from dataos_eval.stage import EvalStage
 
-    stage = EvalStage.from_repo(REPO, "PTB_H100_slurm", "posttrainbench")
+    stage = EvalStage.from_repo(REPO, "example-slurm", "posttrainbench")
     declared = {b for b, c in stage.benches.items() if c["judge"]}
     assert declared == {"healthbench", "arenahardwriting"}
     src = REPO / "src" / "dataos-tools" / "src" / "dataos_eval"
@@ -197,7 +197,7 @@ def test_a_run_node_pin_overrides_the_env_node_pool(tmp_path, capsys):
 
 def test_without_a_pin_it_still_falls_back_to_the_env_pool(tmp_path, capsys):
     spec = _dry_run_spec(tmp_path, capsys)
-    assert spec["placement"]["nodelist"] == "gpu01,gpu02,gpu03"
+    assert spec["placement"]["nodelist"] == "<node-a>,<node-b>,<node-c>"
 
 
 def test_the_run_chooses_the_qos(tmp_path, capsys):

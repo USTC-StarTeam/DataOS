@@ -1,0 +1,30 @@
+{
+  "goal": "Example run: what a single search looks like. Copy this, point the paths at your own model / pool / checkout, and name an environment that exists under configs/environments/.",
+  "workspace": "workspace/example-gsm8k",
+  "environment": "example-slurm",
+  "task": "posttrainbench",
+  "bench": "gsm8k",
+  "inputs": {
+    "base_model_path": "<abs path to an HF model dir on the exec host>",
+    "fixed_pool": "<abs path to the source pool on the exec host>"
+  },
+  "exec": {
+    "deploy_root": "<abs path to this repo's checkout on the exec host>",
+    "runs_base": "<abs path where run artifacts land on the exec host>",
+    "resource": {
+      "gpus": 1,
+      "cpus": 8,
+      "qos": "<one of env.yaml slurm.partitions.<p>.qos_available>",
+      "partition": "<one of env.yaml slurm.partitions>"
+    }
+  },
+  "budget": {
+    "time_hours": 3,
+    "eval_samples": 50
+  },
+  "agent": {
+    "provider": "claude",
+    "idle_timeout_s": 1800
+  },
+  "monitor_port": 8802
+}

@@ -29,7 +29,6 @@ from pathlib import Path
 
 from dataos.core.study import _slug
 
-_RUNS_BASE = "/data/hcgu/users/tjh/dataos_agentver_runs"  # legacy fallback; prefer runtime_config
 #: What a runtime config must carry, BY KIND. The set is not universal: ssh coordinates and a
 #: Slurm partition are facts about reaching another machine, and a workstation run has neither —
 #: demanding them there would be demanding proof of a cluster that is deliberately absent. The
@@ -52,8 +51,7 @@ def _runtime_config(cfg) -> dict:
     runtime = json.loads(json.dumps(getattr(cfg, "runtime_config", {}) or {}))
     paths = runtime.setdefault("paths", {})
     runtime.setdefault("cluster", {})
-    paths.setdefault("runs_base", _RUNS_BASE)
-    runtime.setdefault("environment", "PTB_H100_slurm")
+    runtime.setdefault("environment", "example-slurm")
     runtime.setdefault("task", "posttrainbench")
     paths.setdefault("runtime_root", f"{paths.get('deploy_root', '')}/configs")
     return runtime
@@ -87,7 +85,7 @@ def _missing_runtime_config_keys(cfg) -> list[str]:
     return missing
 
 def _run_root(cfg, study_id: str, name) -> str:
-    runs_base = _runtime_config(cfg).get("paths", {}).get("runs_base", _RUNS_BASE)
+    runs_base = _runtime_config(cfg).get("paths", {}).get("runs_base", "")
     return f"{runs_base}/{cfg.project_id}/{study_id}/{_slug(str(name))}"
 
 def _ssh_text(cfg, remote_cmd: str, *, timeout: int = 25) -> str:

@@ -4,23 +4,23 @@ import pytest
 
 from dataos.agent.run_config import PtbRunConfig, load_auto_run_config
 
-V2 = "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2"
+V2 = "/pools/processed/posttrainbench_fixed_pool_v2"
 
 
 def _run_json(ws, **over):
     data = {
         "goal": "Improve GSM8K.",
         "workspace": str(ws),
-        "environment": "PTB_H100_slurm",
+        "environment": "example-slurm",
         "task": "posttrainbench",
         "bench": "gsm8k",
         "inputs": {
-            "base_model_path": "/data/hcgu/hf_cache/Qwen/Qwen2.5-0.5B-Instruct",
+            "base_model_path": "/models/Qwen/Qwen2.5-0.5B-Instruct",
             "fixed_pool": V2,
         },
         "exec": {
-            "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
-            "runs_base": "/data/hcgu/users/tjh/dataos_agentver_runs",
+            "deploy_root": "/deploy/dataos",
+            "runs_base": "/deploy/dataos_runs",
             "resource": {"gpus": 1, "cpus": 8, "qos": "gpu_priv"},
         },
         "budget": {"time_hours": 10, "eval_samples": -1},
@@ -38,7 +38,7 @@ def test_ptb_run_config_maps_to_auto_config(tmp_path):
     assert cfg.project_id == "myrun"  # identity = workspace basename
     assert cfg.workspace == str(tmp_path)
     assert cfg.target_bench == "gsm8k"
-    assert cfg.h100_base_model == "/data/hcgu/hf_cache/Qwen/Qwen2.5-0.5B-Instruct"
+    assert cfg.h100_base_model == "/models/Qwen/Qwen2.5-0.5B-Instruct"
     assert cfg.budget.max_wall_clock_s == 36000
     assert cfg.runtime_config["cluster"]["nodelist"] is None  # unpinned: Slurm picks
     run_dir = tmp_path / "myrun"
@@ -50,10 +50,10 @@ def test_paths_resolve_with_derivations(tmp_path):
     cfg = PtbRunConfig.from_dict(_run_json(tmp_path / "myrun"))
     paths = cfg.runtime_config()["paths"]
     assert paths["fixed_pool"] == V2
-    assert paths["deploy_root"].endswith("dataos_agentver")
-    assert paths["runs_base"].endswith("dataos_agentver_runs")
+    assert paths["deploy_root"] == "/deploy/dataos"
+    assert paths["runs_base"] == "/deploy/dataos_runs"
     # derived, not declared
-    assert paths["runtime_root"].endswith("dataos_agentver/configs")
+    assert paths["runtime_root"] == "/deploy/dataos/configs"
     assert paths["benchmarks"].endswith("configs/tasks/posttrainbench/benchmarks")
     assert paths["train_env"].endswith("envs/dataos_sft/.venv")  # sft 基线的 DataOS 派生 env
     # train-cli 已取消——CLI 由 dataos_sft 承载(回退链:第一个 provides dataos-train 的 env)
@@ -217,7 +217,7 @@ def test_auto_eval_limit_prompts(tmp_path):
     )
     assert "eval limit: 256" in text and "set by the plan" in text
 
-    rc = {"environment": "PTB_H100_slurm", "task": "posttrainbench", "base_model": "/m",
+    rc = {"environment": "example-slurm", "task": "posttrainbench", "base_model": "/m",
           "bench": "gsm8k", "runs_base": "/r", "deploy_root": "/deploy",
           "resource": {"gpus": 1, "cpus": 8, "node": None, "qos": "gpu_priv"},
           "eval_limit": -2, "fixed_pool": "/p"}

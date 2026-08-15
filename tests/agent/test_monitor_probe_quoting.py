@@ -17,7 +17,7 @@ import pytest
 
 from dataos.agent import monitor
 
-_PAREN = "/data2/hcgu/dataos_agentver_runs/ptb-gsm8k-4b2(2)/round-0001/gsm-verified-lora"
+_PAREN = "/runs/ptb-gsm8k-4b2(2)/round-0001/gsm-verified-lora"
 
 
 def _probe_for(monkeypatch, run_root: str) -> str:

@@ -27,7 +27,10 @@ from .config import AutoRunConfig, Budget, Criterion
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIGS_DIR = _REPO_ROOT / "configs"
 
-DEFAULT_ENVIRONMENT = "PTB_H100_slurm"
+#: The environment a run config falls back to when it names none. It points at a config
+#: that SHIPS — a default naming somebody's private deployment is a default that works on
+#: exactly one machine and fails with "unknown environment" everywhere else.
+DEFAULT_ENVIRONMENT = "example-slurm"
 DEFAULT_TASK = "posttrainbench"
 DEFAULT_RUNTIME_REF = "main"  # compose run-config field; kept for template compatibility
 

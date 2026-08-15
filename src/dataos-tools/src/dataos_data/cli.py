@@ -85,7 +85,7 @@ def _run_flags() -> argparse.ArgumentParser:
     the script is contracted to produce the dataset."""
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument("--repo", required=True, help="deploy checkout root (configs/ lives there)")
-    p.add_argument("--environment", default="PTB_H100_slurm")
+    p.add_argument("--environment", default="example-slurm")
     p.add_argument("--run-root", required=True, help="the node's run root; the recipe lives here")
     p.add_argument("--recipe", required=True, help="the script, inside run-root")
     p.add_argument("--stats", default=None,

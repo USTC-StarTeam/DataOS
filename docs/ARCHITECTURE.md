@@ -30,11 +30,11 @@ DataOS 刻意把"决策"和"算力"分开:
                   │ ssh + sbatch (sub-agent 亲自驱动)
                   ▼
 ┌──────────────────────── 执行面 (H100 Slurm 集群) ──────────────────────┐
-│  hcgu@114.214.215.159   node gpu04 (一个节点=多张 H100 卡)              │
+│  <user>@<login-node>    一个节点 = 多张 GPU 卡(坐标见 env.yaml 的 access) │
 │                                                                          │
 │   sbatch GPU 作业内:  build data (dataos_operator) → SFT (LLaMA-Factory)│
 │                        → sampled eval (lm-eval / PostTrainBench)         │
-│   train_env / eval_env = /data/hcgu/.conda/envs/*                        │
+│   train_env / eval_env = <env.yaml paths.*_env>                          │
 │   dataos 核心经 PYTHONPATH=deploy_root/src 注入;operator 为 pip 包       │
 │   fixed_pool (固定数据池) + base model 均在 H100 本地磁盘                 │
 └──────────────────────────────────────────────────────────────────────────┘

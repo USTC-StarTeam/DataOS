@@ -85,7 +85,7 @@ Expected shape:
   "workspace": "workspace/ptb-h100-qwen-gsm8k",
   "goal": "Use the fixed PTB data pool to improve the base model within a limited H100 budget.",
   "bench": "gsm8k",
-  "base_model_path": "/data/hcgu/hf_cache/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/<sha>",
+  "base_model_path": "<hf_cache>/hub/models--Qwen--Qwen3-1.7B-Base/snapshots/<sha>",
   "time_budget_hours": 10,
   "resource": {
     "node": "gpu04",
@@ -93,10 +93,10 @@ Expected shape:
     "cpus": 8
   },
   "paths": {
-    "fixed_pool": "/data/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v1_full",
+    "fixed_pool": "<pools_root>/processed/posttrainbench_fixed_pool_v1_full",
     "conda_sh": "/data/software/miniconda3/etc/profile.d/conda.sh",
-    "train_env": "/data/hcgu/.conda/envs/Llama",
-    "eval_env": "/data/hcgu/.conda/envs/lm-eval"
+    "train_env": "<envs_root>/train",
+    "eval_env": "<envs_root>/eval"
   }
 }
 ```

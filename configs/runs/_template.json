@@ -1,23 +1,23 @@
 {
   "goal": "<one sentence: which model, which bench, which pool, within which budget>",
   "workspace": "workspace/<run-id>",
-  "environment": "PTB_H100_slurm",
+  "environment": "<name under configs/environments/>",
   "task": "posttrainbench",
   "bench": "<gsm8k | humaneval | gpqamain | aime2025 | arenahardwriting | healthbench | bfcl>",
 
   "inputs": {
     "base_model_path": "<absolute path on the exec host>",
-    "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2"
+    "fixed_pool": "<absolute path on the exec host>"
   },
 
   "exec": {
-    "deploy_root": "/data2/hcgu/dataos_exp",
-    "runs_base": "/data2/hcgu/dataos_agentver_runs",
+    "deploy_root": "<this repo's checkout on the exec host>",
+    "runs_base": "<where run scratch goes on the exec host>",
     "resource": {
       "gpus": 1,
       "cpus": 8,
       "node": null,
-      "qos": "gpu_priv"
+      "qos": "<a qos the partition allows>"
     }
   },
 

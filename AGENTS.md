@@ -147,21 +147,24 @@ Claude/gateway endpoints, and breaks TLS to domestic PyPI):
 
 GPU work runs on the lab H100 Slurm cluster; the agent host reaches it over SSH.
 
-- SSH: `Host h100` → `HostName 114.214.215.159`, `User hcgu`, `IdentityFile ~/.ssh/ghc_miyao`.
-- Deploy (the repo on H100): `/data/hcgu/users/tjh/dataos_agentver` — a **git checkout of `origin/main`**.
-  Deploy = `git push origin main` (host) then `ssh h100 'git -C <deploy_root> pull'`.
+- SSH: the coordinates are `access:` in the environment's `env.yaml` — host, user, port and the
+  PATH to a key. Nothing here restates them: a deployment fact written twice is a deployment fact
+  that will disagree with itself, and the copy in prose is the one nobody updates.
+- Deploy (the repo on the exec host): a git checkout at `exec.deploy_root` from the run config.
+  Deploy = push, then `git -C <deploy_root> pull` over ssh.
   If a tool version changed (see `dataos_tools` in env.yaml), also run
-  `python scripts/sync_envs.py` (host) to install the declared versions into the venvs —
+  `python scripts/sync_envs.py --environment <name> --deploy-root <path>` (host) to
+  install the declared versions into the venvs —
   nothing else ever mutates them.
-- Run scratch (per experiment): `/data2/hcgu/dataos_agentver_runs/...`.
-- Fixed pool: `/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2`
+- Run scratch (per experiment): `<runs_base>/...` (run JSON `exec.runs_base`).
+- Fixed pool: `<fixed_pool>` (run JSON `inputs.fixed_pool`)
   (env.yaml `paths.fixed_pool`). Eval benchmark data ships IN the repo
   (`$AGENTVER/configs/tasks/posttrainbench/benchmarks` — comes down with `git pull`).
 - Frozen uv venvs (defined in `configs/environments/PTB_H100_slurm/envs/`): the venvs DataOS
   uses live **inside the deploy checkout** (`<deploy_root>/configs/environments/PTB_H100_slurm/
   envs/<name>/.venv`, git-ignored): `dataos_sft` (sft baseline + repo tools preinstalled — what
   `env.yaml`'s `sft_env` points at) and `train-cli`. The `rl`/`eval` baselines still live at
-  the legacy `/data/hcgu/users/tjh/dataos_runtime/...` location (absolute paths in env.yaml).
+  any legacy location (absolute paths live in env.yaml).
   Rebuild one on H100: `cd <deploy_root>/configs/environments/PTB_H100_slurm/envs &&
   ./build.sh dataos_sft`.
 - Submit GPU work through Slurm (default `gpu04`); the login node is orchestration only.

@@ -80,7 +80,7 @@ def test_cli_run_dummy(tmp_path: Path) -> None:
             "--repo",
             str(_REPO),
             "--environment",
-            "LOCAL",
+            "example-local",
             "--poll",
             "0.05",
         ],

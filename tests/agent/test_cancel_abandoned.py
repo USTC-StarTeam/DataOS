@@ -10,6 +10,7 @@ waited behind it.
 from __future__ import annotations
 
 import json
+import sys
 import time
 import types
 from pathlib import Path
@@ -19,7 +20,9 @@ from dataos_launch.types import Job, Resources
 
 from dataos.agent import runtime
 
-_SFT_ENV = "/zssd/home/tangjiahui/2026/DataOS-Space/envs/dataos_sft/.venv"
+#: cancel_live_jobs runs its walker as `{sft_env}/bin/python`, so this has to be a real
+#: interpreter — the one running the test, whichever checkout that is.
+_SFT_ENV = sys.prefix
 
 
 def _cfg():

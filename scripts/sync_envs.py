@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Sync the repo-owned tools in the H100 venvs to the versions DECLARED in env.yaml.
+"""Sync the repo-owned tools in an environment's venvs to the versions DECLARED in env.yaml.
 
 For every `tools.<env>.dataos_tools` entry in configs/environments/<env>/env.yaml:
-check the installed dist version on the cluster (ssh) and, on mismatch, install the
-package from the deploy checkout (tools/<name>/ — the checkout's pyproject version is
-pinned equal to the declaration by tests/agent/test_env_tools_versions.py).
+check the installed dist version on the exec host (ssh) and, on mismatch, install the
+package from the deploy checkout (the checkout's pyproject version is pinned equal to
+the declaration by tests/agent/test_env_tools_versions.py).
 
 Nothing else ever mutates those venvs: version upgrades are a manual bump + this script.
 
-Usage: python scripts/sync_envs.py [--environment PTB_H100_slurm] \
-           [--deploy-root /data/hcgu/users/tjh/dataos_agentver] [--check]
+The ssh host is read from the environment's own `access.host` — the environment already
+says how to reach itself, and a second copy on the command line is a second thing to get
+wrong. `--deploy-root` has no such source: where a checkout sits is a run-level fact
+(run JSON), which env.yaml deliberately does not carry.
+
+Usage: python scripts/sync_envs.py --environment <name> --deploy-root <path> [--check]
 """
 
 from __future__ import annotations
@@ -58,15 +62,23 @@ def _installed(host: str, venv: str, dist: str) -> str | None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--environment", default="PTB_H100_slurm")
-    ap.add_argument("--deploy-root", default="/data/hcgu/users/tjh/dataos_agentver")
-    ap.add_argument("--ssh-host", default="h100")
+    ap.add_argument("--environment", required=True)
+    ap.add_argument("--deploy-root", required=True,
+                    help="the deploy checkout on the exec host (run-level fact)")
+    ap.add_argument("--ssh-host", default=None,
+                    help="override; defaults to the environment's access.host")
     ap.add_argument("--check", action="store_true", help="report only, never install")
     args = ap.parse_args()
 
     env = yaml.safe_load(
         (REPO / "configs" / "environments" / args.environment / "env.yaml").read_text()
     )
+    host = args.ssh_host or ((env.get("access") or {}).get("host") or "")
+    if not host:
+        raise SystemExit(
+            f"{args.environment} declares no access.host — pass --ssh-host, or point at a "
+            f"remote environment (a local one has no venvs to reach over ssh)."
+        )
     mismatched = failed = False
     for env_name, spec in (env.get("tools") or {}).items():
         declared = (spec or {}).get("dataos_tools") or {}
@@ -74,7 +86,7 @@ def main() -> int:
             continue
         venv = spec["path"]
         for tool, want in declared.items():
-            have = _installed(args.ssh_host, venv, tool)
+            have = _installed(host, venv, tool)
             if have == want:
                 print(f"[ok] {env_name}: dataos-{tool} == {want}")
                 continue
@@ -85,10 +97,10 @@ def main() -> int:
             src = f"{args.deploy_root}/{_pkg_dir(tool)}"
             print(f"  installing {src} -> {venv}")
             _ssh(
-                args.ssh_host,
+                host,
                 f"$HOME/.local/bin/uv pip install --python {venv}/bin/python -q {src}",
             )
-            have = _installed(args.ssh_host, venv, tool)
+            have = _installed(host, venv, tool)
             if have != want:
                 failed = True
                 print(f"  [FAIL] after install: {have} != {want}")

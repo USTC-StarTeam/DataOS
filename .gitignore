@@ -227,3 +227,21 @@ configs/runs/ptb-smoke-*.json
 *.jsonl
 !configs/**/*.jsonl
 !tools/**/tests/**/*.jsonl
+
+# --- deployment config: a machine's identity, not the software -----------------
+# An env.yaml carries a host, a user, a key path and absolute paths on someone's
+# filesystem. Committing it publishes an attack surface and helps no reader: the
+# values are true of exactly one deployment. What IS worth shipping is the shape,
+# so `example-*` is tracked and everything else is yours.
+# Only env.yaml — it is the one file carrying a host, a user, a key path and absolute
+# paths on someone's filesystem. Everything else under an environment (the venv build
+# scripts, the dependency pins, their READMEs) is software: it encodes which torch build
+# matches which GPU generation and why, which is exactly the kind of thing worth shipping.
+configs/environments/*/env.yaml
+!configs/environments/example-*/env.yaml
+
+# Same for run configs — every one names a model, a pool and a checkout by
+# absolute path. `_template.json` and `example-*.json` show the shape.
+configs/runs/*
+!configs/runs/_template.json
+!configs/runs/example-*.json

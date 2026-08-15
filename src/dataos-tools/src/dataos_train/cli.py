@@ -288,7 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("spec", help="path to TrainSpec JSON, or - for stdin")
     b.add_argument("--repo", required=True,
                    help="deploy checkout root (configs/ lives there)")
-    b.add_argument("--environment", default="PTB_H100_slurm")
+    b.add_argument("--environment", default="example-slurm")
     b.set_defaults(func=cmd_build)
 
     v = sub.add_parser("validate", help="TrainSpec -> {ok, errors}")
@@ -328,7 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
     for sub_p in (s, r):  # NOT `p`: that name is the top-level parser this function returns
         sub_p.add_argument("--repo", required=True,
                            help="deploy checkout root (configs/ lives there)")
-        sub_p.add_argument("--environment", default="PTB_H100_slurm")
+        sub_p.add_argument("--environment", default="example-slurm")
         sub_p.add_argument("--qos", default=None,
                            help="run-level QOS; env.yaml only declares which ones exist")
         sub_p.add_argument("--nodelist", default=None,

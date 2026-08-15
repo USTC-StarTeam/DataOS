@@ -7,16 +7,19 @@ set -euo pipefail
 E="${1:?usage: build.sh sft|rl|eval}"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 UV="${UV:-$HOME/.local/bin/uv}"
-# FA_CONDA: reuse the exact-matching flash_attn from the source conda env. There is no
+# FA_CONDA: reuse the exact-matching flash_attn from the source conda env. WHERE that env
+# lives is a fact about the machine, so it comes in as FA_CONDA_SFT / FA_CONDA_RL rather than
+# being written here — unset simply means "no donor", which the copy step below already handles
+# (the env stays usable on sdpa). There is no
 # prebuilt flash-attn wheel for these torch combos (2.7.4.post1 predates torch2.8) and the
 # system nvcc (13.2) mismatches torch's CUDA (12.9/12.4) so compiling fails — but each uv env
 # is pinned bit-for-bit to a conda env (py/torch/cuda/cxx11abi), so that conda env's compiled
 # flash_attn_2_cuda.so drops in and loads.
 case "$E" in
   eval) PY=3.12; TORCH="torch==2.9.0+cu128"; IDX="https://download.pytorch.org/whl/cu128"; FA_CONDA="" ;;
-  sft)  PY=3.12; TORCH="torch==2.8.0+cu129"; IDX="https://download.pytorch.org/whl/cu129"; FA_CONDA="/data/hcgu/.conda/envs/Llama-op020/lib/python3.12/site-packages" ;;
-  dataos_sft) PY=3.12; TORCH="torch==2.8.0+cu129"; IDX="https://download.pytorch.org/whl/cu129"; FA_CONDA="/data/hcgu/.conda/envs/Llama-op020/lib/python3.12/site-packages" ;;  # sft 基线 + repo 工具(tools/* 本地装,版本= env.yaml dataos_tools 声明)
-  rl)   PY=3.11; TORCH="torch==2.6.0+cu124"; IDX="https://download.pytorch.org/whl/cu124"; FA_CONDA="/data/hcgu/.conda/envs/dataos-verl/lib/python3.11/site-packages" ;;
+  sft)  PY=3.12; TORCH="torch==2.8.0+cu129"; IDX="https://download.pytorch.org/whl/cu129"; FA_CONDA="${FA_CONDA_SFT:-}" ;;
+  dataos_sft) PY=3.12; TORCH="torch==2.8.0+cu129"; IDX="https://download.pytorch.org/whl/cu129"; FA_CONDA="${FA_CONDA_SFT:-}" ;;  # sft 基线 + repo 工具(tools/* 本地装,版本= env.yaml dataos_tools 声明)
+  rl)   PY=3.11; TORCH="torch==2.6.0+cu124"; IDX="https://download.pytorch.org/whl/cu124"; FA_CONDA="${FA_CONDA_RL:-}" ;;
   train-cli) PY=3.12; TORCH=""; IDX=""; FA_CONDA="" ;;  # thin orchestrator env: pydantic + dataos-train only
   *) echo "unknown env $E"; exit 1 ;;
 esac

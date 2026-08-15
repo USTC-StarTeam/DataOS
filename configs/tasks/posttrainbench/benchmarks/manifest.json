@@ -1,10 +1,6 @@
 {
   "generated_at": "2026-04-28T14:50:18.598096+00:00",
-  "repo_root": "/data/hcgu/projects/PostTrainBench",
-  "root": "/data/hcgu/posttrainbench_benchmarks",
-  "hf_home": "/data/hcgu/hf_cache",
   "hf_endpoint": "https://hf-mirror.com",
-  "hf_datasets_cache": "/data/hcgu/posttrainbench_benchmarks/hf_datasets",
   "benchmarks": [
     {
       "benchmark": "AIME 2025",
@@ -63,16 +59,14 @@
     {
       "benchmark": "Arena-Hard-v2.0 (Writing)",
       "kind": "repo-local-copy",
-      "source": "/data/hcgu/projects/PostTrainBench/src/eval/tasks/arenahardwriting/evaluation_code/data/arena-hard-v2.0",
-      "path": "/data/hcgu/posttrainbench_benchmarks/local/arena-hard-v2.0",
+      "path": "local/arena-hard-v2.0",
       "files": 6,
       "bytes": 8225869
     },
     {
       "benchmark": "HealthBench",
       "kind": "repo-local-copy",
-      "source": "/data/hcgu/projects/PostTrainBench/src/eval/tasks/healthbench/evaluation_code/data",
-      "path": "/data/hcgu/posttrainbench_benchmarks/local/healthbench",
+      "path": "local/healthbench",
       "files": 2,
       "bytes": 2979917
     }

@@ -77,14 +77,14 @@ env_ops, task_def = render(resolved)            # 两段可直接放进提示词
 ```yaml
 name: PTB_H100_slurm                          # env = (task,机器) 部署单元
 kind: slurm
-access:   {host: 114.214.215.159, user: hcgu, port: 22, key_ref: ~/.ssh/ghc_miyao}
+access:   {host: <login-node>, user: <you>, port: 22, key_ref: ~/.ssh/<key>}
 tools:                                         # uv venv;按 {path}/bin/<tool> 调,无 conda
   sft_env:  {path: <root>/environments/PTB_H100_slurm/envs/sft/.venv,  provides: [llamafactory, torch, flash-attn]}
   rl_env:   {path: <root>/environments/PTB_H100_slurm/envs/rl/.venv,   provides: [verl, vllm, ray]}
   eval_env: {path: <root>/environments/PTB_H100_slurm/envs/eval/.venv, provides: [vllm, lm-eval]}
 paths:                                         # 机器事实 + 本部署的任务数据(env 任务绑定)
-  runs_base: /data/hcgu/users/tjh/dataos_agentver_runs
-  deploy_root: /data/hcgu/users/tjh/dataos_agentver
+  runs_base: <deploy_root>_runs
+  deploy_root: /path/on/the/exec/host/dataos
   fixed_pool: /data2/.../posttrainbench_fixed_pool_v2
   benchmarks: /data/.../posttrainbench_benchmarks
 gateway:  {base_url: https://api.chatanywhere.tech/v1, key_file: ...}   # 仅连接;model/并发在 task.scoring.judge
