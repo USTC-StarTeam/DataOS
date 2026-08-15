@@ -107,8 +107,11 @@ class Stage(BaseModel):
 
     status: _STAGE | None = Field(
         default=None,
-        description="completed / failed / skipped. Absent is not a parse error — every consumer "
-        "asks `== 'completed'`, and an unstated status is already not that.",
+        description="pending / running / completed / failed / skipped. Absent is not a parse "
+        "error — every consumer asks `== 'completed'`, and an unstated status is already not "
+        "that. `pending` and `running` are here because the vocabulary held terminal words only, "
+        "so an author writing mid-run had nothing true to say and borrowed one: `failed` was "
+        "borrowed three times across two runs to mean 'not yet'.",
     )
     error: str | None = Field(
         default=None,

@@ -537,6 +537,13 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
             eval_limit=eval_limit, partial=report, error=err,
         )
         report = salvaged if salvaged is not None else _failed_report(error=err)
+        # Only now: salvage reads the eval dirs, and an eval about to write its summary must not
+        # be killed before it does. Past that, whatever this node still has running is running
+        # for nobody — the round has moved on — and on a one-job QOS it is holding the slot the
+        # next node is waiting for.
+        if (killed := runtime.cancel_live_jobs(cfg, study_id, name)):
+            log.info("experimenter[%s]: cancelled %d job(s) left running by the abandoned node: %s",
+                     name, len(killed), ", ".join(killed))
     report = _stamp_report(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
         eval_limit=eval_limit, report=report,

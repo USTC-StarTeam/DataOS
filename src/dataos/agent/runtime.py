@@ -114,6 +114,76 @@ def _ssh_text(cfg, remote_cmd: str, *, timeout: int = 25) -> str:
         return ""
 
 
+def _exec_text(cfg, cmd: str, *, timeout: int = 25) -> str:
+    """Run a command where the JOBS are: over ssh on a cluster, in a shell on a workstation.
+
+    ``_ssh_text`` above returns "" the moment a deployment declares no host, which is correct
+    for a PROBE (a measurement that fails is not a run that fails) but wrong for anything that
+    has to actually happen. A workstation's exec host is this machine.
+    """
+    import subprocess
+
+    cluster = _runtime_config(cfg).get("cluster") or {}
+    if cluster.get("host"):
+        return _ssh_text(cfg, cmd, timeout=timeout)
+    try:
+        return subprocess.run(
+            ["bash", "-lc", cmd], capture_output=True, text=True, timeout=timeout
+        ).stdout.strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+#: Stop every job this run_dir still has in flight. Runs ON the exec host, where the handles and
+#: the scheduler are, in one round trip.
+#:
+#: Cancellation is a LAUNCHER operation — ``Stage.cancel`` is a staticmethod because it needs
+#: nothing from the stage — so one loop handles the data build, the probe, the training run and
+#: every checkpoint's eval alike, whichever instrument submitted them.
+#:
+#: It can enumerate them at all only because each job writes ``<job_name>.handle.json``: until
+#: 2026-08-14 a run_dir held ONE ``handle.json``, overwritten per submit, so a node's earlier
+#: jobs were unreachable from any path.
+_CANCEL_LIVE = """
+import glob, json
+from dataos_launch.registry import get_launcher
+from dataos_launch.types import Handle
+cancelled, seen = [], set()
+for path in sorted(glob.glob({run_dir!r} + "/*handle.json")):
+    try:
+        handle = Handle.model_validate(json.load(open(path)))
+    except Exception:
+        continue          # dataos-eval's own record is not Handle-shaped; its launcher one is
+    if handle.job_id in seen:
+        continue          # handle.json duplicates whichever job submitted last
+    seen.add(handle.job_id)
+    launcher = get_launcher(handle.launcher)
+    if launcher.status(handle).is_terminal():
+        continue          # already over; cancelling would be a lie in the log
+    launcher.cancel(handle)
+    cancelled.append(handle.job_id)
+print(json.dumps(cancelled))
+"""
+
+
+def cancel_live_jobs(cfg, study_id: str, name) -> list[str]:
+    """Kill what a node left running, and say which ids. Best-effort: never raises.
+
+    Called when the runtime gives up on a node. Nothing did this before, so an abandoned node's
+    jobs ran on: two trainings shared one card on the workstation, and on the cluster a dead
+    node's data build held ``debug_normal``'s only job slot for seven minutes while the next
+    node waited for it.
+    """
+    py = f"{(_runtime_config(cfg).get('paths') or {}).get('sft_env', '')}/bin/python"
+    script = _CANCEL_LIVE.format(run_dir=_run_root(cfg, study_id, name))
+    out = _exec_text(cfg, f"{shlex.quote(py)} -c {shlex.quote(script)}")
+    try:
+        ids = json.loads(out or "[]")
+    except json.JSONDecodeError:
+        return []
+    return [str(i) for i in ids] if isinstance(ids, list) else []
+
+
 _INVOCATION_WALL_START: float | None = None  # wall-clock start of THIS run_auto invocation
 
 def set_invocation_wall_start(ts: float) -> None:
