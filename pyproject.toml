@@ -43,6 +43,7 @@ dev = [
   "ruff>=0.6.0",
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
+  "pillow>=10.0",   # dataos-operator's image evaluators are tested, so their one dep is a dev dep
 ]
 
 [project.optional-dependencies]

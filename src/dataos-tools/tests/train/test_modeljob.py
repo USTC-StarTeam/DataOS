@@ -286,7 +286,7 @@ def test_preamble_activates_venv_by_path_without_conda():
         resources=SimpleNamespace(gpus=1, nodes=1),
     )
     lines = build_preamble(job)
-    assert any("source /envs/sft/.venv/bin/activate" in l for l in lines), lines
+    assert any("source /envs/sft/.venv/bin/activate" in line for line in lines), lines
 
     job2 = SimpleNamespace(**{**vars(job), "conda_env": None})
-    assert not any("activate" in l for l in build_preamble(job2))
+    assert not any("activate" in line for line in build_preamble(job2))

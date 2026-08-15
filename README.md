@@ -13,8 +13,19 @@ spent — then hands back the best checkpoint.
 
 ```bash
 uv sync --group dev
-uv run dataos configs/runs/ptb-gsm8k.json
+
+# 1. describe your deployment once. The examples are complete and commented —
+#    fill in the coordinates, keep the structure.
+cp -r configs/environments/example-slurm configs/environments/my-cluster
+
+# 2. point a run at it.
+cp configs/runs/example-gsm8k.json configs/runs/my-run.json
+uv run dataos configs/runs/my-run.json
 ```
+
+Environments and runs describe *your* machines, so the repo ships examples and ignores the rest:
+anything under `configs/environments/*/env.yaml` and `configs/runs/` that is not an `example-*` is
+git-ignored by design. Nothing in the code, the docs or the tests names a real deployment.
 
 ---
 
@@ -92,11 +103,15 @@ stall alert when every transcript goes quiet. One monitor serves every run under
 - [`uv`](https://docs.astral.sh/uv/) and Python ≥ 3.11 on the agent host.
 - A code-agent CLI authenticated on the agent host — `claude`, `kimi`, `codex` or `qwen`, chosen
   per run.
-- Passwordless SSH to a Slurm cluster holding the frozen environments, the data pool, the base
-  models and the benchmark cache.
+- Somewhere to run GPU work, declared by the environment's `kind:`
+  - `slurm` (`example-slurm`) — passwordless SSH to a cluster holding the frozen environments, the
+    data pool, the base models and the benchmark cache. The agent host then needs no GPU of its
+    own: it runs agents and bookkeeping, and every GPU-bound step is submitted.
+  - `local` (`example-local`) — one machine with a GPU does both. No SSH, no Slurm, no daemon.
 
-The agent host itself needs no GPU: it runs agents and bookkeeping, and every GPU-bound step is
-submitted to the cluster.
+`kind:` is what decides which facts an environment must supply, so the same run JSON works either
+way: demanding ssh coordinates and a partition from a workstation would be demanding proof of a
+cluster that is deliberately absent.
 
 ## Configuring a run
 
@@ -105,17 +120,17 @@ One JSON per run, carrying **facts only** — never strategy:
 ```jsonc
 {
   "goal": "Improve Qwen3-1.7B-Base on gsm8k within 10 GPU-hours, using the fixed pool.",
-  "workspace": "workspace/ptb-gsm8k",   // the workspace path IS the run identity
-  "environment": "PTB_H100_slurm",      // configs/environments/<env>/env.yaml
+  "workspace": "workspace/my-run",      // the workspace path IS the run identity
+  "environment": "my-cluster",          // configs/environments/<env>/env.yaml
   "task": "posttrainbench",             // configs/tasks/<task>/
   "bench": "gsm8k",                     // the single target benchmark
   "inputs": {
-    "base_model_path": "/data/.../Qwen3-1.7B-Base",
-    "fixed_pool": "/data2/.../posttrainbench_fixed_pool_v2"
+    "base_model_path": "<on the exec host>/Qwen3-1.7B-Base",
+    "fixed_pool": "<on the exec host>/posttrainbench_fixed_pool_v2"
   },
   "exec": {
-    "deploy_root": "/data/.../dataos",  // the repo checkout on the cluster
-    "runs_base": "/data2/.../runs",     // per-experiment scratch on the cluster
+    "deploy_root": "<this repo's checkout on the exec host>",
+    "runs_base": "<per-experiment scratch on the exec host>",
     "resource": { "gpus": 1, "cpus": 8 }
   },
   "budget": { "time_hours": 10, "eval_samples": -1 },   // -1 = full benchmark
@@ -125,8 +140,8 @@ One JSON per run, carrying **facts only** — never strategy:
 ```
 
 ```bash
-uv run dataos configs/runs/ptb-gsm8k.json            # fresh instance
-uv run dataos configs/runs/ptb-gsm8k.json --resume   # continue an existing workspace
+uv run dataos configs/runs/my-run.json            # fresh instance
+uv run dataos configs/runs/my-run.json --resume   # continue an existing workspace
 ```
 
 Every field is specified in [`configs/CONTRACT.md`](configs/CONTRACT.md) (§9 covers the run JSON).
@@ -158,15 +173,15 @@ pins.
 |---|---|
 | `src/dataos/` | The loop, planner and reviewer, role runners, the frozen-eval boundary, the `Project → Study → Experiment → Stage` model, the report schema, prompts and the monitor |
 | `src/dataos_agent/` | The code-agent CLI driver: a neutral event stream over four providers, transport self-healing, and a stall watchdog |
-| `tools/src/dataos_train/` | **dataos-train** — deterministic training lifecycle (validate / build / submit / status / collect) over LLaMA-Factory and verl |
+| `src/dataos-tools/` | **dataos-tools** — one distribution carrying three CLIs: **dataos-data** (build a recipe's dataset), **dataos-train** (training lifecycle over LLaMA-Factory and verl), **dataos-eval** (one frozen benchmark evaluation). Its `dataos_launch/` holds the layer they share: a `Spec` says what a job is, a `Stage` says how this deployment runs it, a `Launcher` says where — so Slurm and a bare workstation differ by configuration, not by code path |
 | `src/operator/` | **dataos-operator** — 52 data-recipe operators (27 selectors, 10 evaluators, 10 mappers, 4 mixers, 1 reweighter) |
-| `tools/src/dataos_eval/` | **dataos-eval** — submits and collects one frozen benchmark evaluation, resolving the protocol from config plus the model's own `config.json` |
 | `configs/` | Environments, tasks (benchmarks, eval protocol, vendored benchmark data) and run definitions |
 
 Prompts are per role and per purpose: `src/dataos/prompt/<role>/context/` holds what a role always
 knows, `<role>/turn/` holds what it is asked this turn. Tool versions on the cluster are pinned by
 the `dataos_tools` declaration in `env.yaml`, kept equal to each `pyproject.toml` by a test and
-applied with `scripts/sync_envs.py`.
+applied with `scripts/sync_envs.py --environment <name> --deploy-root <path>` (the ssh host comes
+from that environment's own `access.host`).
 
 ## Evaluation protocol
 
@@ -179,9 +194,13 @@ an OpenAI-compatible judge. Protocol decisions and their evidence live in `docs/
 ## Development
 
 ```bash
-uv run ruff check src tests
+uv run ruff check src tests --exclude src/operator
 uv run pytest -q
 ```
+
+(`src/operator` still carries ~120 line-length and import-order findings from before it moved into
+this workspace; it is excluded from the gate rather than silently exempted in `pyproject.toml`, so
+the debt stays visible until it is paid.)
 
 The suite is fast (no GPU, no network) and is the contract between the layers: it pins the report
 schema against the prompt that asks for it, the training spec against `dataos-train`'s own

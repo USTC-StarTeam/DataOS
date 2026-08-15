@@ -12,8 +12,19 @@
 
 ```bash
 uv sync --group dev
-uv run dataos configs/runs/ptb-gsm8k.json
+
+# 1. 先描述你自己的部署。示例配置是完整的、带注释的——
+#    把坐标填进去，结构保持不动。
+cp -r configs/environments/example-slurm configs/environments/my-cluster
+
+# 2. 让一次运行指向它。
+cp configs/runs/example-gsm8k.json configs/runs/my-run.json
+uv run dataos configs/runs/my-run.json
 ```
+
+环境和运行描述的是**你的**机器，所以仓库只发示例、其余一律忽略：`configs/environments/*/env.yaml`
+和 `configs/runs/` 下所有非 `example-*` 的文件都被 git 忽略，这是有意为之。代码、文档、测试里
+都不会出现任何一个真实部署的名字。
 
 ---
 
@@ -82,9 +93,13 @@ agent 主机运行所有 agent 并持有全部持久状态。集群在 `configs/
 
 - agent 主机上的 [`uv`](https://docs.astral.sh/uv/) 与 Python ≥ 3.11。
 - 一个已认证的 code-agent CLI——`claude`、`kimi`、`codex` 或 `qwen`，可按运行逐个选择。
-- 到 Slurm 集群的免密 SSH，集群上存放冻结环境、数据池、基座模型和基准缓存。
+- 一个能跑 GPU 任务的地方，由环境的 `kind:` 声明：
+  - `slurm`（`example-slurm`）——到集群的免密 SSH，集群上存放冻结环境、数据池、基座模型和基准
+    缓存。此时 agent 主机自己不需要 GPU：它只跑 agent 和记账，每个吃 GPU 的步骤都提交出去。
+  - `local`（`example-local`）——一台带 GPU 的机器全包。没有 ssh、没有 Slurm、没有守护进程。
 
-agent 主机本身不需要 GPU：它只跑 agent 和记账，每个吃 GPU 的步骤都提交到集群。
+决定"一个环境必须提供哪些事实"的正是 `kind:`，所以同一份 run JSON 两边都能用：向一台工作站索要
+ssh 坐标和分区，等于索要一个刻意不存在的集群的证明。
 
 ## 配置一次运行
 
@@ -93,17 +108,17 @@ agent 主机本身不需要 GPU：它只跑 agent 和记账，每个吃 GPU 的�
 ```jsonc
 {
   "goal": "用固定池在 10 GPU 小时内提升 Qwen3-1.7B-Base 的 gsm8k 成绩。",
-  "workspace": "workspace/ptb-gsm8k",   // 工作区路径就是这次运行的身份
-  "environment": "PTB_H100_slurm",      // configs/environments/<env>/env.yaml
+  "workspace": "workspace/my-run",      // 工作区路径就是这次运行的身份
+  "environment": "my-cluster",          // configs/environments/<env>/env.yaml
   "task": "posttrainbench",             // configs/tasks/<task>/
   "bench": "gsm8k",                     // 唯一的目标基准
   "inputs": {
-    "base_model_path": "/data/.../Qwen3-1.7B-Base",
-    "fixed_pool": "/data2/.../posttrainbench_fixed_pool_v2"
+    "base_model_path": "<执行机上的路径>/Qwen3-1.7B-Base",
+    "fixed_pool": "<执行机上的路径>/posttrainbench_fixed_pool_v2"
   },
   "exec": {
-    "deploy_root": "/data/.../dataos",  // 集群上的仓库 checkout
-    "runs_base": "/data2/.../runs",     // 集群上的每实验工作目录
+    "deploy_root": "<执行机上本仓库的 checkout>",
+    "runs_base": "<执行机上的每实验工作目录>",
     "resource": { "gpus": 1, "cpus": 8 }
   },
   "budget": { "time_hours": 10, "eval_samples": -1 },   // -1 = 全量基准
@@ -113,8 +128,8 @@ agent 主机本身不需要 GPU：它只跑 agent 和记账，每个吃 GPU 的�
 ```
 
 ```bash
-uv run dataos configs/runs/ptb-gsm8k.json            # 全新实例
-uv run dataos configs/runs/ptb-gsm8k.json --resume   # 续跑已有工作区
+uv run dataos configs/runs/my-run.json            # 全新实例
+uv run dataos configs/runs/my-run.json --resume   # 续跑已有工作区
 ```
 
 每个字段的规格见 [`configs/CONTRACT.md`](configs/CONTRACT.md)（§9 是 run JSON）。
@@ -143,14 +158,13 @@ uv run dataos configs/runs/ptb-gsm8k.json --resume   # 续跑已有工作区
 |---|---|
 | `src/dataos/` | 循环、规划器与复盘器、角色执行器、冻结评估边界、`Project → Study → Experiment → Stage` 模型、报告 schema、提示词与监控 |
 | `src/dataos_agent/` | code-agent CLI 驱动层：四个 provider 之上的中立事件流、传输自愈、停滞看门狗 |
-| `tools/src/dataos_train/` | **dataos-train** —— 确定性的训练生命周期（validate / build / submit / status / collect），支持 LLaMA-Factory 与 verl |
+| `src/dataos-tools/` | **dataos-tools** —— 一个发行包带三个 CLI：**dataos-data**（构建配方数据集）、**dataos-train**（LLaMA-Factory 与 verl 之上的训练生命周期）、**dataos-eval**（一次冻结基准评估）。其中 `dataos_launch/` 是三者共用的那一层：`Spec` 说这是什么作业，`Stage` 说本部署怎么跑它，`Launcher` 说跑在哪——于是 Slurm 与裸工作站的差别只在配置，不在代码路径 |
 | `src/operator/` | **dataos-operator** —— 52 个数据配方算子（27 selector、10 evaluator、10 mapper、4 mixer、1 reweighter） |
-| `tools/src/dataos_eval/` | **dataos-eval** —— 提交并收集一次冻结基准评估，协议从配置加模型自己的 `config.json` 解析 |
 | `configs/` | 环境、任务（基准、评估协议、随仓库分发的基准数据）与运行定义 |
 
 提示词按角色与用途分开：`src/dataos/prompt/<role>/context/` 是这个角色始终知道的东西，
 `<role>/turn/` 是这一轮要它做的事。集群上的工具版本由 `env.yaml` 里的 `dataos_tools` 声明钉住
-（有测试保证它与各 `pyproject.toml` 相等），用 `scripts/sync_envs.py` 应用。
+（有测试保证它与各 `pyproject.toml` 相等），用 `scripts/sync_envs.py --environment <名> --deploy-root <路径>` 应用（ssh 主机取自该环境自己的 `access.host`）。
 
 ## 评估协议
 
@@ -162,9 +176,12 @@ BFCL、GPQA-main、AIME 2025）在 GPU 作业内部打分；两个 judge 基准�
 ## 开发
 
 ```bash
-uv run ruff check src tests
+uv run ruff check src tests --exclude src/operator
 uv run pytest -q
 ```
+
+（`src/operator` 还带着约 120 条行长与 import 顺序的历史问题——那是它并入本工作区之前留下的。
+这里选择在命令里排除它，而不是在 `pyproject.toml` 里悄悄豁免，好让这笔债一直看得见。）
 
 测试套件很快（不需要 GPU、不联网），并且是各层之间的契约：它把报告 schema 钉在索要它的提示词上、
 把训练 spec 钉在 `dataos-train` 自己的校验器上、把声明的工具版本钉在各个包上、

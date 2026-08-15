@@ -42,7 +42,16 @@ def test_main_agent_real_llm_plan(tmp_path):
         },
         "constraints": ["parent_node_id must be n0000"],
     }
-    plan, _ = next_plan(agent=make_agent("leader", cfg), context=context, catalog=[])
+    try:
+        plan, _ = next_plan(agent=make_agent("leader", cfg), context=context, catalog=[])
+    except Exception as exc:  # noqa: BLE001 — re-raised below unless it is an auth problem
+        # Being on PATH is not the same as being usable. An installed-but-not-signed-in CLI
+        # answers with a login prompt, which says nothing about the structured-output contract
+        # this test exists to check — so skip that, rather than report a red suite to a
+        # contributor whose only sin is having the CLI installed.
+        if any(s in str(exc).lower() for s in ("login", "no model configured", "not authenticated")):
+            pytest.skip(f"{cfg.agent_provider} CLI is on PATH but not signed in")
+        raise
     assert isinstance(plan, ExperimentPlan)
     assert plan.parent_node_id == "n0000"
     assert plan.name
