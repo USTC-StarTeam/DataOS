@@ -36,11 +36,15 @@ else
   "$UV" pip install --python "$V/bin/python" -r "$ROOT/$E/requirements.txt"
 fi
 # repo 自带工具(tools/*)从本地 checkout 安装——版本即 env.yaml 的 dataos_tools 声明
-# (两者一致性有测试兜底)。dataos_sft 装 train+operator;train-cli 只装 train。
+# (两者一致性有测试兜底)。dataos_sft 装 train+operator+eval;train-cli 只装 train。
+# eval 曾漏装:env.yaml 的 provides 和 dataos_tools 都声明了它,task.yaml 的评测命令也调
+# {sft_env}/bin/dataos-eval,唯独这里没装。老 venv 是在工具拆包之前建的,自带这个命令,
+# 于是这条分歧一直没被任何一次运行暴露——直到换个 checkout 重建 env 才发现无从评测。
 case "$E" in
   dataos_sft)
     echo ">>> [$E] install repo tools from $REPO/tools"
-    "$UV" pip install --python "$V/bin/python" "$REPO/tools/train" "$REPO/tools/operator"
+    "$UV" pip install --python "$V/bin/python" \
+      "$REPO/tools/train" "$REPO/tools/operator" "$REPO/tools/eval"
     ;;
   train-cli)
     echo ">>> [$E] install repo tool train from $REPO/tools"
