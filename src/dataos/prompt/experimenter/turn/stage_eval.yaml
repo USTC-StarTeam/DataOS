@@ -12,9 +12,14 @@ template: |
     2. poll:   `{{ eval_bin }} status --repo {{ repo }} <handle>`
        → {"state": ...}; exit 2 = still queued/running, 0 = terminal (COMPLETED/FAILED/...).
     3. score:  `{{ eval_bin }} collect --repo {{ repo }} --environment {{ environment }} --task-config {{ task_config }} <handle>`
-       → prints {"score": ...} and leaves {{ result_file }} in place; judge benches
-         (healthbench/arenahardwriting) are scored HERE, on the login node — predictions alone
-         are not a score. Then record `{{ result_field }}` (range {{ result_range }}) → report.json.
+       → prints {"{{ result_field }}": ...} (range {{ result_range }}) and leaves {{ result_file }}
+         in place; judge benches (healthbench/arenahardwriting) are scored HERE, on the login node
+         — predictions alone are not a score.
+  THEN: write `stages.eval.summary_dir` — the DIRECTORY holding that {{ result_file }} — and advance
+  the `status` cursor to `"review"`. The number itself is not yours to copy: the runtime reads that
+  dir and stamps score / limit / n_samples / stderr / elapsed_s from the harness's own file. Score as
+  many checkpoints as you like; every eval dir under this node reaches the leader as a
+  `checkpoint_sweep`, and `summary_dir` is you saying which one the node stands behind.
   {% if format_contract_loc %}
   want a high score? read how the scorer parses output first: {{ format_contract_loc }}
   {% endif %}

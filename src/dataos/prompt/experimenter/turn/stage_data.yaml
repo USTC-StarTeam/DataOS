@@ -14,3 +14,6 @@ template: |
 
   The operator toolbox installed for this run (the brain's pinned dataos-operator; inside the Slurm job confirm with `o.catalog()` and prefer `o.usage('<name>')` for exact signatures):
   {{ catalog }}
+
+  WHEN THE ROWS ARE ON DISK: write `stages.data` (rows / requested_rows / fingerprint) and move the
+  report's `status` cursor to `"train"`.

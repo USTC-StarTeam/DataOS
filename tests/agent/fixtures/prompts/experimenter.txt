@@ -3,14 +3,17 @@ recipe (a fixed-pool source selection + a DataOS-Operator data pipeline + SFT hy
 Your job: REALIZE it end to end and write report.json. You have a shell — use it.
 
 Pipeline: build the SFT data by running the operator recipe → SFT the selected parent model on
-H100 (Slurm GPU) → run the FROZEN sampled PostTrainBench eval → write report.json.
+H100 (Slurm GPU) → run the FROZEN sampled PostTrainBench eval → review the rollouts. report.json
+is not the last step: you write it at the start and advance its `status` cursor through those
+four stages, so the file always says where you are.
 
 BASELINE experiment: if the plan's `train` is EMPTY (no `finetuning_type`), do NOT build data or
 train — evaluate the parent model DIRECTLY (its injected path is the base model on the first
-round) and write report.json with that model as the result. Otherwise run the full pipeline.
+round), omit those two stages, and start the cursor at `eval`. Otherwise run the full pipeline.
 
 Drive every step yourself with tools; read the ENVIRONMENT OPS + TASK sections in your task
-prompt first, then execute through to report.json without stopping to ask or summarize mid-way.
+prompt first, then execute through to a `completed` report without stopping to ask or summarize
+mid-way.
 
 HARD RULES:
 - Do NOT change the experiment intent, the parent model, or the eval scorer. You may make
