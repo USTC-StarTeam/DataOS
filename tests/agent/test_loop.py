@@ -54,10 +54,11 @@ def _fake_fan_out(*, cfg, study_id, specs, deadline=None):
         exp_dir.mkdir(parents=True, exist_ok=True)
         report = {
             "id": f"exp-{name}",
+            "status": "completed",
             "stages": {
-                "eval": {"status": "completed", "score": 0.5, "limit": -1},
-                "train": {"status": "completed", "model_path": str(exp_dir / "final_model")},
-                "review": {"status": "completed", "conclusion": "stub"},
+                "eval": {"score": 0.5, "limit": -1},
+                "train": {"model_path": str(exp_dir / "final_model")},
+                "review": {"conclusion": "stub"},
             },
         }
         (exp_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")

@@ -41,18 +41,18 @@ def test_subagent_resumes_same_session_until_report(tmp_path, monkeypatch):
                     session_id="session-123",
                     stop_reason="end_turn",
                 )
-            match = re.search(r"report\.json is still missing at: (.+)", task)
+            match = re.search(r"report\.json is not finished at: (.+)", task)
             assert match is not None
             report_path = Path(match.group(1))
             report_path.write_text(
                 json.dumps(
                     {
                         "id": "n0001",
+                        "status": "completed",
                         "stages": {
-                            "eval": {"status": "completed", "score": 95.0, "limit": -1},
-                            "train": {"status": "completed",
-                                      "model_path": "/remote/final_model"},
-                            "review": {"status": "completed", "conclusion": "stub"},
+                            "eval": {"score": 95.0, "limit": -1},
+                            "train": {"model_path": "/remote/final_model"},
+                            "review": {"conclusion": "stub"},
                         },
                     }
                 ),

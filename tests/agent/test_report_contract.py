@@ -59,9 +59,11 @@ def _report_keys(producer: str) -> set[str]:
     }
 
 
-# Fields the prompt is not expected to spell out: `stages` and `status` are structural (the shape
-# of the JSON block IS the ask), and `path`/`sha256` appear inside the `script` example.
-_STRUCTURAL = {"stages", "status", "path", "sha256"}
+# Fields the prompt is not expected to spell out: `stages` is structural (the shape of the JSON
+# block IS the ask), and `path`/`sha256` appear inside the `script` example. `status` used to sit
+# here too, back when it was derived from the score and nobody was supposed to write it. It is now
+# the one field the experimenter must write and keep advancing, so the forward check has to see it.
+_STRUCTURAL = {"stages", "path", "sha256"}
 
 
 def test_every_schema_field_is_asked_for_in_the_contract():
@@ -98,11 +100,14 @@ def test_the_contract_asks_for_nothing_the_schema_drops():
 #: of the schema (a baseline has no data and no training), so the forward check for that producer
 #: is this named subset rather than "every field" — but the subset is not negotiable: it is what
 #: the leader's anchor is made of.
+#:
+#: The measurement fields (limit / n_samples / stderr) left this list when they stopped being
+#: anyone's to write: the runtime stamps them from the summary.json at ``summary_dir``, so what
+#: the producer owes is the POINTER, and the caliber that used to go missing now cannot.
 _BASELINE_REQUIRED = {
-    "limit": "the caliber of the anchor score",
-    "n_samples": "the ONLY place the run learns the benchmark's true size; without it the tree "
-                 "renders a subset score as a bare '@200' with no denominator (audit 15.4)",
-    "stderr": "the noise floor every later comparison is judged against",
+    "summary_dir": "the eval dir the runtime stamps the anchor's caliber and size from — without "
+                   "it there is nothing to stamp, and the tree renders a subset score as a bare "
+                   "'@200' with no denominator (audit 15.4)",
     "failure_classes": "the baseline diagnosis the run's first move is chosen from",
     "conclusion": "whether the base model's failure is protocol-side or capability-side",
     "dominant_evidence": "the one concrete mismatch that makes that verdict checkable",
@@ -124,26 +129,32 @@ def test_the_baseline_producer_asks_for_the_anchor_fields():
     )
 
 
-def test_the_top_level_score_and_status_are_no_longer_writable():
-    """The single-source rule, enforced rather than documented.
+def test_the_score_has_one_source_and_the_status_has_one_writer():
+    """The single-source rule for the score; the single-writer rule for the cursor.
 
     The old shape let a score be read from three places (``score``, ``eval.macro_average``,
     ``eval.score``), so every consumer re-implemented the precedence and each place was
-    authoritative somewhere. ``status`` had the same problem in the other direction: it was written
-    by hand, so a report could claim "completed" with no score in it.
+    authoritative somewhere. That half is unchanged: ``stages.eval.score`` or nothing.
+
+    ``status`` moved the other way. It used to be DERIVED from the score, which meant a report that
+    had simply not got to its eval yet was indistinguishable from one that had failed — and four
+    nodes died of exactly that. It is now the report's only status: a cursor its author advances,
+    and the only field any reader consults to ask whether the experiment is over.
     """
     parsed = report_schema.Report.model_validate(
-        {"id": "n0001", "stages": {"eval": {"status": "completed", "score": 42.0, "limit": -1}}}
+        {"id": "n0001", "status": "completed", "stages": {"eval": {"score": 42.0, "limit": -1}}}
     )
     assert parsed.score == 42.0
     assert parsed.status == "completed"
-    assert "status" not in report_schema.Report.model_fields
-    assert "score" not in report_schema.Report.model_fields
+    assert "score" not in report_schema.Report.model_fields  # derived from the eval stage, only
 
-    unscored = report_schema.Report.model_validate(
-        {"id": "n0002", "stages": {"eval": {"status": "failed", "score": None, "limit": 0}}}
+    # A node three stages in is not a failed node, and says so without a score existing yet.
+    mid = report_schema.Report.model_validate(
+        {"id": "n0002", "status": "train", "stages": {"data": {"rows": 6000}}}
     )
-    assert unscored.status == "failed"
+    assert mid.status == "train"
+    assert mid.score is None
+    assert mid.stages.eval is None  # absent, not a synthesised failure
 
 
 def test_an_unasked_for_stage_survives_instead_of_killing_the_report():
@@ -158,8 +169,8 @@ def test_an_unasked_for_stage_survives_instead_of_killing_the_report():
         {
             "id": "n0003",
             "stages": {
-                "eval": {"status": "completed", "score": 1.0, "limit": -1},
-                "export": {"status": "completed", "note": "merged the adapter"},
+                "eval": {"score": 1.0, "limit": -1},
+                "export": {"note": "merged the adapter"},
             },
         }
     )
@@ -175,7 +186,7 @@ def test_eval_limit_comes_from_the_harness_not_the_experimenter(monkeypatch):
     could simply omit. Requiring it turned that into a rejected report, which loses the score too.
     ``summary.json`` has carried the answer all along.
     """
-    report = {"id": "n0004", "stages": {"eval": {"status": "completed", "score": 50.0}}}
+    report = {"id": "n0004", "status": "review", "stages": {"eval": {"score": 50.0}}}
     assert report_schema.read(report).stages.eval.limit is None  # the report alone cannot say
 
     summary = {"score": 50.0, "limit": 164, "n_samples": 164, "task": "humaneval",
@@ -241,30 +252,45 @@ def test_no_report_on_disk_loses_a_score_it_declares():
     )
 
 
-def test_a_mid_flight_stage_keeps_the_word_it_was_killed_on():
-    """Reports killed mid-stage carry ``running`` / ``pending`` / ``not_started``.
+def test_a_report_handed_back_mid_experiment_is_not_terminal():
+    """The regression test for the four nodes lost on 2026-08-15.
 
-    The vocabulary an experimenter is ASKED for is terminal, so these used to be normalised to
-    ``failed`` with the original word moved into ``error``. Keeping the word where it was written
-    says the same thing without a translation layer, and "the train stage never started" still
-    reads differently from "training failed". The overall verdict is unchanged: no score, so the
-    report is failed.
+    The experimenter hands control back whenever it stops to wait on a Slurm job, and the loop
+    decides from the file on disk whether to wake it again. Under the old predicate — ``review is
+    not None or eval.status == "failed"`` — the report it left behind on the way out ended it: told
+    to "never exit without one", four nodes across two runs wrote an eval stanza they had
+    themselves labelled a placeholder, and each was read as a finished, failed experiment. One had
+    a training job 100% of the way through.
+
+    The cursor cannot say that. While it names a stage the experiment is running, whatever any
+    stage carries — and a stage carries no status at all now, only what it produced.
     """
     parsed = report_schema.read(
         {
             "id": "n0005",
-            "stages": {
-                "train": {"status": "running", "model_path": "/runs/x/final_model"},
-                "eval": {"status": "not_started"},
-            },
+            "status": "train",
+            "stages": {"train": {"model_path": "/runs/x/final_model"}},
         }
     )
-    assert parsed.status == "failed"
+    assert report_schema.is_terminal(parsed.model_dump()) is False
     assert parsed.score is None
-    assert parsed.stages.train is not None
-    assert parsed.stages.train.status == "running"
-    assert parsed.stages.eval.status == "not_started"
-    assert parsed.model_path == "/runs/x/final_model"
+    assert parsed.model_path == "/runs/x/final_model"  # the work so far is still on the record
+
+
+def test_only_two_words_end_an_experiment_and_the_rest_mean_keep_going():
+    """Terminality is a closed set of two; everything else is a stage name, hence in flight.
+
+    The open half is deliberate. ``Stages`` accepts stages nobody declared (an ``export`` for a
+    LoRA merge, once), so the cursor has to be able to name them — and a value this does not
+    recognise has to mean "still going", because the alternative is what the old predicate did:
+    treat an unfamiliar situation as an ending and throw the node away. Ambiguity costs a wake-up
+    now, and the per-experiment deadline bounds the waiting.
+    """
+    assert report_schema.TERMINAL == {"completed", "failed"}
+    for ending in ("completed", "failed"):
+        assert report_schema.is_terminal({"id": "n", "status": ending}) is True
+    for going in ("data", "train", "eval", "review", "export", "", "Completed"):
+        assert report_schema.is_terminal({"id": "n", "status": going}) is False
 
 
 def test_a_malformed_report_is_unfinished_not_a_crash(caplog):
@@ -288,29 +314,27 @@ def test_prose_in_a_runtime_stamped_field_does_not_void_the_report():
     """Found live: a finished node read as unfinished, and the run resumed it to no purpose.
 
     `checkpoint_sweep` is stamped by the runtime and never asked of the experimenter, but the
-    field is in the schema and one experimenter filled it with a sentence explaining why it had
-    skipped the sweep. Typed as a list, pydantic rejected the WHOLE document — so `is_terminal`
-    logged "not report-shaped" and the loop went back to a node that had a score and a review
-    already written, with 18 minutes of budget left.
+    field is in the schema and two of them filled it with a sentence explaining why they had
+    skipped the sweep. Typed as a list, pydantic rejected the WHOLE document, and the scores
+    beside those sentences — 28.0 and 72.0, both real measurements — read back as nothing. The
+    same shape as the ScriptRef sha256, in the last runtime-owned field still able to reject.
 
     `read()` promises not to validate; only a file that is not report-shaped at all may raise.
     A prose leaf is not that, and `None` already means what the sentence said.
     """
     raw = {
-        "stages": {
-            "eval": {"status": "completed", "score": 28.0,
-                     "checkpoint_sweep": "NOT RUN - dropped per the leader's budget order"},
-            "review": {"status": "completed"},
-        }
+        "status": "completed",
+        "stages": {"eval": {"score": 28.0,
+                            "checkpoint_sweep": "NOT RUN - dropped per the leader's budget order"}},
     }
     parsed = report_schema.read(raw)
-    assert parsed.stages.eval.score == 28.0
+    assert parsed.score == 28.0                       # the measurement survives the sentence
     assert parsed.stages.eval.checkpoint_sweep is None
-    assert report_schema.is_terminal(raw) is True
+    assert report_schema.is_terminal(raw) is True     # and the cursor still ends the node
 
     # a real sweep still parses as one
-    swept = {"stages": {"eval": {"status": "completed", "score": 1.0, "checkpoint_sweep": [
-        {"eval_dir": "/e/ck1", "score": 1.0}]}, "review": {"status": "done"}}}
+    swept = {"status": "completed", "stages": {"eval": {"score": 1.0, "checkpoint_sweep": [
+        {"eval_dir": "/e/ck1", "score": 1.0}]}}}
     assert len(report_schema.read(swept).stages.eval.checkpoint_sweep) == 1
 
 

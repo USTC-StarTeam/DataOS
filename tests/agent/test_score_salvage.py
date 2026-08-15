@@ -42,12 +42,14 @@ def test_salvage_from_partial_report(tmp_path):
 
     def write_partial():
         exp_dir.mkdir(parents=True, exist_ok=True)
-        # the contract's first write: eval on disk, review not yet — so this reads as mid-run
+        # the cursor reached `review` — the eval is scored and on disk, the analysis is not written
+        # yet — so this reads as mid-run, which is exactly the state salvage exists to finish
         (exp_dir / "report.json").write_text(json.dumps({
             "id": "n0001",
+            "status": "review",
             "stages": {
-                "eval": {"status": "completed", "score": 28.125, "limit": -1},
-                "train": {"status": "completed", "model_path": "/remote/final_model"},
+                "eval": {"score": 28.125, "limit": -1},
+                "train": {"model_path": "/remote/final_model"},
             },
         }))
 
@@ -93,7 +95,11 @@ def test_no_score_anywhere_stays_failed(tmp_path, monkeypatch):
     parsed = report_schema.read(report)
     assert parsed.status == "failed"
     assert parsed.score is None
-    # limit 0, not the requested eval_limit: nothing was scored, so claiming a caliber would lie
-    assert parsed.stages.eval.limit == 0
+    # No eval stage at all. It used to synthesise one at `{"status":"failed","limit":0}`, and that
+    # `limit: 0` — a value no real eval can produce, since -1 is full and a sample is positive —
+    # was copied out of the matching prompt block by the four nodes lost on 2026-08-15, where it
+    # became the fingerprint that identified them. A stage that never ran claims nothing.
+    assert parsed.stages.eval is None
+    assert report["error"]
     assert "salvaged" not in report
     assert report_schema.is_terminal(report)

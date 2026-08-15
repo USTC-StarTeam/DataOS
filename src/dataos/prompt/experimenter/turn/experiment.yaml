@@ -9,9 +9,9 @@ template: |
   Parent model to continue training from (use this exact path): {{ parent_model }}
   Root base model for provenance only: {{ root_base_model }}
   Tree node: {{ node_id }} parent={{ parent_node_id }}
-  eval limit: {{ eval_limit }} (-1 = full benchmark; set by the plan — a subset score is NOT comparable to full scores; record the actual limit as eval.limit in report.json).{% if is_smoke %}    smoke→cap data to ≤1000 rows{% endif %}
+  eval limit: {{ eval_limit }} (-1 = full benchmark; set by the plan — a subset score is NOT comparable to full scores, which is why the runtime stamps the caliber from the harness's own summary.json rather than asking you for it).{% if is_smoke %}    smoke→cap data to ≤1000 rows{% endif %}
   {% if remaining_minutes is defined and remaining_minutes %}
-  TIME BUDGET: ~{{ remaining_minutes }} minutes of wall-clock remain for THIS experiment. Pace to FINISH within it: size training (n_samples / steps) to fit, run the sampled eval, and WRITE report.json before time runs out — a partial or failed report still counts, getting killed with no report does not. Do not schedule far-out wakeups; poll tightly and finish ASAP.
+  TIME BUDGET: ~{{ remaining_minutes }} minutes of wall-clock remain for THIS experiment. Pace to FINISH within it: size training (n_samples / steps) to fit, and run the sampled eval with time to spare. Keep the report's `status` cursor advanced as you go — it is what says you are still working, so being cut off mid-stage costs the stage, never the stages already on disk. Do not schedule far-out wakeups; poll tightly and finish ASAP.
   {% endif %}
 
   DATA RECIPE (leader intent — preserve it; use minimal mechanical compatibility fixes if needed and record them in report.json):

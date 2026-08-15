@@ -59,7 +59,11 @@ def test_eval_invoke_from_the_resolved_contract():
     assert "1. submit: `bash {ctx.eval_dir}/run_eval.sh {ctx.model_path}`" in invoke
     assert "`/envs/Llama/bin/dataos-eval status <handle>`" in invoke
     assert "collect --repo /deploy --environment PTB_H100_slurm --task-config posttrainbench" in invoke
-    assert "`score` (range [0, 100])" in invoke
+    assert '{"score": ...} (range [0, 100])' in invoke  # the task's result field + range reach it
+    # ...but what it WRITES is the directory, not the number: the runtime stamps the numbers from
+    # that dir's summary.json, so a stage prompt telling it to record the score would contradict
+    # the contract block in its own system prompt — which is what this line exists to catch.
+    assert "write `stages.eval.summary_dir`" in invoke
     assert "NEVER hand-write sbatch for eval" in invoke
     assert "/deploy/configs/tasks/posttrainbench/contracts/gsm8k.md" in invoke
 

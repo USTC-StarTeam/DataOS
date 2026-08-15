@@ -1,12 +1,12 @@
 description: >
-  Resume prompt when the experimenter has not yet written report.json. Render params: report_path,
-  state_path, state_json, last_text, remaining_minutes (optional).
+  Resume prompt when the experimenter's report.json is not terminal yet. Render params:
+  report_path, state_path, state_json, last_text, remaining_minutes (optional).
 template: |
   Continue the SAME experiment. Do not re-plan or change the experiment intent.
-  report.json is still missing at: {{ report_path }}
+  report.json is not finished at: {{ report_path }}
   execution state path: {{ state_path }}
   {% if remaining_minutes is defined and remaining_minutes %}
-  TIME BUDGET: ~{{ remaining_minutes }} minutes of wall-clock remain — WRITE report.json before it runs out (partial/failed still counts). Poll tightly; do not schedule far-out wakeups.
+  TIME BUDGET: ~{{ remaining_minutes }} minutes of wall-clock remain — finish within it. Poll tightly; do not schedule far-out wakeups.
   {% endif %}
 
   Current runtime state:
@@ -15,5 +15,6 @@ template: |
   Your previous message was:
   {{ last_text }}
 
-  Keep going until you write report.json with status completed or failed. If you already submitted Slurm jobs, poll sacct/squeue with sleeps to terminal state, then continue to the next stage. A stage update is not a final answer.
-  If a stage FAILED, `cat` its job log to find the ROOT cause (OOM / operator or API error / format-parse mismatch / timeout) before retrying — never re-run the identical step blindly; fix the named cause or write report.json status:"failed" with that cause in `error`.
+  Its `status` cursor says which stage you are on. Pick up there: if you already submitted Slurm jobs, poll sacct/squeue with sleeps to terminal state, then advance the cursor and continue to the next stage.
+  Keep going until the cursor reads `completed` or `failed` — those two values are what end the experiment, and nothing else does, so there is no need to write a stand-in to mark your place.
+  If a stage FAILED, `cat` its job log to find the ROOT cause (OOM / operator or API error / format-parse mismatch / timeout) before retrying — never re-run the identical step blindly. Fix the named cause, or put it in that stage's `error` and set `status` to `"failed"`.

@@ -17,6 +17,12 @@ stage blocks, the prompts are named per stage, and the old report carried a
 ``model``, ``eval``, ``analysis`` were stage outputs under non-stage names, while ``fixes`` and
 ``artifacts`` were flat. Nobody read the status map because it was the empty half of a split.
 
+The stages kept the payload and lost the statuses. Four of them could disagree — and did, fatally
+— while the question every reader actually asks is about the report as a whole: *is it over?* That
+is now one field, :attr:`Report.status`, a cursor naming the stage in progress until it names an
+outcome. A stage's own progress follows from where the cursor is relative to it, so ``pending``,
+``running``, ``skipped`` and ``not_started`` have no work left to do.
+
 That split had a measured cost. healthbench's round-7 wrote "added max_steps=500 after the
 measured full-epoch ETA left no time" into a run-level ``compatibility_fixes`` list, where it sat
 among data-format casts; the review concluded "the second epoch was therefore beneficial" from a
@@ -71,17 +77,20 @@ declared is one the schema silently drops. That test needs no runtime validation
 from __future__ import annotations
 
 import logging
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 log = logging.getLogger(__name__)
 
-# Not a Literal. The vocabulary an experimenter is ASKED for is completed/failed/skipped, but
-# reports killed mid-flight carry `running` / `pending` / `not_started`, and a snapshot of a stage
-# that never finished is a fact worth keeping, not a parse error. Every consumer tests for
-# `== "completed"`, so an unknown word is already handled: it simply is not completed.
-_STAGE = str
+#: The two values that mean the experiment is over. Everything else ``status`` can hold is the
+#: name of the stage currently in progress, and therefore means "still going".
+#:
+#: The set is closed at two on purpose. Every reason a node can end — a Slurm TIMEOUT, a CUDA OOM,
+#: the budget running out, the agent being killed — is a REASON, and reasons belong in ``error``.
+#: Admit one of them here and the set grows forever: the moment `TIMEOUT` is a status, somebody
+#: wants `OUT_OF_MEMORY`, and every reader has to learn the whole list to answer one yes/no
+#: question. The in-flight side stays open for the opposite reason — see :attr:`Report.status`.
+TERMINAL = frozenset({"completed", "failed"})
 
 
 class ScriptRef(BaseModel):
@@ -91,35 +100,49 @@ class ScriptRef(BaseModel):
     reproducibility and audit: the previous batch produced 4494 and 9028 rows from one nominally
     identical recipe because the real target rendering lived in per-round hand-written scripts that
     nothing pointed at, so "byte-identical recipe" was never a reproduction (audit 13.10 #10).
-    A path with no hash is not identification, which is why both fields are required.
+
+    A path with no hash is weak identification — but requiring the hash is worse than accepting a
+    weak one. This class was the last place in the file still able to reject, and it did: an
+    arenahardwriting node wrote ``script: {"path": ...}`` with no ``sha256`` and its whole report,
+    score 26.60 included, failed to parse. A provenance field that can destroy a measurement is
+    not paying for itself.
     """
-
-    model_config = ConfigDict(extra="forbid")
-
-    path: str = Field(description="absolute path on the exec host")
-    sha256: str = Field(description="sha256sum of the file — the recipe's real identity")
-
-
-class Stage(BaseModel):
-    """What every stage owes: did it finish, what did it have to work around, who ran it."""
 
     model_config = ConfigDict(extra="allow")
 
-    status: _STAGE | None = Field(
+    path: str | None = Field(default=None, description="absolute path on the exec host")
+    sha256: str | None = Field(
         default=None,
-        description="pending / running / completed / failed / skipped. Absent is not a parse "
-        "error — every consumer asks `== 'completed'`, and an unstated status is already not "
-        "that. `pending` and `running` are here because the vocabulary held terminal words only, "
-        "so an author writing mid-run had nothing true to say and borrowed one: `failed` was "
-        "borrowed three times across two runs to mean 'not yet'.",
+        description="sha256sum of the file — the recipe's real identity. Without it the path names "
+        "a file whose contents nothing pins, so two runs can cite the same script and mean "
+        "different bytes.",
     )
+
+
+class Stage(BaseModel):
+    """What every stage owes: what it produced that nothing else can recover, and what broke.
+
+    A stage has no ``status``. Where the experiment stands is one fact about the whole report
+    (:attr:`Report.status`), not four facts that can contradict each other — and they did: the
+    2026-08-15 batch lost four nodes to reports reading ``train: running`` beside
+    ``eval: failed``, where the resume check consulted only the second and concluded the node was
+    over. A stage's own progress is already implied by that cursor: stages before it are done, the
+    one it names is running, the ones after it have not started, and a stage that is absent does
+    not apply to this node (a baseline has no ``data`` or ``train``). Four words —
+    ``pending``/``running``/``skipped``/``not_started`` — became unnecessary the moment the
+    position was written down once.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
     error: str | None = Field(
         default=None,
-        description="only when status=failed. Say WHICH gate or tool refused and why — '哪个阶段挂"
-        "的' must be answerable without parsing prose out of a run-level string.",
+        description="what broke in THIS stage. Which gate or tool refused, and why. With no stage "
+        "status, this is also the answer to '哪个阶段挂的' — the stage carrying an error is the "
+        "one that failed, so it needs no separate field to say so.",
     )
-    fixes: list[str] = Field(
-        default_factory=list,
+    fixes: list[str] | None = Field(
+        default=None,
         description="mechanical workarounds THIS stage needed. They belong to the stage, not to a "
         "run-level list: a training-time fix (max_steps added to fit the budget) means something "
         "different from a data-format cast, and one flat list is how the platform lost that "
@@ -197,29 +220,52 @@ class SweepPoint(BaseModel):
 
 
 class EvalStage(Stage):
+    """The one stage whose numbers are not the experimenter's to write.
+
+    ``summary_dir`` is the only field here it declares. Which measurement a node stands behind is
+    a DECISION — a node may score six checkpoints — and decisions are the experimenter's. What that
+    measurement says is not: the frozen harness already wrote it to ``summary.json``, so every
+    number below is stamped from there by ``roles._stamp_measurements``.
+
+    Asking for the numbers anyway made the experimenter a courier, and couriers introduce errors
+    that look like results. The previous contract had to concede as much in writing ("a typo here
+    costs nothing"), and the runtime carried a whole reconciliation path — match the claimed score
+    against the scored eval dirs, warn when it matches none — to defend against a claim it did not
+    need to accept. Naming the directory instead of the number removes the class.
+    """
+
+    summary_dir: str | None = Field(
+        default=None,
+        description="the eval directory whose summary.json this node stands behind — the one whose "
+        "score is THE score. Name the directory, not the number: you may have scored several "
+        "checkpoints, and picking among them is your decision, while what each one measured is "
+        "the harness's. Every eval dir under the node still reaches the leader via "
+        "`checkpoint_sweep`, so nothing is hidden by choosing one.",
+    )
     score: float | None = Field(
         default=None,
-        description="native % — restate it from summary.json if you like, but the runtime "
-        "overwrites this block from the harness's own files, so a typo here costs nothing.",
+        description="native %, stamped by the runtime from the summary.json at `summary_dir`. "
+        "Not yours to write.",
     )
     limit: int | None = Field(
         default=None,
-        description="items evaluated. -1 = the full frozen benchmark. A subset score and a full "
-        "score are not comparable, and three runs of an earlier batch delivered a subset-scored "
-        "model as their submission because the caliber was missing — which is why the runtime now "
-        "takes it from summary.json rather than asking you to be careful.",
+        description="items REQUESTED: -1 = the full frozen benchmark, a positive number = a "
+        "sample. Stamped by the runtime. A subset score and a full score are not comparable, and "
+        "three runs of an earlier batch delivered a subset-scored model as their submission "
+        "because the caliber was missing — which is why it comes from summary.json now rather "
+        "than from anyone being careful.",
     )
     stderr: float | None = Field(
         default=None,
-        description="the metric's stderr from summary.json when present. Without it the leader "
-        "cannot tell a result from noise: one run built a five-round tree on a 1.98-point "
-        "difference whose stderr was 5.06.",
+        description="the metric's stderr, stamped from summary.json when it emits one. Without it "
+        "the leader cannot tell a result from noise: one run built a five-round tree on a "
+        "1.98-point difference whose stderr was 5.06.",
     )
     elapsed_s: float | None = Field(
         default=None,
-        description="wall clock of this eval. The leader prices its own next move with it — one "
-        "run traded 60 seconds of eval for a stderr rise from 2.20 to 3.86 because it could not "
-        "see that the full benchmark cost only 155 seconds.",
+        description="wall clock of this eval, stamped. The leader prices its own next move with "
+        "it — one run traded 60 seconds of eval for a stderr rise from 2.20 to 3.86 because it "
+        "could not see that the full benchmark cost only 155 seconds.",
     )
     checkpoint_sweep: list[SweepPoint] | None = Field(
         default=None,
@@ -233,21 +279,20 @@ class EvalStage(Stage):
     def _sweep_prose_is_no_sweep(cls, v):
         """A non-list here means no sweep, not a broken report.
 
-        The runtime stamps this field; the experimenter is not asked for it. One wrote
-        ``"NOT RUN - dropped per the leader's budget order (only final_model scored)"`` — a
-        perfectly sensible sentence in a field typed as a list, and pydantic then rejected the
-        WHOLE document. `read()` promises the opposite: it does not validate, so that the only
-        thing that can raise is a file which is not report-shaped at all. A prose leaf is not
-        that. The node in question was finished — score 28.0, review written — and the run spent
-        its last minutes resuming a session that had nothing left to do.
+        The runtime stamps this field and the experimenter is not asked for it — but it is in the
+        schema, so two of them explained in it why they had skipped the sweep: "NOT RUN - dropped
+        per the leader's budget order" and "not run by design". Typed as a list, pydantic rejected
+        both WHOLE documents, and the scores beside the sentence — 28.0 and 72.0 — read back as
+        nothing. The same shape as the ScriptRef sha256, in the last runtime-owned field still
+        able to reject.
 
-        Dropping the sentence is not lossy: `None` already means "no sweep", which is what it
+        Dropping the sentence is not lossy: ``None`` already means "no sweep", which is what it
         said.
         """
         return v if isinstance(v, list) else None
     n_samples: int | None = Field(
         default=None,
-        description="items the scorer ACTUALLY scored, copied from summary.json. Distinct from "
+        description="items the scorer ACTUALLY scored, stamped from summary.json. Distinct from "
         "`limit`, which is what was REQUESTED: an AUTO run asks for -2 and a capped run can be "
         "cut short, so only this says how big the measurement really was. The round-0 baseline's "
         "value is load-bearing beyond its own report — it is the only place a run learns the "
@@ -259,9 +304,12 @@ class EvalStage(Stage):
 class ReviewStage(Stage):
     """The one stage that produces a judgement rather than an artifact."""
 
-    failure_classes: dict[str, int] = Field(
-        default_factory=dict,
-        description="your own class names -> counts. The leader compares these ACROSS rounds.",
+    failure_classes: dict[str, int] | None = Field(
+        default=None,
+        description="your own class names -> counts. The leader compares these ACROSS rounds. "
+        "Absent means you did not say; an empty map would be the claim that you looked and found "
+        "no failures, which is a different thing and one the salvage path used to assert on your "
+        "behalf.",
     )
     sampled: bool | None = Field(
         default=None,
@@ -316,15 +364,17 @@ class Stages(BaseModel):
 
     data: DataStage | None = Field(default=None, description="absent on a baseline node")
     train: TrainStage | None = Field(default=None, description="absent on a baseline node")
-    eval: EvalStage = Field(
-        default_factory=lambda: EvalStage(status="failed"),
-        description="the scored stage. Its absence is not a parse error, it is a node with no "
-        "measurement — which is what `failed` means.",
+    eval: EvalStage | None = Field(
+        default=None,
+        description="absent until the node reaches it. It used to default to a synthetic "
+        "`{status: failed}`, which made a report that had simply not got this far indistinguishable "
+        "from one whose eval had died.",
     )
     review: ReviewStage | None = Field(
         default=None,
         description="written in a SECOND pass, after the score is already on disk. A completed "
-        "report without review is acceptable; a review written before the score is a violation.",
+        "report without review is acceptable — the salvage path produces exactly that when the "
+        "experimenter is cut off after scoring; a review written before the score is a violation.",
     )
 
 
@@ -334,17 +384,19 @@ class Report(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str = Field(default="", description="the tree node id from your task prompt")
+    status: str = Field(
+        default="",
+        description="where the experiment stands: the name of the stage in progress "
+        "(data / train / eval / review, or any other stage this node runs), or `completed` / "
+        "`failed` once it is over. Advanced at each stage boundary, so the file on disk always "
+        "says where you actually are.",
+    )
     stages: Stages = Field(default_factory=Stages)
 
     @property
     def score(self) -> float | None:
         """The node's score. Single-sourced: there is exactly one place it can come from."""
-        return self.stages.eval.score
-
-    @property
-    def status(self) -> Literal["completed", "failed"]:
-        """Derived, never written by hand: completed only when a real score exists."""
-        return "completed" if isinstance(self.score, (int, float)) else "failed"
+        return self.stages.eval.score if self.stages.eval else None
 
     @property
     def model_path(self) -> str | None:
@@ -365,33 +417,34 @@ def read(raw: dict) -> Report:
 
 
 def is_terminal(raw: dict) -> bool:
-    """Has the experimenter FINISHED, or is this the score-first incremental write mid-run?
+    """Is the experiment over? The loop's one control question, asked of the one field that answers.
 
-    The executor's resume logic hangs off this question: answer "yes" too early and the review
-    stage never gets written, answer "no" for a finished report and the experimenter is re-run
-    forever — which is exactly what happened to a node whose report was complete on disk from its
-    first write: validation kept failing, this returned False, and the agent was woken four times
-    over six minutes to re-assert a report it had already written correctly.
+    ``status`` is a cursor. While the experimenter is working it names the stage in progress, and
+    the only two values that end it are in :data:`TERMINAL`. So anything this does not recognise —
+    a stage name it has never heard of, a typo, a word from some future pipeline — is *in flight*,
+    and the loop keeps waiting.
 
-    The answer is in the shape rather than beside it. The contract orders the two writes:
-    data/train/eval first (so a score is never hostage to later steps), then a rewrite adding
-    ``review``. So a report carrying ``review`` is one whose author considered itself done, and a
-    scored report without one is mid-run. A failed eval is terminal too: there is no review to
-    wait for.
+    That direction is the point. The version this replaces read ``review is not None or
+    eval.status == "failed"``, which made an unrecognised situation TERMINAL: on 2026-08-15 four
+    nodes across two runs wrote an eval stanza they had themselves labelled a placeholder
+    (``{"status": "failed", "error": "placeholder — training job still running"}``) on their way
+    out of a turn, and the loop read each one as a finished, failed experiment. One of them had a
+    training job 100% of the way through; all four kept their Slurm jobs running for another hour
+    with nothing left on the tree to collect them. Ambiguity now costs a wake-up instead of a node,
+    and the per-experiment deadline is what bounds the waiting.
 
     A file that is not report-shaped at all is not a finished experiment either, so it answers
-    False — but it says so first. That distinction is the whole point: the version this replaces
-    swallowed EVERY parse failure into the same False, which is how a report that was complete and
-    correct on disk kept reading as unfinished while the loop woke its author four times to
-    re-assert it. ``read()`` still raises for callers that want the value; the loop's control
-    question has to stay answerable.
+    False — but it says so first. The version before last swallowed EVERY parse failure into the
+    same False, which is how a report that was complete and correct on disk kept reading as
+    unfinished while the loop woke its author four times to re-assert it. ``read()`` still raises
+    for callers that want the value; the loop's control question has to stay answerable.
     """
     try:
         parsed = read(raw)
     except Exception as e:  # noqa: BLE001 — not report-shaped; unfinished, and worth saying
         log.error("report.json is not report-shaped, treating as unfinished: %s", e)
         return False
-    return parsed.stages.review is not None or parsed.stages.eval.status == "failed"
+    return parsed.status in TERMINAL
 
 
 def field_names() -> set[str]:

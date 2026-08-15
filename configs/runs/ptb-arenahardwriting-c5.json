@@ -9,7 +9,7 @@
     "fixed_pool": "/data2/hcgu/dataos_fixed_pools/processed/posttrainbench_fixed_pool_v2"
   },
   "exec": {
-    "deploy_root": "/data/hcgu/users/tjh/dataos_agentver",
+    "deploy_root": "/data2/hcgu/dataos_exp",
     "runs_base": "/data2/hcgu/dataos_agentver_runs",
     "resource": {
       "gpus": 1,

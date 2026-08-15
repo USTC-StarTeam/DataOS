@@ -100,7 +100,10 @@ class TreeState:
         scripts: dict | None = None,
     ) -> None:
         node = self.get(node_id)
-        node["status"] = status or "unknown"
+        # A cache of the report's own cursor — report.json is the source of truth. `unknown` used
+        # to stand in when the report could not be read at all; a node whose report says nothing is
+        # a node that finished with nothing, and `failed` says that without inventing a sixth word.
+        node["status"] = status or "failed"
         node["score"] = score
         node["eval_limit"] = eval_limit  # how many eval items produced that score (-1 = full)
         if model_path:
@@ -127,7 +130,7 @@ class TreeState:
         return [
             node
             for node in self.nodes
-            if node.get("model_path") and node.get("status") in {"completed", "unknown"}
+            if node.get("model_path") and node.get("status") == "completed"
         ]
 
     def _scored(self) -> list[dict]:

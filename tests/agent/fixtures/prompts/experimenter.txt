@@ -3,14 +3,17 @@ recipe (a fixed-pool source selection + a DataOS-Operator data pipeline + SFT hy
 Your job: REALIZE it end to end and write report.json. You have a shell — use it.
 
 Pipeline: build the SFT data by running the operator recipe → SFT the selected parent model on
-H100 (Slurm GPU) → run the FROZEN sampled PostTrainBench eval → write report.json.
+H100 (Slurm GPU) → run the FROZEN sampled PostTrainBench eval → review the rollouts. report.json
+is not the last step: you write it at the start and advance its `status` cursor through those
+four stages, so the file always says where you are.
 
 BASELINE experiment: if the plan's `train` is EMPTY (no `finetuning_type`), do NOT build data or
 train — evaluate the parent model DIRECTLY (its injected path is the base model on the first
-round) and write report.json with that model as the result. Otherwise run the full pipeline.
+round), omit those two stages, and start the cursor at `eval`. Otherwise run the full pipeline.
 
 Drive every step yourself with tools; read the ENVIRONMENT OPS + TASK sections in your task
-prompt first, then execute through to report.json without stopping to ask or summarize mid-way.
+prompt first, then execute through to a `completed` report without stopping to ask or summarize
+mid-way.
 
 HARD RULES:
 - Do NOT change the experiment intent, the parent model, or the eval scorer. You may make
@@ -182,22 +185,34 @@ HARD RULES:
 
 REPORT CONTRACT. report.json is your ONE output and the leader reads it WHOLE — there is no
 digest in between, so a field you leave out is a fact the next round plans without. Write it to
-the LOCAL report path in your task prompt. It is shaped by the four stages you just ran, and each
-stage answers for itself:
+the LOCAL report path in your task prompt.
+
+It has exactly one status, at the top level, and it is a CURSOR: it names the stage you are
+working on right now, and you advance it as you finish each one.
+
+  data  ->  train  ->  eval  ->  review  ->  completed
+
+Write the file the moment you start, with `{"id":"<node_id>","status":"data"}`. From then on it
+always exists and always says where you actually are. Anything that is not `completed` or
+`failed` means you are still going, so the runtime keeps waiting for you — you cannot end your
+own node by accident, and you never need a placeholder to hold your place. If you run a stage
+this pipeline does not name (a LoRA merge as `export`, say), point the cursor at it by name.
+
+The STAGES below it carry what each one produced. They have NO status of their own — where you
+are is the cursor's job, and stages before it are done, the one it names is in progress, the ones
+after it have not started.
 
   {"id":"<node_id>",
+   "status":"review",
    "stages":{
-     "data":  {"status":"completed","rows":<int actually written to data/sft>,
+     "data":  {"rows":<int actually written to data/sft>,
                "requested_rows":<int the recipe asked for>,
                "fingerprint":"<content hash of train.json>"},
-     "train": {"status":"completed","model_path":"<the model dir you scored>",
+     "train": {"model_path":"<the model dir you scored>",
                "template":"<the chat template LF ACTUALLY used, read back from train_config.yaml>",
                "actual_epochs":<float completed>,"train_loss":<float final>},
-     "eval":  {"status":"completed","score":<float native % from summary.json>,
-               "limit":<int items evaluated; -1 = the full frozen benchmark>,
-               "n_samples":<int the scorer ACTUALLY scored, from summary.json>,
-               "stderr":<float from summary.json>,"elapsed_s":<float wall clock>},
-     "review":{"status":"completed","failure_classes":{"<your class name>":<count>},
+     "eval":  {"summary_dir":"<the eval dir whose summary.json this node stands behind>"},
+     "review":{"failure_classes":{"<your class name>":<count>},
                "sampled":<true if the counts come from a SAMPLE, false for a full census>,
                "sample_size":{"correct":<k>,"wrong":<k>},
                "anomalies":"<repetition/length/format drift, or 'none'>",
@@ -205,7 +220,8 @@ stage answers for itself:
                "dominant_evidence":"<ONE quoted comparison: what the parser wanted vs what the model emitted>"}}}
 
 Every stage also accepts, and SHOULD carry when true:
-  - `"error"`: only with status "failed" — say WHICH gate or tool refused, and why.
+  - `"error"`: what broke in THIS stage — which gate or tool refused, and why. This is also how
+    '哪个阶段挂的' gets answered: the stage carrying an error is the one that failed.
   - `"fixes"`: the mechanical workarounds THIS stage needed. Put them on the stage that needed
     them, never in one run-level list: a train-stage `max_steps` added to fit the budget and a
     data-format cast mean completely different things, and a flat list is how a 0.40-epoch node
@@ -215,35 +231,33 @@ Every stage also accepts, and SHOULD carry when true:
     identification, and the recipe's real identity is the hash.
 
 RULES
-- Do NOT write `status` or `score` at the top level. The score lives in exactly one place
-  (`stages.eval.score`) and the node's status is DERIVED from it: a real number means completed.
-- `n_samples` is what the scorer actually scored; `limit` is what was REQUESTED. They differ
-  whenever the run is AUTO-sized or gets cut short, and only `n_samples` says how big the
-  measurement really was. Giving `sample_size` lets you omit `sampled` — it is derived from it.
-- The eval NUMBERS are not yours to be careful about. After you finish, the runtime reads every
-  `summary.json` under this node's `eval/` and overwrites `score` / `limit` / `n_samples` /
-  `stderr` / `elapsed_s` with the frozen harness's own values, adds `summary_dir` for the one
-  the score came from, and — when you scored more than one checkpoint — a `checkpoint_sweep` of
-  all of them. So restate them for your own reasoning, but a typo costs nothing, and there is no
-  reason to omit an eval you ran: every checkpoint you scored will be visible whether or not it
-  won, which is the point. It also means the score you write is CHECKED against the eval dirs:
-  claiming a number none of them produced gets logged.
+- The eval NUMBERS are not yours. Name the DIRECTORY (`summary_dir`) and stop there: after you
+  finish, the runtime reads that dir's `summary.json` and fills in `score` / `limit` /
+  `n_samples` / `stderr` / `elapsed_s`, plus a `checkpoint_sweep` of every eval dir under this
+  node when you scored more than one. Which measurement the node stands behind is your DECISION —
+  you may have scored six checkpoints — but what each one measured is the harness's to say, and
+  it already said it. Score every checkpoint you want: they all reach the leader whether or not
+  they won, which is the point.
 - `requested_rows` vs `rows`: a selector with `strict=false` silently returns whatever the pool
   had. If they differ by more than 10%, say so in the data stage's `fixes`.
-- On a BASELINE run omit `data` and `train` entirely (a baseline has no data and no training),
-  or write them as `{"status":"skipped"}`.
+- On a BASELINE run there is no data and no training: omit both stages and start the cursor at
+  `eval`. A stage that does not apply is absent, not empty.
 - Extra fields are welcome. If you learned something the shape above has no slot for — where the
   parser lives, what target format it wants, what your pre-check found — add it. The leader sees
   everything in this file.
 
-WRITE INCREMENTALLY — the score must never be hostage to later steps:
-  1. the moment the eval's summary.json exists, IMMEDIATELY write report.json with the data,
-     train and eval stages;
-  2. only then do the REVIEW stage and REWRITE report.json adding `stages.review`.
-A completed report with no `review` is acceptable (the loop salvages it if you are cut off); a
-`review` written before the score is on disk is a contract violation. If you fail BEFORE any
-score exists, still write the report with `stages.eval` at `{"status":"failed","score":null,
-"limit":0,"error":"..."}` — never exit without one.
+ADVANCE THE CURSOR AS YOU GO — the file on disk is how the runtime knows you are alive and where:
+  1. starting          -> `{"id":...,"status":"data"}`
+  2. data written      -> add `stages.data`, set `status` to `"train"`
+  3. training finished -> add `stages.train`, set `status` to `"eval"`
+  4. eval scored       -> add `stages.eval.summary_dir`, set `status` to `"review"`
+  5. review written    -> add `stages.review`, set `status` to `"completed"`
+If a stage breaks and you cannot get past it, put the cause in that stage's `error` and set
+`status` to `"failed"`. `failed` is the ONLY failure value: a Slurm TIMEOUT, a CUDA OOM, a budget
+that ran out are all `"failed"` plus the reason in `error`.
+
+When you hand control back mid-experiment — waiting on a Slurm job, between polls — just leave
+the cursor where it is. It is already true, and it already says you are not finished.
 
 - Execute the stages end to end (data+train fold into ONE Slurm job — the compute node has the
   pool AND the GPU; use the submit/poll ops). Self-heal execution failures (operator-port/

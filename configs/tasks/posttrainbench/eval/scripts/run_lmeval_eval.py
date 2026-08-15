@@ -331,6 +331,14 @@ def register_tool_chat_model() -> None:
 
 
 def find_free_port() -> int:
+    """A port the OS says is free RIGHT NOW.
+
+    Inherently a check-then-use race: the socket is closed here and vLLM binds it a moment later,
+    so a second process asking at the same instant can be handed the same number. That window is
+    normally invisible and became visible the first time three runs started together — three eval
+    jobs landed on one node within six seconds and all three vLLM servers exited before becoming
+    healthy. Callers retry rather than trust one draw; see :func:`start_vllm_server`.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
@@ -342,48 +350,87 @@ def start_vllm_server(
     chat_template: Path,
     model_name: str,
     output_dir: Path,
+    attempts: int = 3,
 ) -> tuple[subprocess.Popen, int]:
-    port = find_free_port()
+    """Start vLLM on a free port, retrying a server that dies before it is healthy.
+
+    Two things this had to learn on 2026-08-15, when three runs were launched together and their
+    three baseline evals landed on one node within six seconds of each other. All three died with
+    `vLLM server exited before becoming healthy (code 1)`, and the reason was unrecoverable:
+
+    * The port came from ONE draw of :func:`find_free_port`, which cannot be atomic — three
+      simultaneous draws on one host can collide. A dead server now costs a retry, not a job.
+    * The server log was written to a fixed ``vllm_server.log``, so the successful retry
+      TRUNCATED the failing attempt's log. Three jobs failed and left no evidence of why. The
+      name now carries the Slurm job id and the attempt, which is what makes a next time
+      diagnosable.
+    """
     vllm_bin = Path(sys.executable).with_name("vllm")
-    command = [
-        str(vllm_bin) if vllm_bin.exists() else "vllm",
-        "serve",
-        model_path,
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(port),
-        "--trust-remote-code",
-        "--api-key",
-        os.environ.get("VLLM_API_KEY", "inspectai"),
-        "--chat-template",
-        str(chat_template),
-        "--generation-config",
-        "vllm",
-    ]
-    if task == "bfcl":
-        command.extend(
-            [
-                "--enable-auto-tool-choice",
-                "--tool-call-parser",
-                tool_call_parser_name(model_path, model_name),
-            ]
-        )
-    log_path = output_dir / "vllm_server.log"
-    log = log_path.open("w", encoding="utf-8")
-    process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, text=True)
-    try:
-        wait_for_health(port, process)
-    except Exception:
-        if process.poll() is None:
-            process.kill()
-        raise
-    return process, port
+    job = os.environ.get("SLURM_JOB_ID", str(os.getpid()))
+    last: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        port = find_free_port()
+        command = [
+            str(vllm_bin) if vllm_bin.exists() else "vllm",
+            "serve",
+            model_path,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--trust-remote-code",
+            "--api-key",
+            os.environ.get("VLLM_API_KEY", "inspectai"),
+            "--chat-template",
+            str(chat_template),
+            "--generation-config",
+            "vllm",
+        ]
+        if task == "bfcl":
+            command.extend(
+                [
+                    "--enable-auto-tool-choice",
+                    "--tool-call-parser",
+                    tool_call_parser_name(model_path, model_name),
+                ]
+            )
+        # one log per attempt of per job: a retry must never erase what killed the try before it
+        log_path = output_dir / f"vllm_server.{job}.{attempt}.log"
+        log = log_path.open("w", encoding="utf-8")
+        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, text=True)
+        try:
+            wait_for_health(port, process)
+            return process, port
+        except Exception as e:  # noqa: BLE001 — retried below; re-raised when attempts run out
+            if process.poll() is None:
+                process.kill()
+            last = e
+            tail = ""
+            try:
+                tail = log_path.read_text(encoding="utf-8", errors="replace")[-600:]
+            except OSError:
+                pass
+            print(f"vLLM attempt {attempt}/{attempts} on port {port} failed: {e}\n"
+                  f"--- {log_path.name} (tail) ---\n{tail}", file=sys.stderr, flush=True)
+            if attempt < attempts:
+                time.sleep(5 * attempt)
+    raise RuntimeError(f"vLLM did not become healthy after {attempts} attempts") from last
 
 
 def wait_for_health(port: int, process: subprocess.Popen, timeout: int = 600) -> None:
+    """Poll the server we just started, on the loopback, until it answers.
+
+    ``trust_env=False`` is load-bearing, not tidiness. This asks 127.0.0.1 about a server this
+    same process spawned, and a bare ``requests.get`` honours ``HTTP_PROXY`` from the environment:
+    on a host with a proxy set and no ``NO_PROXY``, every probe is sent to the proxy instead of to
+    the loopback, so a perfectly healthy server times out after ten minutes and the failure is
+    reported against vLLM. Measured here: 0.2s to healthy with the proxy bypassed, indefinite hang
+    without.
+    """
     import requests
 
+    session = requests.Session()
+    session.trust_env = False  # never route a loopback probe through a proxy
     deadline = time.time() + timeout
     url = f"http://127.0.0.1:{port}/health"
     while time.time() < deadline:
@@ -392,7 +439,7 @@ def wait_for_health(port: int, process: subprocess.Popen, timeout: int = 600) ->
                 f"vLLM server exited before becoming healthy (code {process.returncode})."
             )
         try:
-            if requests.get(url, timeout=5).status_code == 200:
+            if session.get(url, timeout=5).status_code == 200:
                 return
         except requests.RequestException:
             pass

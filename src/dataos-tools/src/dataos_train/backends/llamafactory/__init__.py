@@ -364,8 +364,13 @@ class LlamaFactoryBackend:
             metrics=self._read_metrics(rd),
             rows=rows,
             artifacts=artifacts,
+            # No stage status: DataOS report.json carries ONE status, a cursor at the top level
+            # that its author advances. A fragment asserting `stages.train.status` would be a
+            # second opinion on a question the stage no longer answers — and the experimenter
+            # merges this verbatim, so a stray one also teaches it a shape the contract forbids.
+            # What the train stage owes is here instead, under the names it owes them by.
             report_fragment={
-                "stages": {"train": {"status": "completed" if ok else "failed"}},
+                "stages": {"train": {"model_path": final, "template": template}},
                 "model": {
                     "path": final,
                     "base_model": base,
