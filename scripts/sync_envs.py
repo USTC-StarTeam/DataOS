@@ -51,11 +51,24 @@ def _pkg_dir(tool: str) -> str:
     raise SystemExit(f"no pyproject.toml for tool {tool!r} under {' or '.join(_PKG_BASES)}/")
 
 
+def _dist(tool: str) -> str:
+    """The distribution name a declaration key stands for.
+
+    The keys are not uniform — `dataos_tools: {dataos-tools: "0.4.1", operator: "0.9.0"}` — because
+    one package was renamed to carry the prefix and the other still spells it implicitly. Hardcoding
+    `dataos-{tool}` therefore asked the cluster for `dataos-dataos-tools`, which no venv has ever
+    had: the lookup returned None, every check reported a MISMATCH that was really a typo, and an
+    install could not fix it because the re-check asked the same wrong question. So prefix only what
+    is missing one.
+    """
+    return tool if tool.startswith("dataos-") else f"dataos-{tool}"
+
+
 def _installed(host: str, venv: str, dist: str) -> str | None:
     out = _ssh(
         host,
         f"{venv}/bin/python -c \"import importlib.metadata as m;"
-        f"print(m.version('dataos-{dist}'))\" 2>/dev/null || true",
+        f"print(m.version('{_dist(dist)}'))\" 2>/dev/null || true",
     )
     return out or None
 
@@ -88,10 +101,10 @@ def main() -> int:
         for tool, want in declared.items():
             have = _installed(host, venv, tool)
             if have == want:
-                print(f"[ok] {env_name}: dataos-{tool} == {want}")
+                print(f"[ok] {env_name}: {_dist(tool)} == {want}")
                 continue
             mismatched = True
-            print(f"[MISMATCH] {env_name}: dataos-{tool} installed={have} declared={want}")
+            print(f"[MISMATCH] {env_name}: {_dist(tool)} installed={have} declared={want}")
             if args.check:
                 continue
             src = f"{args.deploy_root}/{_pkg_dir(tool)}"
