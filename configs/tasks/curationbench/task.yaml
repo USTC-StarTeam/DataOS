@@ -60,8 +60,11 @@ stages:
       `{{ env.tools.sft_env.path }}/bin/dataos-data probe \
       --repo {{ run.deploy_root }} --environment {{ run.environment }} \
       --run-root {ctx.run_root} --recipe run_curation.py \
-      --gpus {{ run.resource.gpus }} --cpus {{ run.resource.cpus }}{% if run.resource.get("qos") %} --qos {{ run.resource.qos }}{% endif %}{% if run.resource.get("partition") %} --partition {{ run.resource.partition }}{% endif %}{% if run.resource.get("node") %} --nodelist {{ run.resource.node }}{% endif %}`.
+      --gpus 0 --cpus {{ run.resource.cpus }}{% if run.resource.get("qos") %} --qos {{ run.resource.qos }}{% endif %}{% if run.resource.get("partition") %} --partition {{ run.resource.partition }}{% endif %}{% if run.resource.get("node") %} --nodelist {{ run.resource.node }}{% endif %}`.
       Poll `{ctx.run_root}/data_handle.json` with `dataos-data status`; do not write an sbatch file.
+      The default declares CPU-only curation: this cluster still allocates its mandatory GPU and
+      dataos-launch installs the gpu_normal guard. A strategy that genuinely executes CUDA work
+      may instead pass the configured GPU count, but then it must actively satisfy the guard.
       The wrapper must propagate the curate process's exit code and produce exactly the
       task-declared row count at {ctx.submission_path}. The dataset must be a
       HuggingFace save_to_disk dataset with `images` and `texts` columns. Do not use

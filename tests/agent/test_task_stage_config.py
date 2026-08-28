@@ -53,6 +53,7 @@ def test_curation_contract_resolves_without_nonexistent_run_fields():
     task = resolved["task"]
     assert task["stages"]["train"]["driver"] == "external_cli"
     assert "dataos-train task-submit" in task["stages"]["train"]["command"]
+    assert "--gpus 0" in task["stages"]["data"]["invoke"]
     assert "datacuration-bench eval" not in task["scoring"]["command"]
     assert "dataos-eval submit" in task["scoring"]["command"]
     assert task["scoring"]["format_contract"].endswith("/BENCHMARK.md")
