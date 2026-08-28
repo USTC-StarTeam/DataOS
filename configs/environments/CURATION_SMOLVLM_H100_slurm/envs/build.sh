@@ -11,7 +11,7 @@ UV="${UV:-$HOME/.local/bin/uv}"
 build_dataos_cli() {
   local venv="$ROOT/dataos_cli/.venv"
   "$UV" venv --python 3.12 "$venv"
-  "$UV" pip install --python "$venv/bin/python" "$REPO/src/dataos-tools"
+  "$UV" pip install --python "$venv/bin/python" "$REPO/src/dataos-tools" "datasets>=4.6.0"
   "$venv/bin/python" -c \
     "import importlib.metadata as m; print('dataos-tools', m.version('dataos-tools'))"
 }
