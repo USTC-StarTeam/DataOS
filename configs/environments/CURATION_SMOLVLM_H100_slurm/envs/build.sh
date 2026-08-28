@@ -10,6 +10,7 @@ UV="${UV:-$HOME/.local/bin/uv}"
 
 build_dataos_cli() {
   local venv="$ROOT/dataos_cli/.venv"
+  rm -rf "$venv"
   "$UV" venv --python 3.12 "$venv"
   "$UV" pip install --python "$venv/bin/python" "$REPO/src/dataos-tools" "datasets>=4.6.0"
   "$venv/bin/python" -c \
