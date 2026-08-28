@@ -174,3 +174,4 @@ def test_eval_stage_dispatches_external_cli_without_ptb_bridge(tmp_path):
     assert str(judge_executable) in preamble
     assert "BENCHMARK_EVAL_GPUS" in preamble
     assert "OPENAI_API_BASE" in preamble
+    assert "seq 1 600" in preamble

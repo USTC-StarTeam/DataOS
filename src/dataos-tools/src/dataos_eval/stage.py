@@ -395,7 +395,7 @@ class ExternalEvalStage(Stage):
             f">{log_path} 2>&1 &",
             "dataos_judge_pid=$!",
             "trap 'kill \"$dataos_judge_pid\" 2>/dev/null || true' EXIT",
-            'for _ in $(seq 1 180); do curl -fsS "http://127.0.0.1:${dataos_judge_port}/health" '
+            'for _ in $(seq 1 600); do curl -fsS "http://127.0.0.1:${dataos_judge_port}/health" '
             ">/dev/null && break; sleep 2; done",
             'if ! curl -fsS "http://127.0.0.1:${dataos_judge_port}/health" >/dev/null; then '
             f"tail -n 100 {log_path} >&2; exit 1; fi",
