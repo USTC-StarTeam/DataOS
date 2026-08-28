@@ -19,7 +19,7 @@ def main(argv: list[str] | None = None) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dataos",
-        description="Run the PostTrainBench agent loop from one JSON config.",
+        description="Run the DataOS agent loop from one JSON config.",
     )
     parser.add_argument("config", help="PTB run config JSON path")
     parser.add_argument(
