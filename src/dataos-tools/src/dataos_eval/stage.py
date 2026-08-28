@@ -379,6 +379,7 @@ class ExternalEvalStage(Stage):
         port_base = int(judge.get("port_base", 18000))
         memory = float(judge.get("gpu_memory_utilization", 0.9))
         max_model_len = int(judge.get("max_model_len", 32768))
+        eager_flag = " --enforce-eager" if judge.get("enforce_eager") is True else ""
         log_path = shlex.quote(str(Path(spec.run_dir) / f"{spec.name}.judge.log"))
         pre_cmds = [
             'IFS="," read -r -a dataos_allocated_gpus <<< "${CUDA_VISIBLE_DEVICES:?}"',
@@ -391,7 +392,7 @@ class ExternalEvalStage(Stage):
             f'CUDA_VISIBLE_DEVICES="${{dataos_allocated_gpus[0]}}" {executable} serve '
             f"{model_path} --served-model-name {model_name} --api-key dataos-local-judge "
             f'--host 127.0.0.1 --port "$dataos_judge_port" '
-            f"--gpu-memory-utilization {memory} --max-model-len {max_model_len} "
+            f"--gpu-memory-utilization {memory} --max-model-len {max_model_len}{eager_flag} "
             f">{log_path} 2>&1 &",
             "dataos_judge_pid=$!",
             "trap 'kill \"$dataos_judge_pid\" 2>/dev/null || true' EXIT",

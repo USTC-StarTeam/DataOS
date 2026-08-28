@@ -144,7 +144,8 @@ def test_eval_stage_dispatches_external_cli_without_ptb_bridge(tmp_path):
         f"      executable: {judge_executable}\n"
         f"      model_path: {judge_model}\n"
         "      served_model_name: Qwen3.5-27B\n"
-        "      total_gpus: 2\n",
+        "      total_gpus: 2\n"
+        "      enforce_eager: true\n",
         encoding="utf-8",
     )
     suite = tmp_path / "suite"
@@ -174,4 +175,5 @@ def test_eval_stage_dispatches_external_cli_without_ptb_bridge(tmp_path):
     assert str(judge_executable) in preamble
     assert "BENCHMARK_EVAL_GPUS" in preamble
     assert "OPENAI_API_BASE" in preamble
+    assert "--enforce-eager" in preamble
     assert "seq 1 600" in preamble

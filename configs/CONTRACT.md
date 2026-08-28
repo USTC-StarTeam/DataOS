@@ -27,7 +27,7 @@
 | `tools.<名>.distribution/version/revision` | 外部工具必填 | str | 安装包名、精确版本、checkout commit；external driver 提交前逐项核验，不匹配即拒绝 |
 | `tools.<名>.profile` | 任务需要时 | path | 外部 harness 的机器 profile（例如 Curation-Bench 数据/模型/eval data 映射） |
 | `tools.<名>.env` | 否 | map[str,str] | 注入外部 harness 作业的非秘密环境变量（离线缓存、显存比例等） |
-| `tools.<名>.local_judge` | 离线 judge 需要时 | map | 与外部 evaluator 同作业启动的本地 OpenAI-compatible judge；`executable`/`model_path`/`served_model_name`/`total_gpus` 为必填部署事实，`port_base`/`gpu_memory_utilization`/`max_model_len` 可选。DataOS 只编排服务，候选评测仍由外部 harness 执行 |
+| `tools.<名>.local_judge` | 离线 judge 需要时 | map | 与外部 evaluator 同作业启动的本地 OpenAI-compatible judge；`executable`/`model_path`/`served_model_name`/`total_gpus` 为必填部署事实，`port_base`/`gpu_memory_utilization`/`max_model_len`/`enforce_eager` 可选。DataOS 只编排服务，候选评测仍由外部 harness 执行 |
 | ~~`paths`~~ | — | — | **env 已无 paths 段**:`fixed_pool`/`deploy_root`/`runs_base` 都是 **run 级事实**(本次 run 的输入与产物位置,在 run JSON);`benchmarks` 不声明,代码拼 `{deploy_root}/configs/tasks/<task>/benchmarks` |
 | `resources` | 否 | map | 供大脑规划参考:`gpu_type` / `note` 等,自由字段 |
 | `gateway` | 否 | map | 从这台机可达的 **LLM 端点(仅连接事实)**:`{base_url, key_file}`。**不含 model**——用哪个 model / 并发是**任务**的选择(→ `task.scoring.judge`) |

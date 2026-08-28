@@ -71,4 +71,6 @@ The run requests one GPU as its normal stage requirement. For eval only, the env
 `local_judge.total_gpus: 2` raises the Slurm allocation to two cards: Qwen3.5-27B is served on the
 first and the official VLMEvalKit candidate evaluator uses the second. The launcher derives the
 physical GPU IDs from Slurm at run time; the profile must not hard-code `CUDA_VISIBLE_DEVICES` or
-`BENCHMARK_*_GPUS`.
+`BENCHMARK_*_GPUS`. This deployment also sets `local_judge.enforce_eager: true`: the pinned
+vLLM/Qwen3.5 combination otherwise fails while capturing the Mamba CUDA graph on H100 after all
+judge weights have loaded.
