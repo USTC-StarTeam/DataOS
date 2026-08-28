@@ -6,7 +6,7 @@ TARGET="${1:?usage: build.sh dataos_cli|harness|train|eval|all}"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$ROOT/../../../.." && pwd)"
 CURATION_ROOT="${CURATION_ROOT:?set CURATION_ROOT to the pinned curation-bench checkout}"
-UV="${UV:-/home/hcgu/.local/bin/uv}"
+UV="${UV:-$HOME/.local/bin/uv}"
 
 build_dataos_cli() {
   local venv="$ROOT/dataos_cli/.venv"
