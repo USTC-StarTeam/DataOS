@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import importlib.util
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -13,6 +15,14 @@ TASK_DIR = REPO / "configs" / "tasks" / "curationbench"
 
 def _yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _assets_module():
+    spec = importlib.util.spec_from_file_location("curation_assets", ENV_DIR / "assets.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_asset_scope_is_a_declared_curation_task() -> None:
@@ -44,3 +54,14 @@ def test_example_profile_covers_exact_deployment_assets() -> None:
     assert set(profile["dataset_path_map"]) == set(assets["datasets"])
     assert set(profile["model_path_map"]) == set(assets["models"])
     assert profile["env"]["BENCHMARK_VLMEVAL_TRUST_LOCAL_TSV"] == "1"
+
+
+def test_hf_revision_check_reads_download_provenance(tmp_path: Path) -> None:
+    metadata = tmp_path / ".cache" / "huggingface" / "download" / "config.json.metadata"
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text("abc123\netag\ntimestamp\n", encoding="utf-8")
+    assets = _assets_module()
+
+    assets._verify_hf_revision(tmp_path, "abc123", "model")
+    with pytest.raises(ValueError, match="revision metadata"):
+        assets._verify_hf_revision(tmp_path, "wrong", "model")

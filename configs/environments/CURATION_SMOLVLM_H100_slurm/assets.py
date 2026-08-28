@@ -74,6 +74,18 @@ def _check_command(label: str, command: list[str], errors: list[str]) -> None:
         print(f"[ok] {label}: {proc.stdout.strip()}")
 
 
+def _verify_hf_revision(path: Path, expected: str, label: str) -> None:
+    metadata_dir = path / ".cache" / "huggingface" / "download"
+    revisions = set()
+    for metadata in metadata_dir.glob("*.metadata"):
+        lines = metadata.read_text(encoding="utf-8").splitlines()
+        if lines:
+            revisions.add(lines[0])
+    if revisions != {expected}:
+        raise ValueError(f"{label} revision metadata {sorted(revisions)} != {expected}: {path}")
+    print(f"[ok] {label} revision: {expected}")
+
+
 def _task_spec(harness_root: Path, task: str) -> dict[str, Any]:
     task_path = harness_root / "src" / "benchmark" / "tasks" / f"{task}.yaml"
     value = _read_yaml(task_path).get("task")
@@ -156,10 +168,15 @@ def verify(harness_root: Path, profile_path: Path, task_name: str) -> None:
         dataset_path = Path(profile["dataset_path_map"][dataset_id])
         model_path = Path(profile["model_path_map"][model_key])
         dataset_manifest = manifest["datasets"][dataset_id]
+        model_manifest = manifest["models"][model_key]
+        _verify_hf_revision(
+            dataset_path, str(dataset_manifest["revision"]), f"dataset {dataset_id}"
+        )
         _verify_dataset(dataset_path, task, dataset_manifest)
+        _verify_hf_revision(model_path, str(model_manifest["revision"]), f"model {model_key}")
         config_path = model_path / "config.json"
         model_config = json.loads(config_path.read_text(encoding="utf-8"))
-        expected_type = str(manifest["models"][model_key]["model_type"])
+        expected_type = str(model_manifest["model_type"])
         if model_config.get("model_type") != expected_type:
             errors.append(
                 f"model_type {model_config.get('model_type')!r} != {expected_type!r}: {model_path}"
@@ -173,6 +190,7 @@ def verify(harness_root: Path, profile_path: Path, task_name: str) -> None:
     try:
         judge_spec = manifest["judge"]
         judge_path = eval_dir.parent / str(judge_spec["relative_path"])
+        _verify_hf_revision(judge_path, str(judge_spec["revision"]), "judge")
         judge_config = json.loads((judge_path / "config.json").read_text(encoding="utf-8"))
         expected_type = str(judge_spec["model_type"])
         if judge_config.get("model_type") != expected_type:
