@@ -1,0 +1,53 @@
+version: 1
+
+harness:
+  repository: https://github.com/feiyang-k/curation-bench.git
+  revision: 24eea1526492c00cee421f5db0793789e00aabb2
+  distribution: curation-bench
+  version: "0.3.0"
+
+scope:
+  tasks: [llava665k_smolvlm_8bench_10k_unlimited]
+
+datasets:
+  llava665k:
+    repository: Ethlake/llava-665k
+    revision: 235a8adf266bb6dc02a099dc0221d28dec058f54
+    rows: 665298
+    columns: [images, texts]
+    relative_path: datasets/llava665k
+
+models:
+  smolvlm:
+    repository: HuggingFaceTB/SmolVLM-Base
+    revision: a576ab7b4354916a0cb5b58a3bd973a9a526ee7c
+    model_type: idefics3
+    relative_path: models/SmolVLM-Base
+
+eval_data:
+  relative_path: LMUData
+  files:
+    HallusionBench:
+      url: https://opencompass.openxlab.space/utils/VLMEval/HallusionBench.tsv
+      md5: 0c23ac0dc9ef46832d7a24504f2a0c7c
+    LLaVABench:
+      url: https://opencompass.openxlab.space/utils/VLMEval/LLaVABench.tsv
+      md5: d382a093f749a697820d3dadd61c8428
+    MMBench:
+      url: https://opencompass.openxlab.space/utils/benchmarks/MMBench/MMBench.tsv
+      md5: 4115aea3383f3dd0083be6a633e0f820
+    MMMU_DEV_VAL:
+      url: https://opencompass.openxlab.space/utils/VLMEval/MMMU_DEV_VAL.tsv
+      md5: 585e8ad75e73f75dcad265dfd0417d64
+    MMStar:
+      url: https://opencompass.openxlab.space/utils/VLMEval/MMStar.tsv
+      md5: e1ecd2140806c1b1bbf54b43372efb9e
+    MMVet:
+      url: https://opencompass.openxlab.space/utils/VLMEval/MMVet.tsv
+      md5: 748aa6d4aa9d4de798306a63718455e3
+    MathVista_MINI:
+      url: https://opencompass.openxlab.space/utils/VLMEval/MathVista_MINI.tsv
+      md5: f199b98e178e5a2a20e7048f5dcb0464
+    OCRBench:
+      url: https://opencompass.openxlab.space/utils/VLMEval/OCRBench.tsv
+      md5: e953d98a987cc6e26ef717b61260b778

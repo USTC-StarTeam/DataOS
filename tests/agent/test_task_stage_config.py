@@ -33,7 +33,7 @@ def test_shipped_tasks_select_all_three_stage_drivers_explicitly():
 def test_curation_contract_resolves_without_nonexistent_run_fields():
     resolved = resolve(
         {
-            "environment": "PTB_H100_slurm",
+            "environment": "example-slurm",
             "task": "curationbench",
             "base_model": "/models/smolvlm",
             "bench": "llava665k_smolvlm_8bench_10k_unlimited",
@@ -58,7 +58,7 @@ def test_curation_contract_resolves_without_nonexistent_run_fields():
     assert "dataos-eval submit" in task["scoring"]["command"]
     assert task["scoring"]["format_contract"].endswith("/BENCHMARK.md")
     _, task_prompt = render(resolved)
-    assert "/data2/hcgu/dataos_curation_bench/BENCHMARK.md" in task_prompt
+    assert "/path/to/curation-bench/BENCHMARK.md" in task_prompt
     assert "/configs/tasks/curationbench//data2" not in task_prompt
 
 
