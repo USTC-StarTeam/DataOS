@@ -344,7 +344,63 @@ class ExternalEvalStage(Stage):
         )
         if not collector.is_file():
             errors.append(f"configured external eval collector does not exist: {collector}")
+        try:
+            provider, _ = self._tool()
+            judge = provider.get("local_judge")
+            if judge:
+                if not isinstance(judge, dict):
+                    errors.append("external provider local_judge must be a mapping")
+                else:
+                    executable = Path(str(judge.get("executable") or ""))
+                    model_path = Path(str(judge.get("model_path") or ""))
+                    if not executable.is_file():
+                        errors.append(f"local judge executable does not exist: {executable}")
+                    if not Path(model_path, "config.json").is_file():
+                        errors.append(f"local judge model does not exist: {model_path}")
+                    if int(judge.get("total_gpus") or 0) < 2:
+                        errors.append("local judge total_gpus must be at least 2")
+        except (KeyError, TypeError, ValueError) as exc:
+            errors.append(str(exc))
         return errors
+
+    @staticmethod
+    def _local_judge(provider: dict, spec: ExternalEvalSpec) -> tuple[Resources, list[str]]:
+        judge = provider.get("local_judge")
+        if not judge:
+            return spec.resources, []
+
+        total_gpus = int(judge["total_gpus"])
+        resources = spec.resources.model_copy(
+            update={"gpus": max(spec.resources.gpus, total_gpus)}
+        )
+        executable = shlex.quote(str(judge["executable"]))
+        model_path = shlex.quote(str(judge["model_path"]))
+        model_name = shlex.quote(str(judge["served_model_name"]))
+        port_base = int(judge.get("port_base", 18000))
+        memory = float(judge.get("gpu_memory_utilization", 0.9))
+        max_model_len = int(judge.get("max_model_len", 32768))
+        log_path = shlex.quote(str(Path(spec.run_dir) / f"{spec.name}.judge.log"))
+        pre_cmds = [
+            'IFS="," read -r -a dataos_allocated_gpus <<< "${CUDA_VISIBLE_DEVICES:?}"',
+            f'if [ "${{#dataos_allocated_gpus[@]}}" -lt {total_gpus} ]; then '
+            f"echo 'local judge requires {total_gpus} allocated GPUs' >&2; exit 1; fi",
+            'export BENCHMARK_EVAL_GPUS="${dataos_allocated_gpus[1]}"',
+            f"dataos_judge_port=$(({port_base} + ${{SLURM_JOB_ID:-0}} % 1000))",
+            'export OPENAI_API_BASE="http://127.0.0.1:${dataos_judge_port}/v1/chat/completions"',
+            'export OPENAI_API_KEY="dataos-local-judge"',
+            f'CUDA_VISIBLE_DEVICES="${{dataos_allocated_gpus[0]}}" {executable} serve '
+            f"{model_path} --served-model-name {model_name} --api-key dataos-local-judge "
+            f'--host 127.0.0.1 --port "$dataos_judge_port" '
+            f"--gpu-memory-utilization {memory} --max-model-len {max_model_len} "
+            f">{log_path} 2>&1 &",
+            "dataos_judge_pid=$!",
+            "trap 'kill \"$dataos_judge_pid\" 2>/dev/null || true' EXIT",
+            'for _ in $(seq 1 180); do curl -fsS "http://127.0.0.1:${dataos_judge_port}/health" '
+            ">/dev/null && break; sleep 2; done",
+            'if ! curl -fsS "http://127.0.0.1:${dataos_judge_port}/health" >/dev/null; then '
+            f"tail -n 100 {log_path} >&2; exit 1; fi",
+        ]
+        return resources, pre_cmds
 
     def build(self, spec: ExternalEvalSpec) -> Job:
         provider, executable = self._tool()
@@ -370,6 +426,7 @@ class ExternalEvalStage(Stage):
             "collector_config": self.contract.get("native") or {},
         }
         runner = Path(tool_provider(self.env, "dataos-eval")["path"]) / "bin" / "python"
+        resources, pre_cmds = self._local_judge(provider, spec)
         return Job(
             backend="external_cli",
             job_name=spec.name,
@@ -381,7 +438,8 @@ class ExternalEvalStage(Stage):
             ],
             env={str(k): str(v) for k, v in (provider.get("env") or {}).items()},
             run_dir=spec.run_dir,
-            resources=spec.resources,
+            resources=resources,
+            pre_cmds=pre_cmds,
             assets={
                 f"{spec.name}.external_eval_manifest.json": json.dumps(manifest, indent=2)
             },

@@ -8,8 +8,5 @@ model_path_map:
 eval_data_dir: <asset-root>/LMUData
 
 env:
-  CUDA_VISIBLE_DEVICES: "0"
-  BENCHMARK_TRAIN_GPUS: "0"
-  BENCHMARK_EVAL_GPUS: "0"
   VLLM_GPU_MEMORY_UTILIZATION: "0.9"
   BENCHMARK_VLMEVAL_TRUST_LOCAL_TSV: "1"

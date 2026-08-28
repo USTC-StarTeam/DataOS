@@ -125,11 +125,26 @@ def test_eval_stage_dispatches_external_cli_without_ptb_bridge(tmp_path):
     executable.parent.mkdir(parents=True)
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
     executable.chmod(0o755)
+    judge_executable = tmp_path / "eval" / "bin" / "vllm"
+    judge_executable.parent.mkdir(parents=True)
+    judge_executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    judge_executable.chmod(0o755)
+    judge_model = tmp_path / "judge-model"
+    judge_model.mkdir()
+    (judge_model / "config.json").write_text("{}", encoding="utf-8")
     python_env = Path(sys.executable).parents[1]
     (env_dir / "env.yaml").write_text(
         "name: local\nkind: local\nlauncher: local\ntools:\n"
         f"  dataos: {{path: {python_env}, provides: [dataos-eval]}}\n"
-        f"  official: {{path: {tool_env}, provides: [official-cli]}}\n",
+        "  official:\n"
+        f"    path: {tool_env}\n"
+        "    provides: [official-cli]\n"
+        "    env: {VLLM_GPU_MEMORY_UTILIZATION: '0.9'}\n"
+        "    local_judge:\n"
+        f"      executable: {judge_executable}\n"
+        f"      model_path: {judge_model}\n"
+        "      served_model_name: Qwen3.5-27B\n"
+        "      total_gpus: 2\n",
         encoding="utf-8",
     )
     suite = tmp_path / "suite"
@@ -153,3 +168,9 @@ def test_eval_stage_dispatches_external_cli_without_ptb_bridge(tmp_path):
     assert job["backend"] == "external_cli"
     assert "dataos_eval.external_runner" in job["command"]
     assert "run_lmeval_eval.py" not in json.dumps(job)
+    assert job["resources"]["gpus"] == 2
+    assert job["env"]["VLLM_GPU_MEMORY_UTILIZATION"] == "0.9"
+    preamble = "\n".join(job["pre_cmds"])
+    assert str(judge_executable) in preamble
+    assert "BENCHMARK_EVAL_GPUS" in preamble
+    assert "OPENAI_API_BASE" in preamble

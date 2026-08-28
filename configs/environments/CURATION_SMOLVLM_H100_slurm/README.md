@@ -9,6 +9,7 @@ The deployment has four frozen pieces:
 - DataOS control venv: `envs/dataos_cli/.venv` (only the DataOS lifecycle CLIs).
 - Pinned Curation-Bench checkout and its three upstream venvs.
 - Machine-local profile mapping the exact LLaVA-665K pool, SmolVLM base model and LMUData.
+- A pinned local Qwen3.5-27B judge, because the compute nodes cannot reach a cloud judge.
 - `assets.yaml`, which pins public artifact revisions and all eight VLMEvalKit TSV checksums.
 
 The real `env.yaml` and Curation profile contain machine coordinates and remain untracked. On the
@@ -41,6 +42,8 @@ hf download Ethlake/llava-665k --repo-type dataset \
   --revision 235a8adf266bb6dc02a099dc0221d28dec058f54 --local-dir <llava665k-dir>
 hf download HuggingFaceTB/SmolVLM-Base \
   --revision a576ab7b4354916a0cb5b58a3bd973a9a526ee7c --local-dir <smolvlm-dir>
+hf download Qwen/Qwen3.5-27B \
+  --revision fc05daec18b0a78c049392ed2e771dde82bdf654 --local-dir <judge-dir>
 ```
 
 LMUData is fetched on the login node and checked against the exact hashes in the pinned
@@ -63,3 +66,9 @@ envs/dataos_cli/.venv/bin/python assets.py verify \
 This environment does not claim VisionFlan, LLaVA-7B or Qwen task support. Add a separate pinned
 deployment after those pools/models are provisioned; do not point their task IDs at placeholder
 paths in this profile.
+
+The run requests one GPU as its normal stage requirement. For eval only, the environment's
+`local_judge.total_gpus: 2` raises the Slurm allocation to two cards: Qwen3.5-27B is served on the
+first and the official VLMEvalKit candidate evaluator uses the second. The launcher derives the
+physical GPU IDs from Slurm at run time; the profile must not hard-code `CUDA_VISIBLE_DEVICES` or
+`BENCHMARK_*_GPUS`.

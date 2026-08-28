@@ -24,6 +24,8 @@ def test_asset_scope_is_a_declared_curation_task() -> None:
     assert set(assets["scope"]["tasks"]) <= set(declared)
     assert set(assets["datasets"]) == {"llava665k"}
     assert set(assets["models"]) == {"smolvlm"}
+    assert assets["judge"]["repository"] == "Qwen/Qwen3.5-27B"
+    assert re.fullmatch(r"[0-9a-f]{40}", assets["judge"]["revision"])
 
 
 def test_eval_asset_manifest_matches_frozen_collector() -> None:

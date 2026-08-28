@@ -24,6 +24,12 @@ models:
     model_type: idefics3
     relative_path: models/SmolVLM-Base
 
+judge:
+  repository: Qwen/Qwen3.5-27B
+  revision: fc05daec18b0a78c049392ed2e771dde82bdf654
+  model_type: qwen3_5
+  relative_path: models/Qwen3.5-27B
+
 eval_data:
   relative_path: LMUData
   files:
