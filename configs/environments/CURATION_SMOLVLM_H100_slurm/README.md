@@ -4,7 +4,7 @@ This deployment is intentionally separate from `PTB_H100_slurm`. It provisions t
 supported Curation-Bench target, `llava665k_smolvlm_8bench_10k_unlimited`, without changing any
 PostTrainBench runtime or asset.
 
-The deployment has four frozen pieces:
+The deployment has five frozen pieces:
 
 - DataOS control venv: `envs/dataos_cli/.venv` (only the DataOS lifecycle CLIs).
 - Pinned Curation-Bench checkout and its three upstream venvs.
