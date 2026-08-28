@@ -176,7 +176,10 @@ def _stamp_report(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: 
     stages = report.setdefault("stages", {})
     if isinstance(stages, dict):
         train = stages.get("train")
-        if isinstance(train, dict) and not train.get("model_path"):
+        from .runtime_compose import task_stage_config
+
+        train_owned_by_agent = task_stage_config(cfg, "train").get("ownership") == "agent"
+        if isinstance(train, dict) and not train.get("model_path") and train_owned_by_agent:
             train["model_path"] = runtime._paths(cfg, study_id, name, exp_dir)["model"]
     _stamp_measurements(cfg=cfg, study_id=study_id, name=name, report=report)
     return report
@@ -290,7 +293,8 @@ def _runtime_prompt_block(*, cfg, study_id: str, spec: dict, exp_dir: Path,
         "root_base_model": cfg.h100_base_model,
         "base_model_id": getattr(cfg, "base_model_id", None),
     }
-    runtime_config["posttrainbench"] = {
+    task_name = runtime_config.get("task", "posttrainbench")
+    runtime_config[task_name] = {
         "bench": cfg.target_bench,
         "profile": cfg.ptb_profile,
         "eval_limit": eval_limit,
@@ -348,6 +352,8 @@ def _resolved_sources(cfg, sources: list) -> list[dict]:
 
 def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: int,
                  remaining_minutes: int | None = None) -> str:
+    from . import runtime_compose, stages as _stages, train_spec as _train_spec
+
     bench = cfg.target_bench
     run_root = runtime._run_root(cfg, study_id, spec["name"])
     parent_model = (
@@ -356,17 +362,24 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         or cfg.h100_base_model
     )
     data = spec.get("data") or {}
-    recipe = {"sources": data.get("sources", []), "recipe": data.get("recipe", [])}
+    data_driver = runtime_compose.task_stage_config(cfg, "data").get("driver")
+    recipe = (
+        {"sources": data.get("sources", []), "recipe": data.get("recipe", [])}
+        if data_driver == "operator_toolbox"
+        else data
+    )
     runtime_block = _runtime_prompt_block(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir, eval_limit=eval_limit,
     )
-    from . import runtime_compose, stages as _stages, train_spec as _train_spec
     env_ops, task_def, resolved = runtime_compose.render_sections(
         cfg, parent_model=parent_model, eval_limit=eval_limit,
     )
     stage_blocks = _stages.render_stage_blocks(_stages.build_stages(resolved))
     train = spec.get("train") or {}
-    train_frozen = bool(resolved.get("task", {}).get("train"))  # task ships a train/ dir
+    train_frozen = (
+        resolved.get("task", {}).get("stages", {}).get("train", {}).get("ownership")
+        == "frozen"
+    )
     train_spec_json = ""
     if train.get("finetuning_type") and not train_frozen:  # our method; skip if frozen or baseline
         ts = _train_spec.build_train_spec(
@@ -374,8 +387,9 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
             run_root=run_root, time_h=2.0 if cfg.ptb_profile == "smoke" else 10.0,
         )
         train_spec_json = json.dumps(ts, ensure_ascii=False, indent=2)
+    turn = runtime_compose.task_agent_config(cfg).get("turns") or {}
     return _prompt.render(
-        "experimenter/turn/experiment",
+        turn.get("experimenter", "experimenter/turn/experiment"),
         exp_name=spec["name"],
         env_ops=env_ops,
         task_def=task_def,
@@ -658,8 +672,8 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
 
 
 def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -> dict[str, dict]:
-    """Run each spec as an agentic experimenter. PTB allows only ONE H100 for the whole run, so
-    experiments execute SEQUENTIALLY (never in parallel), sharing the single-GPU / 10h budget.
+    """Run each spec as an agentic experimenter. Experiments execute SEQUENTIALLY, sharing the
+    run's GPU/time budget.
     ``deadline`` (monotonic) stops launching further experiments once the budget is spent."""
     if not cfg.target_bench:
         raise ValueError("the role runner needs cfg.target_bench (the single PTB bench)")
@@ -671,7 +685,7 @@ def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -
             "the role runner needs runtime config with: " + ", ".join(missing_runtime)
         )
     exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
-    log.info("fan_out: %d agentic experimenter(s), SEQUENTIAL (PTB: 1 H100 at a time) bench=%s",
+    log.info("fan_out: %d agentic experimenter(s), SEQUENTIAL bench=%s",
              len(specs), cfg.target_bench)
     reports: dict[str, dict] = {}
     for spec in specs:

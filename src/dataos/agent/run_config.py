@@ -49,6 +49,44 @@ def _env(environment: str) -> dict[str, Any]:
     return data
 
 
+@lru_cache(maxsize=None)
+def _task(task: str) -> dict[str, Any]:
+    from dataos_launch.task_config import load_task_contract
+
+    return load_task_contract(_REPO_ROOT, task)
+
+
+def _validate_task_binding(*, environment: str, task: str, bench: str) -> None:
+    """Fail at run load when a task cannot resolve its bench or configured stage tools."""
+    contract = _task(task)
+    bench_specs = [
+        value
+        for value in (contract.get("inputs") or {}).values()
+        if isinstance(value, dict) and value.get("from") == "run.bench"
+    ]
+    allowed = [str(value) for spec in bench_specs for value in spec.get("one_of") or []]
+    if allowed and bench not in allowed:
+        raise ValueError(
+            f"bench {bench!r} is not declared by task {task!r}; expected one of "
+            f"{', '.join(allowed)}"
+        )
+    env = _env(environment)
+    for stage, stage_contract in contract["stages"].items():
+        tool = stage_contract.get("tool")
+        if not tool:
+            continue
+        providers = [
+            name
+            for name, value in (env.get("tools") or {}).items()
+            if isinstance(value, dict) and tool in (value.get("provides") or [])
+        ]
+        if len(providers) != 1:
+            raise ValueError(
+                f"task {task!r} stage {stage!r} requires tool {tool!r}, but environment "
+                f"{environment!r} declares {len(providers)} providers"
+            )
+
+
 # Training backends the brain knows how to map to envs (mirrors dataos-train's backend
 # registry; method→env lookup itself happens in dataos-train's env_for).
 _BACKENDS = ("llamafactory", "verl")
@@ -307,12 +345,16 @@ class PtbRunConfig:
             idle_timeout_s = _nonneg_float(agent["idle_timeout_s"], "agent.idle_timeout_s")
         else:
             idle_timeout_s = 1800.0
+        environment = _nonempty_str(data["environment"], "environment")
+        task = _nonempty_str(data["task"], "task")
+        bench = _nonempty_str(data["bench"], "bench")
+        _validate_task_binding(environment=environment, task=task, bench=bench)
         return cls(
             goal=_nonempty_str(data["goal"], "goal"),
             workspace=_nonempty_str(data["workspace"], "workspace"),
-            environment=_nonempty_str(data["environment"], "environment"),
-            task=_nonempty_str(data["task"], "task"),
-            bench=_nonempty_str(data["bench"], "bench"),
+            environment=environment,
+            task=task,
+            bench=bench,
             inputs=InputsConfig(
                 base_model_path=_nonempty_str(inputs["base_model_path"], "inputs.base_model_path"),
                 fixed_pool=_nonempty_str(inputs["fixed_pool"], "inputs.fixed_pool"),
@@ -418,7 +460,7 @@ class PtbRunConfig:
                 "goal": self.goal,
                 "time_hours": self.budget.time_hours,
             },
-            "posttrainbench": {"bench": self.bench, "profile": "formal"},
+            self.task: {"bench": self.bench, "profile": "formal"},
             "model": {"base_model_path": self.inputs.base_model_path},
             "resource": self.exec.resource.to_record(),
             "runtime": self.runtime_config(),
@@ -429,7 +471,7 @@ class PtbRunConfig:
             project_id=self.project_id,
             instruct=self.goal,
             goal=self.goal,
-            scenario="posttrainbench",
+            scenario=self.task,
             criterion=Criterion(metric="score", threshold=None, direction="max"),
             budget=Budget(max_wall_clock_s=self.budget.time_hours * 3600.0),
             workspace=self.workspace_root,

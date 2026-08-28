@@ -1,0 +1,32 @@
+{
+  "goal": "Select the strongest exact-size multimodal subset for the frozen Curation-Bench task.",
+  "workspace": "workspace/example-curationbench",
+  "environment": "example-slurm",
+  "task": "curationbench",
+  "bench": "llava665k_smolvlm_8bench_10k_unlimited",
+  "inputs": {
+    "base_model_path": "<same absolute model path configured in the Curation-Bench profile>",
+    "fixed_pool": "<same absolute dataset path configured in the Curation-Bench profile>"
+  },
+  "exec": {
+    "deploy_root": "<absolute path to this DataOS checkout on the exec host>",
+    "runs_base": "<absolute path where isolated DataOS/Curation suites land>",
+    "resource": {
+      "gpus": 1,
+      "cpus": 8,
+      "node": "<optional exact node pin>",
+      "qos": "<one of the selected partition's qos_available>",
+      "partition": "gpu"
+    }
+  },
+  "budget": {
+    "time_hours": 24,
+    "eval_samples": -1
+  },
+  "agent": {
+    "provider": "codex",
+    "model": "gpt-5.6-sol",
+    "effort": "high"
+  },
+  "monitor_port": 8803
+}

@@ -1,0 +1,18 @@
+description: >
+  Curation-Bench per-round planning request. Render params: context_json,
+  validation_errors_json (optional).
+template: |
+  Choose the next single curation experiment and return one ExperimentPlan JSON object only.
+
+  Put a fully executable selection intent in `data`, for example its filters, scores, diversity
+  rule, quotas, and deterministic seed. Leave `train` as `{}` and omit eval_limit. The official
+  random baseline is already code-fixed; propose the next evidence-driven strategy.
+
+  Context bundle:
+  {{ context_json }}
+  {% if validation_errors_json is defined and validation_errors_json %}
+
+  Your previous plan failed code validation:
+  {{ validation_errors_json }}
+  Return a corrected ExperimentPlan JSON object only.
+  {% endif %}

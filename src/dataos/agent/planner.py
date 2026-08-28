@@ -35,9 +35,10 @@ def _build_prompt(
     validation_errors: list[str] | None = None,
     catalog_pointer: str | None = None,
     catalog_path: str = "",
+    template: str = "leader/turn/plan",
 ) -> str:
     return _prompt.render(
-        "leader/turn/plan",
+        template,
         context_json=json.dumps(context, ensure_ascii=False, indent=2, sort_keys=True),
         catalog_json=json.dumps(_summarize_catalog(catalog), ensure_ascii=False, indent=2),
         catalog_pointer=catalog_pointer,
@@ -59,6 +60,7 @@ def next_plan(
     validation_errors: list[str] | None = None,
     catalog_pointer: str | None = None,
     catalog_path: str = "",
+    template: str = "leader/turn/plan",
 ) -> tuple[ExperimentPlan, str | None]:
     """Ask the leader dialog for one next experiment plan."""
 
@@ -68,5 +70,6 @@ def next_plan(
         validation_errors=validation_errors,
         catalog_pointer=catalog_pointer,
         catalog_path=catalog_path,
+        template=template,
     )
     return run_structured_dialog(agent, task, ExperimentPlan, session_id=session_id)

@@ -10,6 +10,11 @@ from dataos.agent import tools as _tools
 
 def _resolved(*, frozen: bool = False) -> dict:
     task = {
+        "stages": {
+            "data": {"stage": "data", "driver": "operator_toolbox", "ownership": "agent"},
+            "train": {"stage": "train", "driver": "native", "ownership": "agent"},
+            "eval": {"stage": "eval", "driver": "posttrainbench", "ownership": "frozen"},
+        },
         "scoring": {
             "command": "bash {ctx.eval_dir}/run_eval.sh {ctx.model_path}",
             "result": {"file": "{ctx.eval_dir}/summary.json", "field": "score", "range": [0, 100]},
@@ -18,7 +23,13 @@ def _resolved(*, frozen: bool = False) -> dict:
         "assets_root": "/assets",
     }
     if frozen:
-        task["train"] = {"command": "bash train.sh", "produces": "out/model"}
+        task["stages"]["train"] = {
+            "stage": "train",
+            "driver": "external_cli",
+            "ownership": "frozen",
+            "command": "bash train.sh",
+            "produces": "out/model",
+        }
     return {
         "task": task,
         "run": {"deploy_root": "/deploy", "environment": "PTB_H100_slurm", "task": "posttrainbench",

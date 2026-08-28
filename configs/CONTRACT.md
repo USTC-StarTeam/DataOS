@@ -22,6 +22,10 @@
 | `tools` | 是 | map | 机器预装的**通用运行时**(uv venv / conda / bare venv 皆可);**共享冻结基线(sft/rl/eval)只列通用框架/基础设施**;repo 私有工具(dataos-train/dataos-operator)只能出现在 **DataOS 派生 env**(如 `dataos_sft` = sft 基线 + repo 工具),并须配 `dataos_tools` 版本声明 |
 | `tools.<名>` | — | map | 每个运行时:`{path: <venv 或 conda prefix,须有 bin/python>, provides: [通用框架名/能力...]}`;一律按 `{path}/bin/<tool>` 调用,与环境管理器无关 |
 | `tools.<名>.dataos_tools` | 否 | map | 该 venv 预装的 repo 工具及**绑死版本**:`{train: "0.1.0", operator: "0.6.0"}`——必须等于 `src/dataos-tools/pyproject.toml` 的 version(有测试兜底);升级 = bump 版本 + 改声明 + `scripts/sync_envs.py`,此外任何 push/pull 不动 venv |
+| `tools.<名>.provides` | 是 | list[str] | 该 provider 唯一提供的 CLI/能力；stage contract 的 `tool` 必须能在这里解析到恰好一个 provider |
+| `tools.<名>.root` | 外部工具必填 | path | 外部 harness checkout；命令 cwd 与 revision 校验均基于此路径 |
+| `tools.<名>.distribution/version/revision` | 外部工具必填 | str | 安装包名、精确版本、checkout commit；external driver 提交前逐项核验，不匹配即拒绝 |
+| `tools.<名>.profile` | 任务需要时 | path | 外部 harness 的机器 profile（例如 Curation-Bench 数据/模型/eval data 映射） |
 | ~~`paths`~~ | — | — | **env 已无 paths 段**:`fixed_pool`/`deploy_root`/`runs_base` 都是 **run 级事实**(本次 run 的输入与产物位置,在 run JSON);`benchmarks` 不声明,代码拼 `{deploy_root}/configs/tasks/<task>/benchmarks` |
 | `resources` | 否 | map | 供大脑规划参考:`gpu_type` / `note` 等,自由字段 |
 | `gateway` | 否 | map | 从这台机可达的 **LLM 端点(仅连接事实)**:`{base_url, key_file}`。**不含 model**——用哪个 model / 并发是**任务**的选择(→ `task.scoring.judge`) |
@@ -52,6 +56,8 @@
 | `produce` | 是 | map | agent 要交付什么:`{kind: <产物类型,如 hf_model>, hint: <说明>}` |
 | `scoring` | 是 | map | **★ 评分契约**(见 §5) |
 | `assets` | 否 | map | 任务自带代码/数据的相对路径:`{<名>: <相对 task 目录的路径>}`(如 `lm_eval_bridge/`) |
+| `stages` | 是 | map | `data/train/eval` 三段的显式选择；data 可内联 contract，train/eval 用 `{contract: <stage>/task.yaml}` 链接 |
+| `agent` | 否 | map | 任务协议导致的 loop/prompt 事实（是否有 investigator、baseline 形状、模型每轮从 root 还是 parent 初始化、context/turn prompt 路径）；不是搜索策略 |
 
 ### scoring 子字段
 | 字段 | 必填 | 类型 | 说明 |
@@ -143,17 +149,21 @@
 
 ```
 tasks/<task>/
-  task.yaml        总声明:inputs / objective / constraints / produce / scoring(见 §2)
-  eval/            评测器:把一个【模型】打成原生分(每 task 各自实现;task.yaml.scoring.command 指向它)
-  train/           可选。★ 目录存在 = 训练【冻结】(配方不可改);不存在 = 训练是 agent 的方法
+  task.yaml        总声明 + DATA stage contract + train/eval contract 链接
+  train/task.yaml  dataos-train driver / ownership / workflow
+  eval/task.yaml   dataos-eval driver / ownership / protocol或外部 workflow
 ```
 
 - **三段 DATA → TRAIN → EVAL**:DATA 是 agent 杠杆;EVAL 永远"评一个模型 → 分数"(跑 task.yaml 的
   `scoring.command`,读 `result.file` 的 `result.field`);差别只在 **TRAIN 归属**。
-- **`train/` 的语义(唯一信号)**:存在 → `compose.resolve` 置 `resolved.task.train = {frozen, command, ...}`
-  (读 `train/train.yaml`);不存在 → `resolved.task.train = None`。大脑据此把 train stage 归 provided/ours。
-- `train/train.yaml`(冻结时):`{frozen: true, command: <模板>, produces: <模型路径>}`;命令同样支持
-  `{{env.*}}{{run.*}}` 解析 + `{ctx.*}` 保留。
+- **不存在目录信号**:`train/` 或 `eval/` 是否存在不决定任何行为。root `task.yaml.stages`
+  必须链接对应 contract；每份 stage contract 必须显式写 `stage` / `driver` / `ownership`。
+- PTB 固定为 `train.driver=native, ownership=agent` 与
+  `eval.driver=posttrainbench, ownership=frozen`；Curation-Bench 固定为 train/eval
+  `driver=external_cli, ownership=frozen`。两者走同一 Spec→Stage→Job→Launcher，只共享生命周期，
+  不共享训练器/评测器实现。
+- `external_cli` 必须声明 `tool`，由 env 的 `tools.*.provides` 唯一解析；不允许按 task 名分支或
+  回落到内置工具。外部 CLI 即使退出码为 0，也要按 contract 的 `accept_status` 校验其 JSON。
 - 多指标 bench 若需归一化(如把 8 个子分算成一个可比分),用 `scoring.aggregate` 声明规则,由消费方
   (大脑组装 report 时)按声明计算——不在 runtime 里常设 runner。
 

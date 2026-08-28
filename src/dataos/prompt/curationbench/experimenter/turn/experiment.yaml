@@ -1,0 +1,33 @@
+description: >
+  One Curation-Bench experiment. Render params mirror the common experiment turn.
+template: |
+  Implement Curation-Bench experiment '{{ exp_name }}' for {{ bench }}.
+  Frozen root base model: {{ root_base_model }}
+  Strategy-tree node: {{ node_id }} parent={{ parent_node_id }}
+  {% if remaining_minutes is defined and remaining_minutes %}
+  About {{ remaining_minutes }} wall-clock minutes remain; finish data, frozen train, and frozen
+  eval within that bound.
+  {% endif %}
+
+  CURATION PLAN (preserve the intent; round 0 must remain the official random baseline):
+  {{ recipe_json }}
+  Leader brief: {{ subagent_brief }}
+
+  Runtime facts:
+  {{ runtime_config_json }}
+
+  Remote scratch: {{ run_root }}
+  Local report: {{ report_path }}
+  Local durable state: {{ state_path }}
+
+  Initialize report.json with status `data`, then execute the configured stages. DATA must create
+  and retain `{ctx.suite_dir}` and `{ctx.submission_path}`; substitute those exact values into the
+  frozen TRAIN/EVAL commands. Read task-collect's model_path and pass it unchanged as
+  `{ctx.model_path}`. Put the canonical eval output under `{ctx.eval_dir}` and record that path as
+  stages.eval.summary_dir.
+
+  {{ env_ops }}
+
+  {{ task_def }}
+
+  {{ stage_blocks }}

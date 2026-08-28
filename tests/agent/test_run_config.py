@@ -81,6 +81,47 @@ def test_required_fields(tmp_path):
         PtbRunConfig.from_dict(data)
 
 
+def test_task_bench_and_tool_binding_are_validated_at_load(tmp_path, monkeypatch):
+    data = _run_json(tmp_path / "myrun")
+    data["bench"] = "not-a-ptb-bench"
+    with pytest.raises(ValueError, match="not declared"):
+        PtbRunConfig.from_dict(data)
+
+    from dataos.agent import run_config
+
+    run_config._env.cache_clear()
+    monkeypatch.setattr(
+        run_config,
+        "_env",
+        lambda name: {
+            "name": name,
+            "kind": "local",
+            "tools": {},
+            "slurm": {},
+        },
+    )
+    data = _run_json(tmp_path / "curation")
+    data["environment"] = "missing-curation-tool"
+    data["task"] = "curationbench"
+    data["bench"] = "llava665k_smolvlm_8bench_10k_unlimited"
+    data["exec"]["resource"].pop("qos")
+    with pytest.raises(ValueError, match="requires tool 'datacuration-bench'"):
+        PtbRunConfig.from_dict(data)
+
+
+def test_curation_run_uses_the_same_run_schema_without_ptb_scenario_leak(tmp_path):
+    data = _run_json(tmp_path / "curation")
+    data["task"] = "curationbench"
+    data["bench"] = "llava665k_smolvlm_8bench_10k_unlimited"
+    data["budget"] = {"time_hours": 24, "eval_samples": -1}
+    cfg = PtbRunConfig.from_dict(data).to_auto_config(
+        resolved_config_path=tmp_path / "resolved.json"
+    )
+    assert cfg.scenario == "curationbench"
+    assert cfg.runtime_config["task"] == "curationbench"
+    assert cfg.h100_base_model == data["inputs"]["base_model_path"]
+
+
 def test_fresh_instance_suffixes_taken_workspace(tmp_path):
     config_path = tmp_path / "run.json"
     config_path.write_text(json.dumps(_run_json(tmp_path / "myrun")), encoding="utf-8")

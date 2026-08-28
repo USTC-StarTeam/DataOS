@@ -1,0 +1,40 @@
+# Frozen Curation-Bench evaluation. The external driver invokes the official CLI and then the
+# task-local collector converts its native VLMEvalKit files into DataOS summary.json.
+version: 1
+stage: eval
+driver: external_cli
+ownership: frozen
+tool: datacuration-bench
+args: [eval, --suite-dir, "{suite_dir}"]
+accept_status: [completed]
+collector: collect.py
+followup: |-
+  Persist the returned handle path. Poll `{{ env.tools.sft_env.path }}/bin/dataos-eval status <handle>`
+  to terminal, then use `{{ env.tools.sft_env.path }}/bin/dataos-eval collect` with
+  `--repo {{ run.deploy_root }} --environment {{ run.environment }} --task-config {{ run.task }} <handle>`.
+native:
+  results_file: eval/results/results.json
+  # VLMEvalKit serializes DataFrames as {column: {row_index: value}}. These selectors are the
+  # exact raw fields prescribed by the pinned harness's BENCHMARK.md.
+  selectors:
+    MMVet: {row: {Category: Overall}, field: acc}
+    LLaVABench: {row: {split: overall}, field: "Relative Score (main)"}
+    OCRBench: {field: "Final Score"}
+    HallusionBench: {row: {split: Overall}, mean_fields: [aAcc, fAcc, qAcc]}
+    MMMU_DEV_VAL: {row: {split: val}, field: Overall, multiply: 100}
+    MathVista_MINI: {row: {"Task&Skill": Overall}, field: acc}
+    MMStar: {row: {split: none}, field: Overall, multiply: 100}
+    MMBench: {row: {split: dev}, field: Overall, multiply: 100}
+  normalization:
+    MMVet: 100
+    LLaVABench: 100
+    OCRBench: 1000
+    HallusionBench: 100
+    MMMU_DEV_VAL: 100
+    MathVista_MINI: 100
+    MMStar: 100
+    MMBench: 100
+result:
+  file: "{output_dir}/summary.json"
+  field: score
+  range: [0, 1]

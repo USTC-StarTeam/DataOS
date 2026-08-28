@@ -42,6 +42,7 @@ def _spec(args, stage: EvalStage):
         resources=Resources(
             gpus=args.gpus, cpus=args.cpus, time_h=slurm_time_s(args.time) / 3600
         ),
+        suite_dir=args.suite_dir,
     )
 
 
@@ -75,7 +76,7 @@ def cmd_submit(args) -> int:
         "model_path": spec.model_path,
         "model_name": spec.model_name,
         "needs_judge": spec.needs_judge,
-        "chat_template": spec.chat_template,
+        "chat_template": getattr(spec, "chat_template", None),
         "submitted_at": handle.submitted_at,
     }
     spec.write()
@@ -141,6 +142,8 @@ def main() -> None:
     s.add_argument("--model-name", required=True)
     s.add_argument("--output-dir", required=True)
     s.add_argument("--run-root", required=True)
+    s.add_argument("--suite-dir", default=None,
+                   help="external harness suite; required by an external_cli eval driver")
     s.add_argument("--limit", type=int, default=-1)
     # The run's resource facts. Defaults are a fallback for a caller that has none, NOT the
     # normal path — the caller has them and passes them (configs/tasks/*/task.yaml scoring.command).

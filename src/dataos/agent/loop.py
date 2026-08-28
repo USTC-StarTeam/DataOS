@@ -23,6 +23,7 @@ from dataos.agent.eval_freeze import freeze_eval
 
 from . import budget as _budget
 from . import runtime
+from . import runtime_compose
 from . import roles
 from .config import AutoRunConfig
 from .schemas import ExperimentPlan
@@ -372,6 +373,7 @@ def _plan_context(
     recon: dict | None = None,
 ) -> dict:
     full_size = _full_eval_size(cfg)  # read once: both the tree view and eval_policy need it
+    train_frozen = runtime_compose.task_stage_config(cfg, "train").get("ownership") == "frozen"
     return {
         # only what a plan field can be chosen from: the goal, the bench, and the profile that
         # sizes it. Ids and config paths are host bookkeeping the leader cannot act on.
@@ -415,7 +417,11 @@ def _plan_context(
             "parent_node_id must be one of tree.growable_node_ids.",
             "name must not repeat an existing experiment_name.",
             "data.sources must all appear in recon.legal_source_ids.",
-            "train.model_name_or_path must be omitted; code injects the parent model path.",
+            (
+                "train must be empty; the task owns its frozen training workflow."
+                if train_frozen
+                else "train.model_name_or_path must be omitted; code injects the parent model path."
+            ),
         ],
     }
 
@@ -436,6 +442,9 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
 
     if "model_name_or_path" in (plan.train or {}):
         errors.append("train.model_name_or_path must be omitted; code injects the parent model")
+    if runtime_compose.task_stage_config(cfg, "train").get("ownership") == "frozen" \
+            and (plan.train or {}):
+        errors.append("train must be empty because this task's training workflow is frozen")
     if plan.estimated_hours is not None and plan.estimated_hours <= 0:
         errors.append("estimated_hours must be positive when provided")
     if _effective_eval_limit(cfg) == -2:
@@ -477,10 +486,15 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
     return errors
 
 
-def _spec_from_node(node: dict, eval_cfg: dict) -> dict:
+def _spec_from_node(node: dict, eval_cfg: dict, cfg: AutoRunConfig) -> dict:
     plan = dict(node.get("plan") or {})
     train = dict(plan.get("train") or {})
-    init_model = node.get("init_model_path")
+    policy = runtime_compose.task_agent_config(cfg)
+    init_model = (
+        cfg.h100_base_model
+        if policy.get("model_initialization") == "root"
+        else node.get("init_model_path")
+    )
     if init_model:
         train["model_name_or_path"] = init_model
     return {
@@ -571,7 +585,9 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     proj.load()
 
     eval_cfg = freeze_eval(cfg=cfg)
-    catalog = _safe_catalog()
+    data_driver = runtime_compose.task_stage_config(cfg, "data").get("driver")
+    task_agent = runtime_compose.task_agent_config(cfg)
+    catalog = _safe_catalog() if data_driver == "operator_toolbox" else []
     base_model = cfg.h100_base_model or cfg.base_model_id or "base"
     tree = TreeState.load(proj.project_dir, base_model)
 
@@ -607,7 +623,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     # with facts (eval format contract, base failure cause, per-source quality) instead of guessing.
     # Resume-safe: a valid recon.json on disk skips it. Skipped for the stub backend (no cluster).
     recon = _load_recon(Path(proj.project_dir))
-    if recon is None and cfg.backend != "stub":
+    if recon is None and cfg.backend != "stub" and task_agent.get("investigator", True):
         log.info("RECON: mandatory reconnaissance before any experiment")
         _publish_live(cfg, round_idx=-1, phase="recon", started=started, now=_clock())
         recon_deadline = (
@@ -659,7 +675,8 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             )
             validation_errors: list[str] | None = None
             plan = None
-            if round_idx == 0:
+            baseline = task_agent.get("baseline", "model_eval")
+            if round_idx == 0 and baseline == "model_eval":
                 # FIRST experiment is ALWAYS the baseline (evaluate the base model as-is,
                 # no data, no training) — a code-fixed plan, not a leader decision: saves
                 # a plan call and the leader can't open with a non-baseline experiment.
@@ -673,6 +690,18 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     train={},
                     expected_signal="reference score for every later experiment",
                     subagent_brief="BASELINE: evaluate the parent model directly; skip data and train.",
+                )
+            elif round_idx == 0 and isinstance(baseline, dict):
+                log.info("round 0: task-configured baseline (no leader call)")
+                plan = ExperimentPlan(
+                    parent_node_id=tree.root_id,
+                    name=str(baseline["name"]),
+                    hypothesis=str(baseline["hypothesis"]),
+                    estimated_hours=baseline.get("estimated_hours"),
+                    data=dict(baseline.get("data") or {}),
+                    train={},
+                    expected_signal=str(baseline.get("expected_signal") or ""),
+                    subagent_brief=str(baseline.get("subagent_brief") or ""),
                 )
             for attempt in range(1, _PLAN_RETRIES + 1):
                 if plan is not None:
@@ -702,6 +731,9 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                         else str(catalog_path)
                     ),
                     catalog_path=str(catalog_path),
+                    template=(task_agent.get("turns") or {}).get(
+                        "leader_plan", "leader/turn/plan"
+                    ),
                 )
                 _save_session(
                     Path(proj.project_dir),
@@ -755,7 +787,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                 node.get("estimated_hours"),
             )
 
-        spec = _spec_from_node(node, eval_cfg)
+        spec = _spec_from_node(node, eval_cfg, cfg)
         if not (study.plan and study.plan.get("experiments")):
             study.set_plan(
                 {
@@ -781,7 +813,10 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             node_id=node_id,
             node_name=node.get("experiment_name"),
             node_run_root=runtime._run_root(cfg, study_id, spec["name"]),
-            node_trains=bool((node.get("plan") or {}).get("train")),
+            node_trains=(
+                runtime_compose.task_stage_config(cfg, "train").get("ownership") == "frozen"
+                or bool((node.get("plan") or {}).get("train"))
+            ),
         )
 
         # The SAME deadline the stop check above used — including this round's queue credit.

@@ -1,0 +1,9 @@
+description: >
+  Curation-Bench review stage. The official evaluator has aggregate/per-benchmark artifacts rather
+  than PostTrainBench predictions.jsonl. No render params.
+template: |
+  Review the official summary.json, its native eight-benchmark results, and the bounded train/eval
+  log tails. Explain which capabilities moved, whether audit or data-composition evidence suggests
+  a selector-side cause, and any crash/anomaly. Do not rescore or edit the frozen evaluator. Write
+  `stages.review` with a concise conclusion and the supporting per-benchmark evidence, then set the
+  top-level report status to `completed`.

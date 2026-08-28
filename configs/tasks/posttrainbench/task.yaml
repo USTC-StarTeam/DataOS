@@ -5,6 +5,16 @@
 
 name: posttrainbench
 
+# 三段行为全部显式选择。train/eval 各自的 task.yaml 由对应 CLI 读取；目录是否存在
+# 不再携带语义，因此给 PTB 增加 train/ 配置不会把训练意外变成冻结训练。
+stages:
+  data:
+    stage: data
+    driver: operator_toolbox
+    ownership: agent
+  train: {contract: train/task.yaml}
+  eval: {contract: eval/task.yaml}
+
 inputs:
   base_model:   {from: run.base_model, kind: hf_model}          # 要改进的基座模型
   data_pool:    {from: run.fixed_pool, kind: fixed-pool}              # 唯一允许的数据来源(路径在 run JSON,每次 run 指定)

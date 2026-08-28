@@ -1,0 +1,27 @@
+# Frozen Curation-Bench training. dataos-train schedules this workflow, but every operation
+# below is executed by the official harness named by `tool`.
+version: 1
+stage: train
+driver: external_cli
+ownership: frozen
+tool: datacuration-bench
+command: |-
+  {{ env.tools.sft_env.path }}/bin/dataos-train task-submit --repo {{ run.deploy_root }} --environment {{ run.environment }} --task-config {{ run.task }} --suite-dir {ctx.suite_dir} --submission-path {ctx.submission_path} --run-root {ctx.run_root} --gpus {{ run.resource.gpus }} --cpus {{ run.resource.cpus }}{% if run.resource.get("qos") %} --qos {{ run.resource.qos }}{% endif %}{% if run.resource.get("partition") %} --partition {{ run.resource.partition }}{% endif %}{% if run.resource.get("node") %} --nodelist {{ run.resource.node }}{% endif %}
+followup: |-
+  Persist the returned handle path. Poll `{{ env.tools.sft_env.path }}/bin/dataos-train status <handle>`
+  to terminal, then run `{{ env.tools.sft_env.path }}/bin/dataos-train task-collect <handle>` and
+  take `{ctx.model_path}` only from its `model_path` field.
+produces: "the `model_path` in dataos-train task-collect output"
+workflow:
+  - name: audit
+    args: [audit, --suite-dir, "{suite_dir}", --path, "{submission_path}"]
+    accept_status: [clean, warning, high_risk, skipped]
+  - name: submit
+    args: [submit, --suite-dir, "{suite_dir}", --path, "{submission_path}"]
+    accept_status: [submitted]
+  - name: finetune
+    args: [finetune, --suite-dir, "{suite_dir}"]
+    accept_status: [completed]
+result:
+  step: finetune
+  field: model_path

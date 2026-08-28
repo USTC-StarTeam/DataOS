@@ -39,6 +39,7 @@ from .schemas import (
 from .precheck import precheck_disk
 from .spec import TrainSpec
 from .stage import TrainStage
+from .task_stage import TaskTrainSpec, TaskTrainStage
 
 
 def _read_input(arg: str) -> Any:
@@ -252,6 +253,50 @@ def cmd_run(args: argparse.Namespace) -> int:
     return _finalize(handle, launcher, st, fallback_backend=job.backend)
 
 
+def _task_stage(args: argparse.Namespace) -> TaskTrainStage:
+    return TaskTrainStage.from_repo(args.repo, args.environment, args.task_config)
+
+
+def cmd_task_submit(args: argparse.Namespace) -> int:
+    stage = _task_stage(args)
+    spec = TaskTrainSpec(
+        name=Path(args.run_root).name,
+        run_dir=args.run_root,
+        resources={"gpus": args.gpus, "cpus": args.cpus, "time_h": args.time_hours},
+        task_config=args.task_config,
+        suite_dir=args.suite_dir,
+        submission_path=args.submission_path,
+    )
+    if args.dry_run:
+        _emit(stage.preview(spec, _resource(args)))
+        return 0
+    try:
+        handle = stage.submit(spec, _resource(args))
+    except SpecError as exc:
+        _emit({"ok": False, "errors": exc.errors})
+        return 1
+    spec.write()
+    handle_path = Path(spec.run_dir) / "external_train.handle.json"
+    atomic_write_json(handle_path, handle.model_dump())
+    _emit({"job_id": handle.job_id, "handle": str(handle_path)})
+    return 0
+
+
+def cmd_task_collect(args: argparse.Namespace) -> int:
+    handle = Handle.model_validate(_read_input(args.handle))
+    status = get_launcher(handle.launcher).status(handle)
+    if not status.is_terminal():
+        _emit({"status": status.value, "error": "job is not terminal yet"})
+        return 3
+    result_path = Path(handle.run_dir) / "external_train_result.json"
+    if not result_path.is_file():
+        _emit({"status": status.value, "error": f"missing {result_path}"})
+        return 1
+    result = read_json(result_path)
+    _emit(result)
+    return 0 if result.get("status") == Status.COMPLETED.value else 1
+
+
 def cmd_modeljob_validate(args: argparse.Namespace) -> int:
     spec = ModelJobSpec.model_validate(_read_input(args.spec))
     errors = modeljob_backend.validate(spec)
@@ -338,6 +383,28 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--poll", type=float, default=10.0)
     r.add_argument("--timeout", type=float, default=None)
     r.set_defaults(func=cmd_run)
+
+    ts = sub.add_parser(
+        "task-submit", help="submit a frozen workflow selected by train/task.yaml"
+    )
+    ts.add_argument("--repo", required=True)
+    ts.add_argument("--environment", required=True)
+    ts.add_argument("--task-config", required=True)
+    ts.add_argument("--suite-dir", required=True)
+    ts.add_argument("--submission-path", required=True)
+    ts.add_argument("--run-root", required=True)
+    ts.add_argument("--gpus", type=int, default=1)
+    ts.add_argument("--cpus", type=int, default=8)
+    ts.add_argument("--time-hours", type=float, default=12.0)
+    ts.add_argument("--qos", default=None)
+    ts.add_argument("--nodelist", default=None)
+    ts.add_argument("--partition", default=None)
+    ts.add_argument("--dry-run", action="store_true")
+    ts.set_defaults(func=cmd_task_submit)
+
+    tc = sub.add_parser("task-collect", help="collect a frozen task training result")
+    tc.add_argument("handle")
+    tc.set_defaults(func=cmd_task_collect)
 
     mjv = sub.add_parser("modeljob-validate", help="ModelJobSpec -> {ok, errors}")
     mjv.add_argument("spec", help="path to ModelJobSpec JSON, or - for stdin")

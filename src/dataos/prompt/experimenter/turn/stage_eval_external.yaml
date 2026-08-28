@@ -1,0 +1,14 @@
+description: >
+  External EVAL stage lifecycle selected by eval/task.yaml. Render params: command, followup,
+  result_field, result_file, result_range, format_contract_loc.
+template: |
+  run the frozen external evaluation only through dataos-eval:
+    1. submit: `{{ command }}` and persist the returned handle;
+    2. poll/collect exactly as configured: {{ followup }}
+  The external harness writes {{ result_file }}; its `{{ result_field }}` field in range
+  {{ result_range }} is the score. Do not invoke the harness evaluator directly, hand-write an
+  sbatch wrapper, rescore its native files, or evaluate arbitrary checkpoints outside the active
+  suite. Record only the directory holding the canonical result as `stages.eval.summary_dir`.
+  {% if format_contract_loc %}
+  Read the frozen benchmark protocol before interpreting the result: {{ format_contract_loc }}
+  {% endif %}

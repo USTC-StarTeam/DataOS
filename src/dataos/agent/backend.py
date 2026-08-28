@@ -109,10 +109,14 @@ def system_prompt(role: str, cfg: AutoRunConfig) -> str:
     """Compose the role's context prompt from src/dataos/prompt/<role>/context/."""
     if role not in _BLOCKS:
         raise ValueError(f"unknown role {role!r}; expected one of {sorted(_BLOCKS)}")
+    from .runtime_compose import task_agent_config
+
+    configured = task_agent_config(cfg).get("context") or {}
+    blocks = tuple(configured.get(role) or _BLOCKS[role])
     # Every block gets the same facts: a template that ignores them renders identically, and
     # any block is then free to reference a fact without a special case here.
     facts = prompt_facts(cfg)
-    return "\n\n".join(_prompt.render(b, **facts) for b in _BLOCKS[role])
+    return "\n\n".join(_prompt.render(b, **facts) for b in blocks)
 
 
 class _StubMainAgent:

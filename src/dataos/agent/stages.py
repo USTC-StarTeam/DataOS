@@ -11,8 +11,7 @@ Each stage's ``invoke`` is ASSEMBLED FROM REGISTERED TOOLS (see
 Trainer (dataos-train's deterministic lifecycle via :class:`~dataos.agent.tools.DataosTrainCli`),
 and the Evaluator from the resolved runtime contract. No prompt prose lives in this file.
 
-Ownership encodes lever-vs-ruler: DATA and TRAIN are *ours* (the agent's improvable
-method); EVAL is *provided* (the task's frozen scorer — outside the method space).
+Ownership encodes lever-vs-ruler and comes from the task's explicit stage contracts.
 """
 
 from __future__ import annotations
@@ -38,14 +37,14 @@ class Stage:
 
 
 def _train_invoke(resolved: dict, registry: _tools.ToolRegistry) -> str:
-    """The train stage's invoke: FROZEN tasks (the task ships a train/ dir) render the
-    frozen branch; everything else is the registered Trainer's own contract."""
-    frozen = resolved.get("task", {}).get("train")
-    if frozen:
+    """Render the configured frozen workflow or the registered native trainer."""
+    contract = resolved.get("task", {}).get("stages", {}).get("train", {})
+    if contract.get("ownership") == "frozen":
         return _prompt.render(
             "experimenter/turn/stage_train",
-            frozen_command=str(frozen.get("command", "")).strip(),
-            frozen_produces=frozen.get("produces", "the harness run_dir model"),
+            frozen_command=str(contract.get("command", "")).strip(),
+            frozen_produces=contract.get("produces", "the harness run_dir model"),
+            frozen_followup=str(contract.get("followup", "")).strip(),
             cli_path="", placement="",
         )
     if registry.trainer is None:
@@ -56,21 +55,44 @@ def _train_invoke(resolved: dict, registry: _tools.ToolRegistry) -> str:
 def build_stages(resolved: dict, registry: _tools.ToolRegistry | None = None) -> list[Stage]:
     """All three stages derive from the task contract, with invokes assembled from the
     tool registry (built from the same contract when not given). Owners: DATA=ours (the
-    agent's lever); TRAIN=frozen if the task ships a train/ dir (resolved.task.train set)
-    else ours; EVAL is always the uniform model→score runner (provided)."""
+    agent's lever); TRAIN/EVAL ownership is declared in the selected stage task.yaml."""
     registry = registry or _tools.build_registry(resolved)
     scoring = resolved.get("task", {}).get("scoring", {})
     result = scoring.get("result", {})
-    train_frozen = bool(resolved.get("task", {}).get("train"))
+    contracts = resolved.get("task", {}).get("stages", {})
+    data_contract = contracts.get("data", {})
+    train_contract = contracts.get("train", {})
+    eval_contract = contracts.get("eval", {})
+    task_agent = resolved.get("task", {}).get("agent") or {}
+    review_template = (task_agent.get("turns") or {}).get(
+        "review_stage", "experimenter/turn/stage_review"
+    )
+    external_data = data_contract.get("driver") == "external_cli"
+    external_eval = eval_contract.get("driver") == "external_cli"
+    train_frozen = train_contract.get("ownership") == "frozen"
+    data_invoke = (
+        str(data_contract.get("invoke", "")).strip()
+        if data_contract.get("driver") == "external_cli"
+        else "\n\n".join(op.invoke(resolved) for op in registry.operators)
+    )
     return [
         Stage(
             name="data",
             role="turn fixed-pool sources into THIS experiment's training dataset",
-            input="the pool sources named in the DATA RECIPE (dirs under the fixed pool)",
-            output="{ctx.run_root}/data/sft — an HF save_to_disk dataset; the job derives LLaMA-Factory's train.json + dataset_info.json from it",
-            invoke="\n\n".join(op.invoke(resolved) for op in registry.operators),
+            input=(
+                "the external task's frozen dataset plus this node's curation strategy"
+                if external_data
+                else "the pool sources named in the DATA RECIPE (dirs under the fixed pool)"
+            ),
+            output=(
+                "{ctx.submission_path} — the official exact-size multimodal submission"
+                if external_data
+                else "{ctx.run_root}/data/sft — an HF save_to_disk dataset; the job derives "
+                     "LLaMA-Factory's train.json + dataset_info.json from it"
+            ),
+            invoke=data_invoke,
             where="inside the Slurm GPU job (pool lives there); only bounded llm_* scoring on login",
-            owner=OWNER_OURS,
+            owner=(OWNER_OURS if data_contract.get("ownership") == "agent" else OWNER_PROVIDED),
         ),
         Stage(
             name="train",
@@ -100,15 +122,29 @@ def build_stages(resolved: dict, registry: _tools.ToolRegistry | None = None) ->
                 else "run the task's evaluator per the TASK contract above"
             ),
             where="the dataos-eval CLI on the login node (the tool owns the GPU job + judge step)",
-            owner=OWNER_PROVIDED,
+            owner=(OWNER_PROVIDED if eval_contract.get("ownership") == "frozen" else OWNER_OURS),
         ),
         Stage(
             name="review",
-            role="model rollouts -> failure analysis",
-            input="{ctx.eval_dir}/predictions.jsonl (the model's raw answers from EVAL)",
-            output="the `analysis` block in report.json (failure classes + examples + conclusion)",
-            invoke=_prompt.render("experimenter/turn/stage_review"),
-            where="login node (reading jsonl is light)",
+            role=(
+                "official native benchmark artifacts -> curation evidence"
+                if external_eval else "model rollouts -> failure analysis"
+            ),
+            input=(
+                "{ctx.eval_dir}/summary.json plus the official native results and bounded logs"
+                if external_eval
+                else "{ctx.eval_dir}/predictions.jsonl (the model's raw answers from EVAL)"
+            ),
+            output=(
+                "the `stages.review` curation conclusion in report.json"
+                if external_eval
+                else "the `analysis` block in report.json (failure classes + examples + conclusion)"
+            ),
+            invoke=_prompt.render(review_template),
+            where=(
+                "login node (bounded reads of the selected suite only)"
+                if external_eval else "login node (reading jsonl is light)"
+            ),
             owner=OWNER_OURS,
         ),
     ]

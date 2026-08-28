@@ -129,6 +129,17 @@ class FrozenEvaluator:
         eval_bin = f"{_tool_providing(env, 'dataos-eval').get('path', '<sft_env>')}/bin/dataos-eval"
         repo = run.get("deploy_root") or "<deploy_root>"
         task_config = run.get("task", "")
+        eval_contract = (task.get("stages") or {}).get("eval") or {}
+        if eval_contract.get("driver") == "external_cli":
+            return _prompt.render(
+                "experimenter/turn/stage_eval_external",
+                command=str(scoring.get("command", "")).strip(),
+                followup=str(eval_contract.get("followup", "")).strip(),
+                result_field=result.get("field", "score"),
+                result_file=result.get("file", "<result>"),
+                result_range=result.get("range", [0, 1]),
+                format_contract_loc=str(fc or ""),
+            )
         return _prompt.render(
             "experimenter/turn/stage_eval",
             command=str(scoring.get("command", "")).strip(),
@@ -141,7 +152,7 @@ class FrozenEvaluator:
             result_range=result.get("range", [0, 100]),
             format_contract_loc=(
                 f"{repo}/configs/tasks/{task_config}/{fc}"
-                if fc and " " not in str(fc)
+                if fc and " " not in str(fc) and not str(fc).startswith("/")
                 else str(fc or "")
             ),
         )
@@ -176,6 +187,7 @@ class DataosTrainCli:
         ]))
         return _prompt.render(
             "experimenter/turn/stage_train", frozen_command="", frozen_produces="",
+            frozen_followup="",
             cli_path=f"{te_path}/bin/dataos-train", placement=placement,
         )
 

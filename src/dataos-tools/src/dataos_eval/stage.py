@@ -22,6 +22,11 @@ import yaml
 from dataos_launch import Job, Resources
 from dataos_launch.spec import Spec
 from dataos_launch.stage import Stage
+from dataos_launch.task_config import (
+    load_stage_contract,
+    tool_provider,
+    validate_provider_pin,
+)
 
 
 class EvalSpec(Spec):
@@ -40,6 +45,19 @@ class EvalSpec(Spec):
     output_dir: str
     limit: int = -1
     chat_template: str
+    needs_judge: bool = False
+
+
+class ExternalEvalSpec(Spec):
+    """One evaluation owned by an external task harness."""
+
+    stage = "eval"
+
+    task: str
+    model_path: str
+    model_name: str
+    output_dir: str
+    suite_dir: str
     needs_judge: bool = False
 
 
@@ -87,16 +105,30 @@ class EvalStage(Stage):
 
     @classmethod
     def from_repo(cls, repo: Path, environment: str, task_config: str = "posttrainbench",
-                  **_: object) -> EvalStage:
+                  **_: object) -> EvalStage | ExternalEvalStage:
         """The deployment plus the TASK contract — the only stage that needs both."""
+        repo = Path(repo)
         task_dir = repo / "configs" / "tasks" / task_config
         read = lambda p: yaml.safe_load(p.read_text(encoding="utf-8"))  # noqa: E731
+        task_cfg, stage_cfg = load_stage_contract(repo, task_config, "eval")
+        driver = stage_cfg.get("driver")
+        if driver == "external_cli":
+            return ExternalEvalStage(
+                cls.load_env(repo, environment),
+                repo=repo,
+                task_config=task_config,
+                task_cfg=task_cfg,
+                contract=stage_cfg,
+            )
+        if driver != "posttrainbench":
+            raise ValueError(f"unknown eval driver {driver!r} for task {task_config!r}")
+        protocol_name = stage_cfg.get("protocol")
         return cls(
             cls.load_env(repo, environment),
             repo=repo,
             task_config=task_config,
-            task_cfg=read(task_dir / "task.yaml"),
-            protocol=read(task_dir / "eval" / "protocol.yaml"),
+            task_cfg=task_cfg,
+            protocol=read(task_dir / "eval" / str(protocol_name)),
         )
 
     @property
@@ -104,7 +136,8 @@ class EvalStage(Stage):
         return self.protocol.get("benches") or {}
 
     def spec_for(self, *, task: str, model_path: str, model_name: str, output_dir: str,
-                 run_root: str, limit: int, resources: Resources) -> EvalSpec:
+                 run_root: str, limit: int, resources: Resources,
+                 suite_dir: str | None = None) -> EvalSpec:
         """Assemble the spec: what the caller named, plus what the protocol decides."""
         bench = self.benches.get(task)
         if bench is None:
@@ -241,4 +274,115 @@ class EvalStage(Stage):
             f"{bridge}/run_lmeval_judge.py --bench {shlex.quote(task)} "
             f"--predictions {shlex.quote(output_dir)}/predictions.jsonl "
             f"--output {shlex.quote(str(summary_path))} --workers {judge.get('workers', 32)}"
+        )
+
+
+class ExternalEvalStage(Stage):
+    """Run an evaluation workflow declared by ``eval/task.yaml``."""
+
+    name = "eval"
+
+    def __init__(
+        self,
+        env: dict,
+        *,
+        repo: Path,
+        task_config: str,
+        task_cfg: dict,
+        contract: dict,
+    ) -> None:
+        super().__init__(env)
+        self.repo = repo
+        self.task_config = task_config
+        self.task_cfg = task_cfg
+        self.contract = contract
+
+    def _tool(self) -> tuple[dict, Path]:
+        name = str(self.contract["tool"])
+        provider = tool_provider(self.env, name)
+        return provider, Path(str(provider["path"])) / "bin" / name
+
+    def spec_for(
+        self,
+        *,
+        task: str,
+        model_path: str,
+        model_name: str,
+        output_dir: str,
+        run_root: str,
+        limit: int,
+        resources: Resources,
+        suite_dir: str | None = None,
+    ) -> ExternalEvalSpec:
+        del limit
+        if not suite_dir:
+            raise SystemExit(
+                f"eval driver external_cli for task {self.task_config!r} requires --suite-dir"
+            )
+        return ExternalEvalSpec(
+            name=f"eval_{Path(output_dir).name}",
+            run_dir=run_root,
+            resources=resources,
+            task=task,
+            model_path=model_path,
+            model_name=model_name,
+            output_dir=output_dir,
+            suite_dir=suite_dir,
+        )
+
+    def validate(self, spec: ExternalEvalSpec) -> list[str]:
+        errors = []
+        if not Path(spec.suite_dir, "suite_state.json").is_file():
+            errors.append(f"suite is not initialized: {spec.suite_dir}/suite_state.json")
+        try:
+            tool = str(self.contract["tool"])
+            errors.extend(validate_provider_pin(tool_provider(self.env, tool), tool))
+        except (KeyError, ValueError) as exc:
+            errors.append(str(exc))
+        collector = self.repo / "configs" / "tasks" / self.task_config / "eval" / str(
+            self.contract.get("collector")
+        )
+        if not collector.is_file():
+            errors.append(f"configured external eval collector does not exist: {collector}")
+        return errors
+
+    def build(self, spec: ExternalEvalSpec) -> Job:
+        provider, executable = self._tool()
+        values = {
+            "suite_dir": spec.suite_dir,
+            "output_dir": spec.output_dir,
+            "model_path": spec.model_path,
+            "model_name": spec.model_name,
+            "task": spec.task,
+        }
+        args = [str(value).format_map(values) for value in self.contract.get("args") or []]
+        collector = self.repo / "configs" / "tasks" / self.task_config / "eval" / str(
+            self.contract["collector"]
+        )
+        manifest = {
+            "executable": str(executable),
+            "cwd": str(provider.get("root") or Path(executable).parents[2]),
+            "args": args,
+            "accept_status": [str(v) for v in self.contract.get("accept_status") or []],
+            "suite_dir": spec.suite_dir,
+            "output_dir": spec.output_dir,
+            "collector": str(collector),
+            "collector_config": self.contract.get("native") or {},
+        }
+        runner = Path(tool_provider(self.env, "dataos-eval")["path"]) / "bin" / "python"
+        return Job(
+            backend="external_cli",
+            job_name=spec.name,
+            command=[
+                str(runner),
+                "-m",
+                "dataos_eval.external_runner",
+                str(Path(spec.run_dir) / f"{spec.name}.external_eval_manifest.json"),
+            ],
+            env={str(k): str(v) for k, v in (provider.get("env") or {}).items()},
+            run_dir=spec.run_dir,
+            resources=spec.resources,
+            assets={
+                f"{spec.name}.external_eval_manifest.json": json.dumps(manifest, indent=2)
+            },
         )

@@ -1,0 +1,7 @@
+# PostTrainBench training is the agent's method.  dataos-train validates and launches the
+# TrainSpec written from the leader's plan; this file fixes that choice explicitly.
+version: 1
+stage: train
+driver: native
+ownership: agent
+tool: dataos-train

@@ -26,6 +26,11 @@ def freeze_eval(*, cfg: AutoRunConfig, agent=None) -> dict:
     """
     if cfg.stub:
         return {"provider": "stub", "provider_config": {"score": 0.5}}
+    from dataos.agent.runtime_compose import task_stage_config
+
+    driver = task_stage_config(cfg, "eval").get("driver")
+    if driver != "posttrainbench":
+        return {"provider": driver, "task": cfg.target_bench, "frozen": True}
     from dataos.agent.posttrainbench import ptb_eval, ptb_suite
 
     if cfg.target_bench:

@@ -23,5 +23,5 @@
 {% endif %}
 - 结果:读 `{{ task.scoring.result.file }}` 的 `{{ task.scoring.result.field }}` 字段(范围 {{ task.scoring.result.range }})= 你的分数。
 {% if task.scoring.format_contract %}
-- 想拿高分先读评测器如何解析输出(唯一真源):{{ (run.deploy_root ~ '/configs/tasks/' ~ run.task ~ '/' ~ task.scoring.format_contract) if ' ' not in task.scoring.format_contract else task.scoring.format_contract }}
+- 想拿高分先读评测器如何解析输出(唯一真源):{{ (run.deploy_root ~ '/configs/tasks/' ~ run.task ~ '/' ~ task.scoring.format_contract) if ' ' not in task.scoring.format_contract and not task.scoring.format_contract.startswith('/') else task.scoring.format_contract }}
 {% endif %}

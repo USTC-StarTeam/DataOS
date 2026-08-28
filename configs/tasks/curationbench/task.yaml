@@ -1,30 +1,89 @@
 # 任务契约:Curation-Bench(VLM 数据策展,github.com/feiyang-k/curation-bench)
-# 字段规范见 CONTRACT.md §2。与 posttrainbench 的差异只剩一处:训练是【冻结】的
-# —— 见 train/ 目录(存在即表示 train 冻结,配方不可动)。agent 唯一杠杆 = 选哪些行(DATA)。
+# 字段规范见 CONTRACT.md §2。agent 唯一杠杆 = 选哪些行(DATA);三段 driver 都由
+# 本文件链接的 task contract 显式选择,不从目录名或 task 名推断。
 #
-# 三段:DATA(agent 造子集)→ TRAIN(冻结 finetune,见 train/train.yaml,产出模型)→
+# 三段:DATA(agent 造子集)→ TRAIN(冻结 finetune,见 train/task.yaml,产出模型)→
 #       EVAL(对那个模型跑 VLMEvalKit 8 基准,和 posttrainbench 同形:model → score)。
 #
 # 打分 harness(datacuration-bench CLI + vendored curation-train + VLMEvalKit,~1TB)不 vendor
-# 进本库,其 checkout 路径经 run-config 注入(run.bench_root)。
+# 进本库；checkout/venv/eval data 都由 environment 的工具 provider 固定。
 
 name: curationbench
 
+# Agent-loop protocol facts. They change which parts of the benchmark exist, not the curation
+# strategy: Curation-Bench has no PTB source profiler, its first scored run is an official random
+# curation baseline, and every iteration resets to the task's frozen root model.
+agent:
+  investigator: false
+  baseline:
+    name: random-baseline
+    hypothesis: "official Curation-Bench random selection baseline"
+    estimated_hours: 10
+    data:
+      recipe:
+        - op: official_random_baseline
+          params: {source: "pinned harness curation/curate.py", seed: 123}
+    expected_signal: "reference accuracy for all later curation strategies"
+    subagent_brief: "Copy and run the pinned harness's default random curate.py unchanged."
+  model_initialization: root
+  context:
+    leader: [curationbench/leader/context/role]
+    experimenter: [curationbench/experimenter/context/role]
+  turns:
+    leader_plan: curationbench/leader/turn/plan
+    experimenter: curationbench/experimenter/turn/experiment
+    review_stage: curationbench/experimenter/turn/stage_review
+
+stages:
+  data:
+    stage: data
+    driver: external_cli
+    ownership: agent
+    tool: datacuration-bench
+    invoke: |-
+      Create an isolated git worktree of `{{ env.tools.curation_bench.root }}` at its configured
+      revision under {ctx.run_root}/harness_worktree. Never edit the provider checkout itself.
+      In that worktree create this experiment's own autoresearch branch; only its `curation/`
+      files may change. From the worktree initialize a one-target, one-iteration official suite:
+      write a run_prompt.md naming `{{ run.bench }}` and profile
+      `{{ env.tools.curation_bench.profile }}`, then run
+      `{{ env.tools.curation_bench.path }}/bin/datacuration-bench init --prompt <run_prompt> --profile {{ env.tools.curation_bench.profile }}`.
+      Read `suite_dir` from its JSON, run `next --suite-dir {ctx.suite_dir}`, and use that explicit
+      suite path for every later command (never the shared .bench_active_suite pointer). Inspect
+      the frozen task with `{{ env.tools.curation_bench.path }}/bin/datacuration-bench task --suite-dir {ctx.suite_dir}`;
+      confirm its dataset/model paths equal `{{ run.fixed_pool }}` / `{{ run.base_model }}` before
+      spending GPU time. Work only in this experiment's worktree and suite. Write the selection
+      implementation in that worktree's `curation/` and commit it on the isolated branch. Write a
+      thin {ctx.run_root}/run_curation.py that invokes that script with the task-reported dataset,
+      submission path, and target_rows using `{{ env.tools.curation_bench.path }}/bin/python`.
+      Submit the wrapper through
+      `{{ env.tools.sft_env.path }}/bin/dataos-data probe \
+      --repo {{ run.deploy_root }} --environment {{ run.environment }} \
+      --run-root {ctx.run_root} --recipe run_curation.py \
+      --gpus {{ run.resource.gpus }} --cpus {{ run.resource.cpus }}{% if run.resource.get("qos") %} --qos {{ run.resource.qos }}{% endif %}{% if run.resource.get("partition") %} --partition {{ run.resource.partition }}{% endif %}{% if run.resource.get("node") %} --nodelist {{ run.resource.node }}{% endif %}`.
+      Poll `{ctx.run_root}/data_handle.json` with `dataos-data status`; do not write an sbatch file.
+      The wrapper must propagate the curate process's exit code and produce exactly the
+      task-declared row count at {ctx.submission_path}. The dataset must be a
+      HuggingFace save_to_disk dataset with `images` and `texts` columns. Do not use
+      dataos-operator or convert the multimodal rows to Alpaca.
+  train: {contract: train/task.yaml}
+  eval: {contract: eval/task.yaml}
+
 inputs:
-  data_pool:     {from: run.dataset_path, kind: hf_dataset}   # 候选池(LLaVA-665K / VisionFlan)
-  target_rows:   {from: run.target_rows, kind: int}           # 子集预算(10k/20k/50k)
-  bench_task_id: {from: run.bench_task_id, kind: enum,
+  base_model:    {from: run.base_model, kind: hf_model}
+  data_pool:     {from: run.fixed_pool, kind: hf_dataset}     # 候选池(LLaVA-665K / VisionFlan)
+  bench_task_id: {from: run.bench, kind: enum,
                   one_of: [llava665k_llava_8bench_10k_unlimited, llava665k_llava_8bench_20k_unlimited,
                            llava665k_llava_8bench_50k_unlimited, llava665k_qwen_8bench_10k_unlimited,
                            llava665k_qwen2vl2b_8bench_10k_unlimited, llava665k_smolvlm_8bench_10k_unlimited,
                            visionflan_llava_8bench_20k_unlimited, visionflan_smolvlm_8bench_10k_unlimited]}
-  bench_root:    {from: run.bench_root, kind: path}           # harness 在执行机上的 checkout
+  bench_root:    {from: env.tools.curation_bench.root, kind: path}
 
-objective: "从 data_pool 里选恰好 target_rows 行的子集;经冻结配方 finetune 后,使模型在该 bench 的 8 个 VLM 基准上归一化平均分(accuracy)最大化。"
+objective: "按 bench_task_id 冻结的行数预算从 data_pool 选择子集;经官方冻结配方 finetune 后,使模型在 8 个 VLM 基准上的归一化平均分最大化。"
 
 constraints:
-  - "只能选池内的行;提交前过污染审计(SHA-256 精确 + 8-gram 近重复 token 重叠≥0.8 会被拒)。"
-  - "子集行数必须 == target_rows;列为 images + texts;HF save_to_disk 格式。"
+  - "只能选池内的行;提交前必须记录污染审计(SHA-256 精确 + 8-gram 近重复 token 重叠≥0.8);high_risk 是报告与修订信号,不是 harness 的硬拒绝门。"
+  - "子集行数必须 == 官方 task 的 target_rows;列为 images + texts;HF save_to_disk 格式。"
   - "训练配方、基座模型、评测基准全部冻结:不得改 harness 的 vendor/src/configs/任务 YAML,不得改超参。"
   - "只允许编辑 harness 的 curation/ 目录(策展代码);怎么选(过滤/去重/质量分/多样性/配比)完全自定。"
 
@@ -32,18 +91,17 @@ produce:
   kind: hf_model
   hint: "最终被打分的产物是【模型】(冻结 finetune 的产出,位于 harness run_dir 的 finetune/);agent 的 DATA 杠杆产出的是子集(经 audit+submit 交付给 train)。"
 
-# EVAL 契约:只评一个模型(和 posttrainbench 同形)。TRAIN 见 train/。
+# EVAL 契约:只评一个模型(和 posttrainbench 同形)。driver 细节见 eval/task.yaml。
 scoring:
-  evaluator: "external harness — datacuration-bench eval (VLMEvalKit) at run.bench_root(不 vendor)"
-  # 对 train 产出的模型跑 VLMEvalKit 8 基准 → results.json。{ctx.model_path} = 冻结 finetune 的产物。
+  evaluator: "dataos-eval external_cli driver → official datacuration-bench eval/VLMEvalKit"
   command: |-
-    cd {{ run.bench_root }} && uv run datacuration-bench eval 2>&1
+    {{ env.tools.sft_env.path }}/bin/dataos-eval submit --repo {{ run.deploy_root }} --environment {{ run.environment }} --task-config {{ run.task }} --task {{ run.bench }} --model-path {ctx.model_path} --model-name {ctx.label} --output-dir {ctx.eval_dir} --run-root {ctx.run_root} --suite-dir {ctx.suite_dir} --limit -1 --gpus {{ run.resource.gpus }} --cpus {{ run.resource.cpus }}{% if run.resource.get("qos") %} --qos {{ run.resource.qos }}{% endif %}{% if run.resource.get("partition") %} --partition {{ run.resource.partition }}{% endif %}{% if run.resource.get("node") %} --nodelist {{ run.resource.node }}{% endif %}
   result:
-    file: "{ctx.eval_dir}/results/results.json"   # VLMEvalKit 聚合(按模型名分键;per-bench 明细在同目录)
-    field: accuracy
+    file: "{ctx.eval_dir}/summary.json"
+    field: score
     range: [0, 1]
   aggregate:
     rule: "accuracy = mean(score_b / max_b for b in target_evals)"
     max: {MMVet: 100, LLaVABench: 100, OCRBench: 1000, HallusionBench: 100,
           MMMU_DEV_VAL: 100, MathVista_MINI: 100, MMStar: 100, MMBench: 100}
-  format_contract: "the harness's BENCHMARK.md (Scoring section) at run.bench_root — normalization, HallusionBench/MMMU conventions, audit rules"
+  format_contract: "{{ env.tools.curation_bench.root }}/BENCHMARK.md"

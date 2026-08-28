@@ -19,6 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
+from dataos_launch.task_config import load_task_contract
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -68,7 +69,11 @@ def _validate(env: dict, task: dict) -> None:
     for verb in ("fetch", "activate"):
         if verb not in env["operations"]:
             raise ValueError(f"env.yaml.operations missing verb: {verb}")
-    _require(task, ["name", "inputs", "objective", "constraints", "produce", "scoring"], "task.yaml")
+    _require(
+        task,
+        ["name", "inputs", "objective", "constraints", "produce", "scoring", "stages"],
+        "task.yaml",
+    )
     sc = task["scoring"]
     _require(sc, ["evaluator", "command", "result"], "task.yaml.scoring")
     _require(sc["result"], ["file", "field", "range"], "task.yaml.scoring.result")
@@ -80,12 +85,10 @@ def resolve(run_config: dict, configs_root: str | Path = CONFIGS_DIR) -> dict:
     configs_root = Path(configs_root)
     envn = run_config["environment"]
     taskn = run_config["task"]
-    task_dir = configs_root / "tasks" / taskn
     env = yaml.safe_load(
         (configs_root / "environments" / envn / "env.yaml").read_text(encoding="utf-8")
     )
-    task = yaml.safe_load((task_dir / "task.yaml").read_text(encoding="utf-8"))
-    task["assets_root"] = str(task_dir)
+    task = load_task_contract(configs_root.parent, taskn)
     _validate(env, task)
 
     resolved_env = dict(env)
@@ -108,27 +111,12 @@ def resolve(run_config: dict, configs_root: str | Path = CONFIGS_DIR) -> dict:
 
     resolved_task = dict(task)
     resolved_task["constraints"] = [_render_str(c, ns) for c in task["constraints"]]
-    sc = dict(task["scoring"])
+    resolved_task["stages"] = _render_tree(task["stages"], ns)
+    sc = _render_tree(task["scoring"], ns)
     for k in ("command", "judge_command"):
         if sc.get(k):
-            sc[k] = _render_str(sc[k], ns).strip()
-    sc["result"] = _render_tree(sc["result"], ns)
+            sc[k] = sc[k].strip()
     resolved_task["scoring"] = sc
-
-    # Per-task layout: a `train/` dir means training is FROZEN (the task fixes the recipe);
-    # its absence means training is the agent's method (e.g. dataos-train).
-    train_dir = task_dir / "train"
-    if train_dir.is_dir():
-        train_spec = {"frozen": True}
-        train_yaml = train_dir / "train.yaml"
-        if train_yaml.is_file():
-            spec = yaml.safe_load(train_yaml.read_text(encoding="utf-8")) or {}
-            if spec.get("command"):
-                spec["command"] = _render_str(spec["command"], ns).strip()
-            train_spec.update(spec)
-        resolved_task["train"] = train_spec
-    else:
-        resolved_task["train"] = None  # agent-owned training
 
     return {
         "runtime_ref": run_config.get("runtime_ref"),
@@ -192,3 +180,16 @@ def render_sections(cfg, *, parent_model: str, eval_limit: int) -> tuple[str, st
     resolved = resolve(rc)
     env_ops, task_def = render(resolved)
     return env_ops, task_def, resolved
+
+
+def task_agent_config(cfg) -> dict:
+    """Agent-loop facts selected by the root task contract."""
+    runtime = getattr(cfg, "runtime_config", {}) or {}
+    task_name = runtime.get("task", "posttrainbench")
+    return dict(load_task_contract(_REPO_ROOT, task_name).get("agent") or {})
+
+
+def task_stage_config(cfg, stage: str) -> dict:
+    runtime = getattr(cfg, "runtime_config", {}) or {}
+    task_name = runtime.get("task", "posttrainbench")
+    return dict(load_task_contract(_REPO_ROOT, task_name)["stages"][stage])

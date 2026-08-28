@@ -1,0 +1,8 @@
+# PostTrainBench's frozen evaluator.  dataos-eval reads this file and dispatches the named
+# driver; protocol.yaml remains the evaluator's benchmark/model-family declaration.
+version: 1
+stage: eval
+driver: posttrainbench
+ownership: frozen
+tool: dataos-eval
+protocol: protocol.yaml
