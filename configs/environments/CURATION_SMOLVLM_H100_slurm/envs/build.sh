@@ -64,6 +64,8 @@ build_eval() {
   # omitted it from vendor/. Install the exact compatible upstream blob before import/eval.
   install -m 0644 "$ROOT/../compat/result_transfer.py" \
     "$project/vlmeval/utils/result_transfer.py"
+  "$UV" run --no-project --python 3.12 "$ROOT/../compat/patch_vlmeval_secret_log.py" \
+    --project "$project"
   rm -rf "$venv"
   UV_PROJECT_ENVIRONMENT="$venv" "$UV" sync --frozen --project "$project" --python 3.12
   "$venv/bin/python" "$ROOT/../compat/patch_vllm_qwen3_next.py" --venv "$venv"

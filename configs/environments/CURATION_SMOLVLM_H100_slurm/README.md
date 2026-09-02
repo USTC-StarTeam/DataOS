@@ -84,4 +84,5 @@ FlashInfer invokes its sibling `ninja` executable lazily on the first judge requ
 deployment FlashInfer's Hopper GDN JIT is incompatible with the system CUDA toolkit, so
 `patch_vllm_qwen3_next.py` backports the later vLLM backend selector and the environment selects
 the package's existing Triton/FLA fallback. Both original and patched source hashes are pinned in
-`assets.yaml`.
+`assets.yaml`. The same compatibility step redacts VLMEvalKit's INFO-level API-key log before a
+remote judge is ever called; the original and patched `gpt.py` hashes are also frozen.

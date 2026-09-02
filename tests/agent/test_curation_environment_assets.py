@@ -46,6 +46,10 @@ def test_asset_scope_is_a_declared_curation_task() -> None:
     assert re.fullmatch(r"[0-9a-f]{64}", vllm_patch["original_sha256"])
     assert re.fullmatch(r"[0-9a-f]{64}", vllm_patch["patched_sha256"])
     assert (ENV_DIR / "compat" / "patch_vllm_qwen3_next.py").is_file()
+    secret_patch = assets["compat"]["vlmeval_secret_log"]
+    assert re.fullmatch(r"[0-9a-f]{64}", secret_patch["original_sha256"])
+    assert re.fullmatch(r"[0-9a-f]{64}", secret_patch["patched_sha256"])
+    assert (ENV_DIR / "compat" / "patch_vlmeval_secret_log.py").is_file()
 
 
 def test_eval_asset_manifest_matches_frozen_collector() -> None:

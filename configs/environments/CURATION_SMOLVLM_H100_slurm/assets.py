@@ -173,6 +173,18 @@ def verify(harness_root: Path, profile_path: Path, task_name: str) -> None:
         )
     else:
         print(f"[ok] vLLM Qwen3.5 GDN compatibility patch: {actual_vllm}")
+    secret_patch = manifest["compat"]["vlmeval_secret_log"]
+    secret_path = harness_root / str(secret_patch["install_path"])
+    expected_secret = str(secret_patch["patched_sha256"])
+    if not secret_path.is_file():
+        errors.append(f"missing VLMEvalKit credential-log patch: {secret_path}")
+    elif (actual_secret := _sha256(secret_path)) != expected_secret:
+        errors.append(
+            f"VLMEvalKit credential-log checksum {actual_secret} != {expected_secret}: "
+            f"{secret_path}"
+        )
+    else:
+        print(f"[ok] VLMEvalKit credential-log patch: {actual_secret}")
 
     _check_command(
         "benchmark venv",
