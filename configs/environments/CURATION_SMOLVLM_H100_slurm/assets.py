@@ -36,6 +36,14 @@ def _md5(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _download(url: str, output: Path, expected_md5: str) -> None:
     if output.is_file() and _md5(output) == expected_md5:
         print(f"[ok] {output.name}")
@@ -136,6 +144,19 @@ def verify(harness_root: Path, profile_path: Path, task_name: str) -> None:
         errors.append(f"harness revision {revision!r} != {expected_revision!r}")
     else:
         print(f"[ok] harness revision: {revision}")
+
+    compat = manifest["compat"]["vlmeval_result_transfer"]
+    compat_path = harness_root / str(compat["install_path"])
+    expected_compat = str(compat["sha256"])
+    if not compat_path.is_file():
+        errors.append(f"missing VLMEvalKit compatibility file: {compat_path}")
+    elif (actual_compat := _sha256(compat_path)) != expected_compat:
+        errors.append(
+            f"VLMEvalKit compatibility checksum {actual_compat} != {expected_compat}: "
+            f"{compat_path}"
+        )
+    else:
+        print(f"[ok] VLMEvalKit compatibility file: {actual_compat}")
 
     _check_command(
         "benchmark venv",

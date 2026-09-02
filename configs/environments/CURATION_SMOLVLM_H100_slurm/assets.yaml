@@ -6,6 +6,14 @@ harness:
   distribution: curation-bench
   version: "0.3.0"
 
+compat:
+  vlmeval_result_transfer:
+    repository: https://github.com/open-compass/VLMEvalKit.git
+    revision: 401916c00a4769884aeca865a77674abe0c62a26
+    source_path: vlmeval/utils/result_transfer.py
+    sha256: d6225256ec0afa2ac9857b139df2f910b23b693749d2f2eb58cf7e696b9b6974
+    install_path: vendor/VLMEvalKit/vlmeval/utils/result_transfer.py
+
 scope:
   tasks: [llava665k_smolvlm_8bench_10k_unlimited]
 

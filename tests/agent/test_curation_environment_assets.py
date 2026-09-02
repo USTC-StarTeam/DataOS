@@ -36,6 +36,12 @@ def test_asset_scope_is_a_declared_curation_task() -> None:
     assert set(assets["models"]) == {"smolvlm"}
     assert assets["judge"]["repository"] == "Qwen/Qwen3.5-27B"
     assert re.fullmatch(r"[0-9a-f]{40}", assets["judge"]["revision"])
+    compat = assets["compat"]["vlmeval_result_transfer"]
+    assert re.fullmatch(r"[0-9a-f]{40}", compat["revision"])
+    assert re.fullmatch(r"[0-9a-f]{64}", compat["sha256"])
+    compat_path = ENV_DIR / "compat" / "result_transfer.py"
+    assert compat_path.is_file()
+    assert _assets_module()._sha256(compat_path) == compat["sha256"]
 
 
 def test_eval_asset_manifest_matches_frozen_collector() -> None:

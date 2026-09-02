@@ -60,10 +60,19 @@ build_train() {
 build_eval() {
   local project="$CURATION_ROOT/vendor/VLMEvalKit"
   local venv="$project/.venv"
+  # The pinned Curation-Bench snapshot's run.py imports this upstream VLMEvalKit module but
+  # omitted it from vendor/. Install the exact compatible upstream blob before import/eval.
+  install -m 0644 "$ROOT/../compat/result_transfer.py" \
+    "$project/vlmeval/utils/result_transfer.py"
   rm -rf "$venv"
   UV_PROJECT_ENVIRONMENT="$venv" "$UV" sync --frozen --project "$project" --python 3.12
-  "$venv/bin/python" -c \
-    "import torch, vlmeval, vllm; print('eval', torch.__version__, vllm.__version__)"
+  OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 "$venv/bin/python" - <<'PY'
+import torch
+import vllm
+from vlmeval.utils import result_transfer  # noqa: F401
+
+print("eval", torch.__version__, vllm.__version__)
+PY
 }
 
 case "$TARGET" in

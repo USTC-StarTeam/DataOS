@@ -12,6 +12,12 @@ The deployment has five frozen pieces:
 - A pinned local Qwen3.5-27B judge, because the compute nodes cannot reach a cloud judge.
 - `assets.yaml`, which pins public artifact revisions and all eight VLMEvalKit TSV checksums.
 
+The pinned Curation-Bench snapshot omits `vlmeval/utils/result_transfer.py` even though its
+`run.py` imports it unconditionally. `compat/result_transfer.py` is the exact file from the pinned
+upstream VLMEvalKit revision declared in `assets.yaml`; `build.sh eval` installs it, and the
+`assets.py verify` command checks its SHA-256. It does not run for this deployment's
+`MMMU_DEV_VAL` task, but the module must exist for VLMEvalKit to start.
+
 The real `env.yaml` and Curation profile contain machine coordinates and remain untracked. On the
 H100 deployment they are:
 
