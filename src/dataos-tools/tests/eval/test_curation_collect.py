@@ -59,12 +59,12 @@ def test_collect_normalizes_all_eight_vlmevalkit_scores(tmp_path):
             "qAcc": {"0": 60},
         },
         "MMMU_DEV_VAL": {
-            "split": {"0": "dev", "1": "val"},
-            "Overall": {"0": 0.25, "1": 0.5},
+            "0": {"split": "dev", "Overall": 0.25},
+            "1": {"split": "validation", "Overall": 0.5},
         },
         "MathVista_MINI": {"Task&Skill": {"0": "Overall"}, "acc": {"0": 50}},
-        "MMStar": {"split": {"0": "none"}, "Overall": {"0": 0.5}},
-        "MMBench": {"split": {"0": "dev"}, "Overall": {"0": 0.5}},
+        "MMStar": {"0": {"split": "none", "Overall": 0.5}},
+        "MMBench": {"0": {"split": "dev", "Overall": 0.5}},
     }
     (results_dir / "results.json").write_text(
         json.dumps({"SmolVLM": scores}), encoding="utf-8"
