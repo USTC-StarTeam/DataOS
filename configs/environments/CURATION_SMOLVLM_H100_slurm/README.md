@@ -79,4 +79,5 @@ first and the official VLMEvalKit candidate evaluator uses the second. The launc
 physical GPU IDs from Slurm at run time; the profile must not hard-code `CUDA_VISIBLE_DEVICES` or
 `BENCHMARK_*_GPUS`. This deployment also sets `local_judge.enforce_eager: true`: the pinned
 vLLM/Qwen3.5 combination otherwise fails while capturing the Mamba CUDA graph on H100 after all
-judge weights have loaded.
+judge weights have loaded. DataOS also prepends the judge venv's `bin/` to `PATH`, because
+FlashInfer invokes its sibling `ninja` executable lazily on the first judge request.

@@ -157,6 +157,11 @@ def verify(harness_root: Path, profile_path: Path, task_name: str) -> None:
         )
     else:
         print(f"[ok] VLMEvalKit compatibility file: {actual_compat}")
+    ninja = harness_root / "vendor" / "VLMEvalKit" / ".venv" / "bin" / "ninja"
+    if not ninja.is_file():
+        errors.append(f"evaluation venv is missing the FlashInfer JIT builder: {ninja}")
+    else:
+        print(f"[ok] evaluation JIT builder: {ninja}")
 
     _check_command(
         "benchmark venv",

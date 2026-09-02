@@ -374,6 +374,7 @@ class ExternalEvalStage(Stage):
             update={"gpus": max(spec.resources.gpus, total_gpus)}
         )
         executable = shlex.quote(str(judge["executable"]))
+        executable_dir = shlex.quote(str(Path(str(judge["executable"])).parent))
         model_path = shlex.quote(str(judge["model_path"]))
         model_name = shlex.quote(str(judge["served_model_name"]))
         port_base = int(judge.get("port_base", 18000))
@@ -389,6 +390,7 @@ class ExternalEvalStage(Stage):
             f"dataos_judge_port=$(({port_base} + ${{SLURM_JOB_ID:-0}} % 1000))",
             'export OPENAI_API_BASE="http://127.0.0.1:${dataos_judge_port}/v1/chat/completions"',
             'export OPENAI_API_KEY="dataos-local-judge"',
+            f'export PATH={executable_dir}:"$PATH"',
             f'CUDA_VISIBLE_DEVICES="${{dataos_allocated_gpus[0]}}" {executable} serve '
             f"{model_path} --served-model-name {model_name} --api-key dataos-local-judge "
             f'--host 127.0.0.1 --port "$dataos_judge_port" '
