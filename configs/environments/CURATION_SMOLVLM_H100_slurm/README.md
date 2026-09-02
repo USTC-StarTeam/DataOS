@@ -80,4 +80,8 @@ physical GPU IDs from Slurm at run time; the profile must not hard-code `CUDA_VI
 `BENCHMARK_*_GPUS`. This deployment also sets `local_judge.enforce_eager: true`: the pinned
 vLLM/Qwen3.5 combination otherwise fails while capturing the Mamba CUDA graph on H100 after all
 judge weights have loaded. DataOS also prepends the judge venv's `bin/` to `PATH`, because
-FlashInfer invokes its sibling `ninja` executable lazily on the first judge request.
+FlashInfer invokes its sibling `ninja` executable lazily on the first judge request. On this
+deployment FlashInfer's Hopper GDN JIT is incompatible with the system CUDA toolkit, so
+`patch_vllm_qwen3_next.py` backports the later vLLM backend selector and the environment selects
+the package's existing Triton/FLA fallback. Both original and patched source hashes are pinned in
+`assets.yaml`.

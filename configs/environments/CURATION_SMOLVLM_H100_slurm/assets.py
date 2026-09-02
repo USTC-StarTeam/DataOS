@@ -162,6 +162,17 @@ def verify(harness_root: Path, profile_path: Path, task_name: str) -> None:
         errors.append(f"evaluation venv is missing the FlashInfer JIT builder: {ninja}")
     else:
         print(f"[ok] evaluation JIT builder: {ninja}")
+    vllm_patch = manifest["compat"]["vllm_qwen3_next"]
+    vllm_path = harness_root / str(vllm_patch["install_path"])
+    expected_vllm = str(vllm_patch["patched_sha256"])
+    if not vllm_path.is_file():
+        errors.append(f"missing vLLM Qwen3.5 GDN compatibility patch: {vllm_path}")
+    elif (actual_vllm := _sha256(vllm_path)) != expected_vllm:
+        errors.append(
+            f"vLLM Qwen3.5 GDN checksum {actual_vllm} != {expected_vllm}: {vllm_path}"
+        )
+    else:
+        print(f"[ok] vLLM Qwen3.5 GDN compatibility patch: {actual_vllm}")
 
     _check_command(
         "benchmark venv",

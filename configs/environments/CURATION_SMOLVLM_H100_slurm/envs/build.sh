@@ -66,6 +66,7 @@ build_eval() {
     "$project/vlmeval/utils/result_transfer.py"
   rm -rf "$venv"
   UV_PROJECT_ENVIRONMENT="$venv" "$UV" sync --frozen --project "$project" --python 3.12
+  "$venv/bin/python" "$ROOT/../compat/patch_vllm_qwen3_next.py" --venv "$venv"
   OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 "$venv/bin/python" - <<'PY'
 import torch
 import vllm
