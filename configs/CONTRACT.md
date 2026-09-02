@@ -71,6 +71,8 @@
 | `scoring.result` | 是 | map | **原生结果契约**:`{file: <模板路径>, field: <字段名>, range: [min,max]}` |
 | `scoring.format_contract` | 否 | path/str | 指向 scorer 源码或其文档(供 agent 对齐格式) |
 | `scoring.<其他>` | 否 | any | 允许任务附加**声明式**评分事实(如 curationbench 的 `aggregate` 归一化规则);组合器原样透传 |
+| `agent.budget.unit` | 是 | enum | run 预算语义：`wall_clock` 要求 `budget.time_hours`；`iterations` 要求 `budget.iterations` |
+| `agent.budget.coordinator` | iterations task 是 | path | exec host 上由 task provider venv 执行的官方 iteration 协调脚本；负责共享 suite 的 claim/resume/finalize |
 
 ---
 
@@ -115,7 +117,7 @@
   "task": {"name","objective","inputs","constraints","produce",
            "scoring": {"command":"<已填>","judge_command":"...","result":{"file","field","range"},"format_contract":"..."},
            "assets_root": "<runtime_root>/tasks/<task>"},
-  "run": {"run_id","base_model","bench","resource","slurm","eval_limit","budget_hours"} }
+  "run": {"run_id","base_model","bench","resource","slurm","eval_limit"} }
 ```
 
 ---
@@ -189,9 +191,10 @@ run JSON 携带**单次 run 的全部 run 级事实**(schema/校验见 `src/data
 | `exec.deploy_root` | 是 | path | exec host 使用的 deploy checkout($AGENTVER) |
 | `exec.runs_base` | 是 | path | 本 run 产物落盘根(exec host;`ctx.run_root` 落在其下) |
 | `exec.resource` | 是 | map | `{gpus: int>0, cpus: int>0, node?: str}`(node 缺省 = Slurm 自选空闲节点) |
-| `budget` | 是 | map | 预算 |
-| `budget.time_hours` | 是 | float | 墙钟预算(小时,>0) |
-| `budget.eval_samples` | 否 | int | 每个 experiment 的评测样本数:`-1` = 全量(默认);`-2` = AUTO(按实验角色选:探索可用子集,候选 best 确认必须全量;report 须记录实际 limit,子集分与全量分不可比);正整数 = 固定采样数 |
+| `budget` | 是 | map | 预算；允许字段由 task 的 `agent.budget.unit` 决定，混用或未知字段直接拒绝 |
+| `budget.time_hours` | wall_clock task 是 | float | 墙钟预算(小时,>0)；只适用于 PTB 一类 wall-clock task |
+| `budget.eval_samples` | wall_clock task 否 | int | 每个 experiment 的评测样本数:`-1` = 全量(默认);`-2` = AUTO(按实验角色选:探索可用子集,候选 best 确认必须全量;report 须记录实际 limit,子集分与全量分不可比);正整数 = 固定采样数 |
+| `budget.iterations` | iterations task 是 | int | 官方实验轮数(>0)；Curation-Bench 的 seeded random baseline 占第 1 轮，失败的已激活 target 也占一轮 |
 | `agent` | 否 | map | host 侧 brain 的 code-agent CLI 选择(子字段见下;未知键报错) |
 | `monitor_port` | 否 | int | live monitor HTTP 端口(默认 `8765`;`0` = 关闭) |
 

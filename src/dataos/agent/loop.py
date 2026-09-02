@@ -22,6 +22,7 @@ from dataos.agent import report as report_schema
 from dataos.agent.eval_freeze import freeze_eval
 
 from . import budget as _budget
+from . import iterations as _iterations
 from . import runtime
 from . import runtime_compose
 from . import roles
@@ -85,6 +86,12 @@ def _publish_live(cfg, *, round_idx: int, phase: str, started: float, now: float
     from dataos.agent import monitor
 
     cap = cfg.budget.max_wall_clock_s
+    max_rounds = cfg.budget.max_rounds
+    iterations_used = (
+        round_idx + (1 if phase in {"executing", "reviewing"} else 0)
+        if max_rounds is not None and round_idx >= 0
+        else None
+    )
     monitor.LIVE.publish(
         run_id=cfg.project_id,
         bench=cfg.target_bench,
@@ -92,6 +99,14 @@ def _publish_live(cfg, *, round_idx: int, phase: str, started: float, now: float
         phase=phase,
         remaining_hours=_remaining_hours(started, cfg, now),
         budget_hours=(cap / 3600.0) if cap else None,
+        budget_unit="iterations" if max_rounds is not None else "wall_clock",
+        budget_limit=max_rounds if max_rounds is not None else ((cap / 3600.0) if cap else None),
+        budget_used=iterations_used,
+        budget_remaining=(
+            max(0, max_rounds - iterations_used)
+            if max_rounds is not None and iterations_used is not None
+            else None
+        ),
         **extra,
     )
     monitor.write_live(Path(cfg.workspace), cfg.project_id)
@@ -374,6 +389,28 @@ def _plan_context(
 ) -> dict:
     full_size = _full_eval_size(cfg)  # read once: both the tree view and eval_policy need it
     train_frozen = runtime_compose.task_stage_config(cfg, "train").get("ownership") == "frozen"
+    if cfg.budget.max_rounds is not None:
+        budget_context = {
+            "unit": "iterations",
+            "iterations": cfg.budget.max_rounds,
+            "iterations_used": round_idx,
+            "iterations_remaining": max(0, cfg.budget.max_rounds - round_idx),
+            "note": (
+                "An iteration is consumed only after code activates an official suite target. "
+                "Iteration 1 is the seeded random baseline."
+            ),
+        }
+    else:
+        budget_context = {
+            "unit": "wall_clock",
+            "max_wall_clock_s": cfg.budget.max_wall_clock_s,
+            "remaining_hours": _remaining_hours(started, cfg, now),
+            "note": (
+                "remaining_hours is THIS invocation's wall-clock balance — the run "
+                "continues across invocations (state persists in the workspace), so a low "
+                "number means this process may stop soon, NOT that the run is over"
+            ),
+        }
     return {
         # only what a plan field can be chosen from: the goal, the bench, and the profile that
         # sizes it. Ids and config paths are host bookkeeping the leader cannot act on.
@@ -382,15 +419,7 @@ def _plan_context(
             "target_bench": cfg.target_bench,
             "ptb_profile": cfg.ptb_profile,
         },
-        "budget": {
-            "max_wall_clock_s": cfg.budget.max_wall_clock_s,
-            "remaining_hours": _remaining_hours(started, cfg, now),
-            "note": (
-                "remaining_hours is THIS invocation's wall-clock balance — the run "
-                "continues across invocations (state persists in the workspace), so a low "
-                "number means this process may stop soon, NOT that the run is over"
-            ),
-        },
+        "budget": budget_context,
         "round_idx": round_idx,
         # RECON intel (gathered once before training): the shortlist, the legal ids and the eval
         # contract, inline every round; the annotated profile table stays on disk.
@@ -509,6 +538,13 @@ def _spec_from_node(node: dict, eval_cfg: dict, cfg: AutoRunConfig) -> dict:
         "hypothesis": plan.get("hypothesis", ""),
         "expected_signal": plan.get("expected_signal", ""),
         "subagent_brief": plan.get("subagent_brief", ""),
+        "iteration": node.get("iteration"),
+        "max_iterations": cfg.budget.max_rounds,
+        "suite_dir": node.get("suite_dir"),
+        "suite_target": node.get("suite_target"),
+        "suite_target_state": node.get("suite_target_state"),
+        "suite_run_dir": node.get("suite_run_dir"),
+        "submission_path": node.get("submission_path"),
     }
 
 
@@ -552,7 +588,7 @@ def _finish(proj, reason: str, best: dict | None, rounds: int, events: list, tre
 
 
 def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
-    """Run the agentic tree loop until the wall-clock budget is spent."""
+    """Run the agentic tree loop until the task-selected budget is spent."""
 
     import dataos
 
@@ -565,12 +601,12 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     cfg.workspace = os.path.abspath(cfg.workspace)
     log, log_path = setup_run_logging(cfg.workspace, cfg.project_id)
     log.info(
-        "run start: project=%s bench=%s backend=%s profile=%s wall_budget=%ss",
+        "run start: project=%s bench=%s backend=%s profile=%s budget=%s",
         cfg.project_id,
         cfg.target_bench,
         cfg.backend,
         cfg.ptb_profile,
-        cfg.budget.max_wall_clock_s,
+        cfg.budget.as_dict(),
     )
     log.info("run log: %s", log_path)
 
@@ -641,10 +677,18 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         now = _clock()
         credit = 0.0 if cfg.backend == "stub" else runtime._queue_wait_s(cfg)
         reason = _budget.stop_reason(
-            started_at=started, budget=cfg.budget, now=now, queue_credit_s=credit
+            started_at=started,
+            budget=cfg.budget,
+            now=now,
+            queue_credit_s=credit,
+            rounds_completed=round_idx,
         )
         if reason:
             log.info("STOP: %s (after %d completed node(s))", reason, round_idx)
+            if reason == "budget:iterations":
+                suite_result = _iterations.finalize(cfg)
+                if suite_result is not None:
+                    events.append({"iteration_suite": suite_result})
             _publish_live(cfg, round_idx=round_idx, phase="done", started=started, now=now)
             result = _finish(proj, reason, best, round_idx, events, tree)
             log.info("final_model: %s", result.get("final_model"))
@@ -766,7 +810,6 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     result = _finish(proj, reason, best, round_idx, events, tree)
                     log.info("final_model: %s", result.get("final_model"))
                     return result
-                round_idx += 1
                 continue
             invalid_streak = 0
             assert plan is not None
@@ -785,6 +828,23 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                 node.get("experiment_name"),
                 node.get("init_model_path"),
                 node.get("estimated_hours"),
+            )
+
+        iteration = _iterations.claim(cfg, node)
+        if iteration is not None:
+            node["iteration"] = iteration["iteration"]
+            node["suite_dir"] = iteration["suite_dir"]
+            node["suite_target"] = iteration["target_key"]
+            node["suite_target_state"] = iteration["target_state"]
+            node["suite_run_dir"] = iteration["run_dir"]
+            node["submission_path"] = iteration["default_submission_path"]
+            tree.save()
+            log.info(
+                "round %d: official iteration %d target=%s state=%s",
+                round_idx,
+                iteration["iteration"],
+                iteration["target_key"],
+                iteration["target_state"],
             )
 
         spec = _spec_from_node(node, eval_cfg, cfg)

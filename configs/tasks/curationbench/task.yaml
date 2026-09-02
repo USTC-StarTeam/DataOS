@@ -14,6 +14,9 @@ name: curationbench
 # strategy: Curation-Bench has no PTB source profiler, its first scored run is an official random
 # curation baseline, and every iteration resets to the task's frozen root model.
 agent:
+  budget:
+    unit: iterations
+    coordinator: suite.py
   investigator: false
   baseline:
     name: random-baseline
@@ -41,19 +44,23 @@ stages:
     ownership: agent
     tool: datacuration-bench
     invoke: |-
+      Code has already created this DataOS run's one official N-iteration suite and activated
+      exactly one target for this durable tree node. Use the supplied {ctx.suite_dir} and
+      {ctx.submission_path}; never run `datacuration-bench init` or `next` yourself. First run
+      `{{ env.tools.curation_bench.path }}/bin/datacuration-bench plan --suite-dir {ctx.suite_dir}`
+      and confirm the supplied target is active (or already completed during crash recovery),
+      then inspect the frozen task with
+      `{{ env.tools.curation_bench.path }}/bin/datacuration-bench task --suite-dir {ctx.suite_dir}`;
+      confirm its dataset/model paths equal `{{ run.fixed_pool }}` / `{{ run.base_model }}` before
+      spending GPU time.
       Create an isolated git worktree of `{{ env.tools.curation_bench.root }}` at its configured
       revision under {ctx.run_root}/harness_worktree. Never edit the provider checkout itself.
       In that worktree create this experiment's own autoresearch branch; only its `curation/`
-      files may change. From the worktree initialize a one-target, one-iteration official suite:
-      write a run_prompt.md naming `{{ run.bench }}` and profile
-      `{{ env.tools.curation_bench.profile }}`, then run
-      `{{ env.tools.curation_bench.path }}/bin/datacuration-bench init --prompt <run_prompt> --profile {{ env.tools.curation_bench.profile }}`.
-      Read `suite_dir` from its JSON, run `next --suite-dir {ctx.suite_dir}`, and use that explicit
-      suite path for every later command (never the shared .bench_active_suite pointer). Inspect
-      the frozen task with `{{ env.tools.curation_bench.path }}/bin/datacuration-bench task --suite-dir {ctx.suite_dir}`;
-      confirm its dataset/model paths equal `{{ run.fixed_pool }}` / `{{ run.base_model }}` before
-      spending GPU time. Work only in this experiment's worktree and suite. Write the selection
-      implementation in that worktree's `curation/` and commit it on the isolated branch. Write a
+      files may change. Work only in this experiment's worktree and this run's shared suite. Read
+      prior targets in that suite when the strategy needs their predictions or scores; prior
+      curation code remains in this run's earlier committed experiment worktrees. Never read
+      another DataOS run's suite. Write the selection implementation in the worktree's `curation/`
+      and commit it on the isolated branch. Write a
       thin {ctx.run_root}/run_curation.py that invokes that script with the task-reported dataset,
       submission path, and target_rows using `{{ env.tools.curation_bench.path }}/bin/python`.
       Submit the wrapper through

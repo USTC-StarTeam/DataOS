@@ -1,4 +1,4 @@
-"""PTB stop policy: a single wall-clock condition (pure, deterministic via injected `now`)."""
+"""Task-selected stop policies (pure, deterministic via injected inputs)."""
 
 from dataos.agent import budget
 from dataos.agent.budget import criterion_met, stop_reason
@@ -15,10 +15,13 @@ def test_no_wall_clock_budget_never_stops():
     assert stop_reason(started_at=0.0, budget=Budget(max_wall_clock_s=None), now=1e9) is None
 
 
-def test_rounds_are_not_a_stop_condition():
-    # max_rounds set but no wall-clock budget → never stops (rounds is kept for record only)
+def test_iteration_budget_stops_at_the_exact_completed_round_count():
     b = Budget(max_rounds=1, max_wall_clock_s=None)
-    assert stop_reason(started_at=0.0, budget=b, now=1e9) is None
+    assert stop_reason(started_at=0.0, budget=b, now=1e9, rounds_completed=0) is None
+    assert (
+        stop_reason(started_at=0.0, budget=b, now=1e9, rounds_completed=1)
+        == "budget:iterations"
+    )
 
 
 def test_default_budget_is_10h():

@@ -3,7 +3,8 @@
 The adapter keeps the benchmark implementation outside DataOS and pins it as an environment
 provider. The three task contracts are the only driver selection points:
 
-- `task.yaml`: official multimodal curation in an experiment-local harness worktree;
+- `task.yaml`: one run-scoped official N-iteration suite plus multimodal curation in an
+  experiment-local harness worktree;
 - `train/task.yaml`: `dataos-train task-submit` schedules the official
   `audit -> submit -> finetune` workflow;
 - `eval/task.yaml`: `dataos-eval` schedules the official VLMEvalKit evaluation and the task-local
@@ -33,4 +34,7 @@ is upgraded; the SmolVLM task is the smallest first end-to-end validation target
 
 The DataOS optimization tree starts with the official seeded random-curation baseline. The
 upstream protocol's separate base-model pre-init measurement is informational and is not a DataOS
-tree node in this adapter.
+tree node in this adapter. `budget.iterations` is copied into the official suite manifest and is
+also DataOS's stop condition. The random baseline consumes iteration 1; every later valid tree
+node claims exactly one subsequent target. Planning errors before a target is activated consume
+nothing, while a failed activated target consumes its iteration as required by the harness.

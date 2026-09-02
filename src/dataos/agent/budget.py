@@ -1,8 +1,8 @@
-"""The PTB stop policy — a pure function, no LLM, no IO.
+"""Task-selected stop policies — pure functions, no LLM, no IO.
 
-On agent-version-ptb the PostTrainBench protocol is a SINGLE stop condition: a wall-clock
-budget (10h / 1 GPU per (base, bench)). The run uses the full budget and submits the
-best-over-history model — neither a score target nor a round count stops it.
+PostTrainBench uses a wall-clock budget (10h / 1 GPU per (base, bench)). Curation-Bench
+uses a fixed number of official iterations. The run uses the selected budget and submits the
+best-over-history model; a score target never stops it.
 ``criterion_met`` is kept only as a reporting helper ("did the target get hit?"); it does
 NOT drive stopping.
 """
@@ -65,10 +65,15 @@ def credited_deadline(*, started_at: float, budget: Budget, queue_credit_s: floa
 
 
 def stop_reason(*, started_at: float, budget: Budget, now: float | None = None,
-                queue_credit_s: float = 0.0) -> str | None:
-    """The single PTB stop condition: return "budget:wall_clock" once the budget is spent,
-    else None. Shares :func:`credited_deadline` with the experiment launcher so the two can
-    never disagree. ``now`` is injectable for testing (defaults to ``time.monotonic()``)."""
+                queue_credit_s: float = 0.0, rounds_completed: int = 0) -> str | None:
+    """Return the selected budget's terminal reason, else ``None``.
+
+    Iteration budgets are checked first and span resumes through the persisted completed-round
+    count. Wall-clock budgets share :func:`credited_deadline` with the experiment launcher so
+    those two users can never disagree. ``now`` is injectable for tests.
+    """
+    if budget.max_rounds is not None and rounds_completed >= budget.max_rounds:
+        return "budget:iterations"
     if budget.max_wall_clock_s is None:
         return None
     deadline = credited_deadline(

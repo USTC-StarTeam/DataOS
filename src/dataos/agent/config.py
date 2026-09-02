@@ -41,8 +41,11 @@ class Criterion:
 
 @dataclass
 class Budget:
-    """Wall-clock budget — ``max_wall_clock_s`` is the single PTB stop condition;
-    ``max_rounds`` is kept for the record only (NOT a stop condition)."""
+    """Task-selected run budget.
+
+    PostTrainBench sets ``max_wall_clock_s``; iteration-limited tasks such as
+    Curation-Bench set ``max_rounds``. Production run configs select exactly one.
+    """
 
     max_rounds: int | None = None
     max_wall_clock_s: float | None = None
@@ -60,7 +63,8 @@ class Budget:
 class AutoRunConfig:
     """Everything one autonomous run needs.
 
-    The stop policy is a single wall-clock budget (default 10h, the PTB protocol);
+    The task contract selects a wall-clock or iteration budget (the default remains
+    PTB's 10h wall-clock protocol);
     ``criterion`` is only the eval target/metric for ranking + best-over-history,
     NOT a stop condition."""
 

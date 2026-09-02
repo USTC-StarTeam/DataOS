@@ -11,7 +11,7 @@ view that the running loop publishes its current phase into. Stdlib only.
     GET /                  -> web/index.html
     GET /api/runs          -> [{id, bench, n_nodes, best_score, running, ...}]
     GET /api/run?id=<id>   -> that run's full tree.json (nodes + root)
-    GET /api/live          -> {run_id, round, phase, remaining_hours, ...} or {}
+    GET /api/live          -> {run_id, round, phase, budget_unit, budget_remaining, ...} or {}
 """
 
 from __future__ import annotations

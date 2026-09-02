@@ -420,13 +420,19 @@ function renderLive(live){
   // here too would flash the generic verb each poll before /api/stage resolves.
   if(live.phase!=="executing") $("#lv-verb").textContent = PHASE_VERB[live.phase];
   $("#lv-obj").textContent  = live.node_name ? "· "+live.node_name : "";
-  $("#lv-round").textContent = "round "+String(live.round ?? 0).padStart(2,"0");
+  const iterBudget = live.budget_unit === "iterations";
+  $("#lv-round").textContent = iterBudget
+    ? `iteration ${Math.min((live.round ?? 0)+1, live.budget_limit)}/${live.budget_limit}`
+    : "round "+String(live.round ?? 0).padStart(2,"0");
   const left = fmtLeft(live.remaining_hours), bud = fmtLeft(live.budget_hours);
-  $("#lv-clock").innerHTML = left
-    ? esc(left)+" left"+(bud?` <span class="of">/ ${esc(bud)} budget</span>`:"") : "";
-  // burn-down fills as the wall-clock budget is spent
-  const frac = (live.budget_hours && live.remaining_hours!=null)
-    ? Math.max(0, Math.min(1, 1 - live.remaining_hours/live.budget_hours)) : 0;
+  $("#lv-clock").innerHTML = iterBudget
+    ? `${live.budget_remaining} iterations left <span class="of">/ ${live.budget_limit} budget</span>`
+    : (left ? esc(left)+" left"+(bud?` <span class="of">/ ${esc(bud)} budget</span>`:"") : "");
+  // burn-down follows the task-selected unit
+  const frac = iterBudget && live.budget_limit
+    ? Math.max(0, Math.min(1, live.budget_used/live.budget_limit))
+    : ((live.budget_hours && live.remaining_hours!=null)
+      ? Math.max(0, Math.min(1, 1 - live.remaining_hours/live.budget_hours)) : 0);
   $("#burn").style.width = (frac*100).toFixed(1)+"%";
   // stall watchdog: every agent transcript silent >15min on a live run
   const stall = $("#lv-stall");

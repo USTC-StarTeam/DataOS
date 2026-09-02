@@ -140,6 +140,67 @@ def test_stop_wall_clock_immediate(tmp_path):
     assert res["rounds_completed"] == 0
 
 
+def test_iteration_budget_stops_and_stays_spent_across_resume(tmp_path):
+    ws = str(tmp_path / "ws")
+    cfg = _cfg(ws)
+    cfg.budget = Budget(max_rounds=2)
+    res = run_auto(cfg, _clock=_clock_for_rounds(ws, 99))
+    assert res["stop_reason"] == "budget:iterations"
+    assert res["rounds_completed"] == 2
+
+    resumed = _cfg(ws)
+    resumed.budget = Budget(max_rounds=2)
+    res = run_auto(resumed, _clock=_clock_for_rounds(ws, 99))
+    assert res["stop_reason"] == "budget:iterations"
+    assert res["rounds_completed"] == 2
+
+
+def test_curation_round_claim_is_persisted_before_execution(tmp_path, monkeypatch):
+    from dataos.agent import iterations
+
+    ws = str(tmp_path / "ws")
+    cfg = AutoRunConfig(
+        project_id="p",
+        workspace=ws,
+        backend="stub",
+        stub=True,
+        budget=Budget(max_rounds=1),
+        target_bench="llava665k_smolvlm_8bench_10k_unlimited",
+        h100_base_model="/models/root",
+        runtime_config={"task": "curationbench"},
+    )
+    claims = []
+
+    def claim(_cfg, node):
+        claims.append(node["round"])
+        return {
+            "status": "target_activated",
+            "iteration": 1,
+            "suite_dir": "/suite",
+            "target_key": "task_iter1",
+            "target_state": "active",
+            "run_dir": "/suite/task_iter1",
+            "default_submission_path": "/suite/task_iter1/curated/final_submission",
+        }
+
+    finalized = []
+    monkeypatch.setattr(iterations, "claim", claim)
+    monkeypatch.setattr(
+        iterations,
+        "finalize",
+        lambda _cfg: finalized.append(True) or {"status": "suite_completed"},
+    )
+
+    result = run_auto(cfg, _clock=lambda: 0.0)
+
+    assert result["stop_reason"] == "budget:iterations"
+    assert claims == [0] and finalized == [True]
+    tree = json.loads((Path(ws) / "p" / "tree.json").read_text())
+    node = tree["nodes"][1]
+    assert node["iteration"] == 1
+    assert node["suite_target"] == "task_iter1"
+    assert node["submission_path"].endswith("curated/final_submission")
+
 def test_best_over_tree_final_model(tmp_path):
     ws = str(tmp_path / "ws")
     res = run_auto(_cfg(ws), _clock=_clock_for_rounds(ws, 2))
@@ -236,9 +297,9 @@ def test_no_function_local_role_module_import():
             )
 
 
-def test_invalid_plans_skip_rounds_then_stop_cleanly(tmp_path):
-    """A leader that keeps returning invalid plans must not crash the run: each invalid
-    round is skipped, and after 3 consecutive invalid rounds the run finishes cleanly
+def test_invalid_plans_do_not_spend_rounds_then_stop_cleanly(tmp_path):
+    """A leader that keeps returning invalid plans must not crash or spend an iteration: each
+    invalid planning cycle is retried, and after 3 consecutive cycles the run finishes cleanly
     (regression: gpqamain-4b died on 'estimated_hours must be positive' RuntimeError)."""
     ws = str(tmp_path / "ws")
     bad_plan = json.dumps({

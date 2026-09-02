@@ -44,6 +44,9 @@ def test_ptb_run_config_maps_to_auto_config(tmp_path):
     run_dir = tmp_path / "myrun"
     assert (run_dir / "run_config.json").is_file()
     assert (run_dir / "resolved_config.json").is_file()
+    resolved = json.loads((run_dir / "resolved_config.json").read_text())
+    assert resolved["run"]["time_hours"] == 10
+    assert "iterations" not in resolved["run"]
 
 
 def test_paths_resolve_with_derivations(tmp_path):
@@ -113,13 +116,32 @@ def test_curation_run_uses_the_same_run_schema_without_ptb_scenario_leak(tmp_pat
     data = _run_json(tmp_path / "curation")
     data["task"] = "curationbench"
     data["bench"] = "llava665k_smolvlm_8bench_10k_unlimited"
-    data["budget"] = {"time_hours": 24, "eval_samples": -1}
+    data["budget"] = {"iterations": 11}
     cfg = PtbRunConfig.from_dict(data).to_auto_config(
         resolved_config_path=tmp_path / "resolved.json"
     )
     assert cfg.scenario == "curationbench"
     assert cfg.runtime_config["task"] == "curationbench"
     assert cfg.h100_base_model == data["inputs"]["base_model_path"]
+    assert cfg.budget.max_rounds == 11
+    assert cfg.budget.max_wall_clock_s is None
+    assert cfg.eval_limit == -1
+    resolved = PtbRunConfig.from_dict(data).resolved_record(source_config=tmp_path / "run.json")
+    assert resolved["run"]["iterations"] == 11
+    assert "time_hours" not in resolved["run"]
+
+
+def test_task_budget_units_reject_cross_protocol_fields(tmp_path):
+    ptb = _run_json(tmp_path / "ptb", budget={"iterations": 11})
+    with pytest.raises(ValueError, match="forbidden.*iterations"):
+        PtbRunConfig.from_dict(ptb)
+
+    curation = _run_json(tmp_path / "curation")
+    curation["task"] = "curationbench"
+    curation["bench"] = "llava665k_smolvlm_8bench_10k_unlimited"
+    curation["budget"] = {"time_hours": 24, "eval_samples": -1}
+    with pytest.raises(ValueError, match="forbidden.*time_hours"):
+        PtbRunConfig.from_dict(curation)
 
 
 def test_fresh_instance_suffixes_taken_workspace(tmp_path):

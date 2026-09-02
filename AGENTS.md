@@ -5,8 +5,9 @@ shared code, and keep these invariants unless the user explicitly asks to change
 
 ## What this repo is
 
-`DataOS` is an **autonomous PostTrainBench agent**. It post-trains ONE base model to maximize ONE
-PostTrainBench benchmark, within a fixed data pool and a fixed GPU-time budget.
+`DataOS` is an autonomous post-training/data-curation agent. A task contract freezes the benchmark
+protocol and budget unit: PostTrainBench uses one base model, fixed pool and GPU-time budget;
+Curation-Bench uses a frozen train/eval pipeline and a fixed number of official iterations.
 
 - A persistent **leader** agent (a code-agent CLI dialog) maintains an experiment **tree**. Each
   round it returns ONE `ExperimentPlan` (parent node + data recipe + train config) and ONE
@@ -98,7 +99,7 @@ There is exactly ONE execution path: the agentic experimenter. The old in-proces
   gateway(connection)/ops — NO paths), `tasks/<task>/` (task contract incl.
   `scoring.judge.model` + the self-contained `eval/` lm-eval bridge + `benchmarks/` data,
   ~16M git-tracked), `runs/*.json` (per-run facts ONLY, layered: identity `goal`/`workspace`
-  → pointers `environment`/`task`/`bench` → `inputs` → `exec` → `budget` → host (`agent`,
+  → pointers `environment`/`task`/`bench` → `inputs` → `exec` → task-typed `budget` → host (`agent`,
   `monitor_port`); the workspace path IS the run identity (no run_id) — fresh instance per
   invocation, `--resume` to continue. The optional `agent` block picks the brain's CLI per
   run (`{"provider": "claude"|"kimi"|..., "model": ..., "effort": ..., "idle_timeout_s": ...}`;

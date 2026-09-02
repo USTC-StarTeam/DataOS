@@ -13,11 +13,11 @@ manual network retry.
 
 ```
 run_auto(cfg):
-  project.set_goal(criterion, wall_clock_budget)  # persisted for resume/provenance
+  project.set_goal(criterion, task_budget)        # persisted for resume/provenance
   proj.load()                                     # rehydrate prior studies
   tree.load()                                     # best-over-project search state
   freeze_eval()                                  # fixed PostTrainBench protocol
-  for each round until wall-clock is spent:
+  for each round until the task-selected budget is spent:
     tree: pick one growable parent (bias to best)  # ONE experiment per round
     planner.next_plan()                           # LLM judgment point #1
     study.set_plan()
@@ -46,9 +46,17 @@ For the PTB branch, the hard stop condition is wall-clock budget:
 Budget(max_wall_clock_s=...)
 ```
 
-`Criterion(metric=..., threshold=...)` is kept as ranking / target metadata, and
-`max_rounds` is recorded for provenance, but they do not stop the PTB loop. If no
-explicit wall-clock cap is given, the default is the PostTrainBench 10h budget.
+`Criterion(metric=..., threshold=...)` is kept as ranking / target metadata. Curation-Bench
+instead selects an official iteration budget:
+
+```text
+Budget(max_rounds=...)
+```
+
+Its run-scoped official suite has the same target count. A durable DataOS node claims one target;
+resume reuses that target, while an activated failed target still consumes its iteration. The
+seeded random-curation baseline is iteration 1. The two budget fields are mutually exclusive in a
+production run config.
 
 ## Run PostTrainBench Agent Mode
 

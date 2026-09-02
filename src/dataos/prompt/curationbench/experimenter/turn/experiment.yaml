@@ -4,10 +4,12 @@ template: |
   Implement Curation-Bench experiment '{{ exp_name }}' for {{ bench }}.
   Frozen root base model: {{ root_base_model }}
   Strategy-tree node: {{ node_id }} parent={{ parent_node_id }}
-  {% if remaining_minutes is defined and remaining_minutes %}
-  About {{ remaining_minutes }} wall-clock minutes remain; finish data, frozen train, and frozen
-  eval within that bound.
-  {% endif %}
+  Official suite: {{ suite_dir }}
+  Official target: {{ suite_target }} (iteration {{ iteration }}/{{ max_iterations }},
+  state={{ suite_target_state }})
+  Official target run dir: {{ suite_run_dir }}
+  Official submission path: {{ submission_path }}
+  {{ remaining_iterations }} official iterations remain after this target.
 
   CURATION PLAN (preserve the intent; round 0 must remain the official random baseline):
   {{ recipe_json }}
@@ -20,11 +22,17 @@ template: |
   Local report: {{ report_path }}
   Local durable state: {{ state_path }}
 
-  Initialize report.json with status `data`, then execute the configured stages. DATA must create
-  and retain `{ctx.suite_dir}` and `{ctx.submission_path}`; substitute those exact values into the
-  frozen TRAIN/EVAL commands. Read task-collect's model_path and pass it unchanged as
-  `{ctx.model_path}`. Put the canonical eval output under `{ctx.eval_dir}` and record that path as
-  stages.eval.summary_dir.
+  Initialize report.json with status `data`, then execute the configured stages. Code has already
+  created the run-scoped suite and activated this target. Use {{ suite_dir }} as
+  `{ctx.suite_dir}`; never call `init` or `next`. Use the target's official
+  `default_submission_path` shown above as `{ctx.submission_path}` and retain both values.
+  Substitute those exact values into the frozen TRAIN/EVAL commands. Read task-collect's
+  model_path unchanged as `{ctx.model_path}`. Put the canonical eval output under `{ctx.eval_dir}`
+  and record that path as stages.eval.summary_dir.
+
+  If the supplied target state is already `completed`, this is crash recovery after the official
+  eval landed: do not curate, train, or evaluate again. Collect the existing official result and
+  finish report.json for this same target.
 
   {{ env_ops }}
 

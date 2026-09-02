@@ -74,6 +74,11 @@ def _validate(env: dict, task: dict) -> None:
         ["name", "inputs", "objective", "constraints", "produce", "scoring", "stages"],
         "task.yaml",
     )
+    budget = ((task.get("agent") or {}).get("budget") or {})
+    if budget.get("unit") not in {"wall_clock", "iterations"}:
+        raise ValueError("task.yaml.agent.budget.unit must be wall_clock or iterations")
+    if budget.get("unit") == "iterations" and not budget.get("coordinator"):
+        raise ValueError("iteration-budget task missing task.yaml.agent.budget.coordinator")
     sc = task["scoring"]
     _require(sc, ["evaluator", "command", "result"], "task.yaml.scoring")
     _require(sc["result"], ["file", "field", "range"], "task.yaml.scoring.result")

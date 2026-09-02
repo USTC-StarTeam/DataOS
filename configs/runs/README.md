@@ -26,7 +26,15 @@ derived from the values below.
 
 `-1` full benchmark · `-2` AUTO (the loop sizes each node's eval) · a positive integer to cap.
 A subset score is not comparable with a full one, so whatever you choose here shows up next to
-every score as its caliber.
+every score as its caliber. This field belongs only to a task whose contract declares
+`agent.budget.unit: wall_clock` (currently PostTrainBench).
+
+## `budget.iterations`
+
+An iteration-limited task uses a positive official target count instead of `time_hours`.
+Curation-Bench creates one run-scoped suite with exactly this many targets; iteration 1 is its
+seeded random-curation baseline. Once a target is activated it consumes one iteration whether it
+completes or fails. Resuming that same target does not consume another.
 
 ## Naming
 

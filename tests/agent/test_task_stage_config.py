@@ -4,7 +4,7 @@ import pytest
 
 from dataos.agent.runtime_compose import render, resolve
 from dataos.agent.backend import system_prompt
-from dataos.agent.config import AutoRunConfig
+from dataos.agent.config import AutoRunConfig, Budget
 from dataos.agent.eval_freeze import freeze_eval
 from dataos.agent.loop import _spec_from_node
 from dataos_launch.task_config import load_task_contract
@@ -51,6 +51,10 @@ def test_curation_contract_resolves_without_nonexistent_run_fields():
         }
     )
     task = resolved["task"]
+    assert task["agent"]["budget"] == {
+        "unit": "iterations",
+        "coordinator": "suite.py",
+    }
     assert task["stages"]["train"]["driver"] == "external_cli"
     assert "dataos-train task-submit" in task["stages"]["train"]["command"]
     assert "--gpus 0" in task["stages"]["data"]["invoke"]
@@ -83,6 +87,7 @@ def _curation_cfg() -> AutoRunConfig:
         target_bench="llava665k_smolvlm_8bench_10k_unlimited",
         h100_base_model="/models/root",
         eval_limit=-1,
+        budget=Budget(max_rounds=11),
     )
     cfg.runtime_config = {"task": "curationbench", "cluster": {"gres": "gpu:1"}}
     return cfg
@@ -93,6 +98,7 @@ def test_curation_prompt_and_eval_driver_are_selected_by_task_config():
     leader = system_prompt("leader", cfg)
     experimenter = system_prompt("experimenter", cfg)
     assert "Curation-Bench run" in leader and "PostTrainBench" not in leader
+    assert "11 official iterations" in leader and "10h budget" not in leader
     assert "datacuration-bench" in experimenter
     assert "LLaMA-Factory" in experimenter  # only in the explicit prohibition
     assert freeze_eval(cfg=cfg) == {
@@ -100,6 +106,59 @@ def test_curation_prompt_and_eval_driver_are_selected_by_task_config():
         "task": "llava665k_smolvlm_8bench_10k_unlimited",
         "frozen": True,
     }
+
+
+def test_curation_experiment_prompt_receives_the_claimed_official_target(tmp_path):
+    from dataos.agent.roles import _task_prompt
+
+    cfg = _curation_cfg()
+    cfg.runtime_config.update(
+        {
+            "environment": "example-slurm",
+            "kind": "slurm",
+            "paths": {
+                "deploy_root": "/deploy",
+                "runs_base": "/runs",
+                "fixed_pool": "/datasets/llava665k",
+            },
+            "cluster": {
+                "gres": "gpu:1",
+                "qos": "gpu_normal",
+                "partition": "gpu",
+                "nodelist": "gpu01",
+                "cpus_per_task": 8,
+            },
+        }
+    )
+    spec = {
+        "name": "random-baseline",
+        "node_id": "n1",
+        "parent_node_id": "n0",
+        "init_model": "/models/root",
+        "data": {},
+        "train": {"model_name_or_path": "/models/root"},
+        "subagent_brief": "baseline",
+        "iteration": 1,
+        "max_iterations": 11,
+        "suite_dir": "/suite",
+        "suite_target": "task_iter1",
+        "suite_target_state": "active",
+        "suite_run_dir": "/suite/task_iter1",
+        "submission_path": "/suite/task_iter1/curated/final_submission",
+    }
+
+    text = _task_prompt(
+        cfg=cfg,
+        study_id="round-0000",
+        spec=spec,
+        exp_dir=tmp_path,
+        eval_limit=-1,
+    )
+
+    assert "iteration 1/11" in text
+    assert "Official suite: /suite" in text
+    assert "never call `init` or `next`" in text
+    assert "/suite/task_iter1/curated/final_submission" in text
 
 
 def test_curation_tree_parent_is_strategy_only_and_model_resets_to_root():

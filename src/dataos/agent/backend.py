@@ -82,6 +82,7 @@ def prompt_facts(cfg: AutoRunConfig) -> dict:
     qos = cluster.get("qos")
     return {
         "budget_hours": budget_hours,
+        "budget_iterations": getattr(budget, "max_rounds", None),
         "gpus": gpus,
         # Deployment facts a discipline block states as constraints. They arrive as VALUES so the
         # block carries the rule once and the numbers come from the machine — the same move

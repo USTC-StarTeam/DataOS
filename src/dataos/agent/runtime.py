@@ -132,6 +132,42 @@ def _exec_text(cfg, cmd: str, *, timeout: int = 25) -> str:
         return ""
 
 
+def exec_host_command(cfg, argv: list[str], *, timeout: int = 120) -> str:
+    """Run one checked command on the configured execution host.
+
+    Unlike the best-effort probes above, task lifecycle transitions must either return their
+    output or stop loudly. ``argv`` remains structured until the final SSH boundary.
+    """
+    import os
+    import subprocess
+
+    cluster = _runtime_config(cfg).get("cluster") or {}
+    command = list(argv)
+    if cluster.get("host"):
+        command = [
+            "ssh",
+            "-i",
+            os.path.expanduser(str(cluster.get("key", ""))),
+            "-p",
+            str(cluster.get("port", 22)),
+            "-o",
+            "IdentitiesOnly=yes",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "ConnectTimeout=8",
+            f"{cluster.get('user')}@{cluster['host']}",
+            shlex.join(argv),
+        ]
+    proc = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    if proc.returncode:
+        detail = (proc.stderr or proc.stdout).strip()
+        raise RuntimeError(
+            f"execution-host command failed ({proc.returncode}): {detail[-4000:]}"
+        )
+    return proc.stdout.strip()
+
+
 #: Stop every job this run_dir still has in flight. Runs ON the exec host, where the handles and
 #: the scheduler are, in one round trip.
 #:

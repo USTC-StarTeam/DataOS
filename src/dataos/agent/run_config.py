@@ -283,8 +283,50 @@ class ExecConfig:
 
 @dataclass(slots=True)
 class BudgetConfig:
-    time_hours: float
+    unit: str
+    time_hours: float | None = None
+    iterations: int | None = None
     eval_samples: int = -1  # eval size per experiment; -1 = FULL benchmark (all samples)
+
+
+def _budget_config(task: str, value: Any) -> BudgetConfig:
+    data = _object(value, "budget")
+    policy = ((_task(task).get("agent") or {}).get("budget") or {})
+    unit = str(policy.get("unit") or "")
+    if unit == "wall_clock":
+        allowed = {"time_hours", "eval_samples"}
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError(
+                f"budget has keys forbidden by task {task!r}: {', '.join(unknown)} "
+                "(wall_clock allows: time_hours, eval_samples)"
+            )
+        _require(data, ["time_hours"], "budget")
+        return BudgetConfig(
+            unit=unit,
+            time_hours=_positive_float(data["time_hours"], "budget.time_hours"),
+            eval_samples=(
+                _eval_samples(data["eval_samples"], "budget.eval_samples")
+                if "eval_samples" in data
+                else -1
+            ),
+        )
+    if unit == "iterations":
+        unknown = sorted(set(data) - {"iterations"})
+        if unknown:
+            raise ValueError(
+                f"budget has keys forbidden by task {task!r}: {', '.join(unknown)} "
+                "(iterations allows only: iterations)"
+            )
+        _require(data, ["iterations"], "budget")
+        return BudgetConfig(
+            unit=unit,
+            iterations=_positive_int(data["iterations"], "budget.iterations"),
+            eval_samples=-1,
+        )
+    raise ValueError(
+        f"task {task!r} must declare agent.budget.unit as wall_clock or iterations"
+    )
 
 
 @dataclass(slots=True)
@@ -334,8 +376,6 @@ class PtbRunConfig:
         _require(inputs, ["base_model_path", "fixed_pool"], "inputs")
         exec_ = _object(data["exec"], "exec")
         _require(exec_, ["deploy_root", "runs_base", "resource"], "exec")
-        budget = _object(data["budget"], "budget")
-        _require(budget, ["time_hours"], "budget")
         agent = _object(data["agent"], "agent") if "agent" in data else {}
         unknown_agent = sorted(set(agent) - {"provider", "model", "effort", "idle_timeout_s"})
         if unknown_agent:
@@ -368,12 +408,7 @@ class PtbRunConfig:
                     partitions_available=_partitions_available(data),
                 ),
             ),
-            budget=BudgetConfig(
-                time_hours=_positive_float(budget["time_hours"], "budget.time_hours"),
-                eval_samples=_eval_samples(budget["eval_samples"], "budget.eval_samples")
-                if "eval_samples" in budget
-                else -1,
-            ),
+            budget=_budget_config(task, data["budget"]),
             agent=AgentCliConfig(
                 provider=_nonempty_str(agent["provider"], "agent.provider")
                 if agent.get("provider")
@@ -412,6 +447,11 @@ class PtbRunConfig:
         return str(self.workspace_path.parent)
 
     def to_record(self) -> dict[str, Any]:
+        budget = (
+            {"time_hours": self.budget.time_hours, "eval_samples": self.budget.eval_samples}
+            if self.budget.unit == "wall_clock"
+            else {"iterations": self.budget.iterations}
+        )
         return {
             "goal": self.goal,
             "workspace": self.workspace,
@@ -423,8 +463,7 @@ class PtbRunConfig:
             "exec": {"deploy_root": self.exec.deploy_root,
                      "runs_base": self.exec.runs_base,
                      "resource": self.exec.resource.to_record()},
-            "budget": {"time_hours": self.budget.time_hours,
-                       "eval_samples": self.budget.eval_samples},
+            "budget": budget,
             "agent": {k: v for k, v in
                       {"provider": self.agent.provider, "model": self.agent.model,
                        "effort": self.agent.effort,
@@ -452,13 +491,18 @@ class PtbRunConfig:
         }
 
     def resolved_record(self, *, source_config: Path) -> dict[str, Any]:
+        budget = (
+            {"time_hours": self.budget.time_hours}
+            if self.budget.unit == "wall_clock"
+            else {"iterations": self.budget.iterations}
+        )
         return {
             "run": {
                 "project_id": self.project_id,
                 "workspace": str(self.workspace_path),
                 "source_config": str(source_config),
                 "goal": self.goal,
-                "time_hours": self.budget.time_hours,
+                **budget,
             },
             self.task: {"bench": self.bench, "profile": "formal"},
             "model": {"base_model_path": self.inputs.base_model_path},
@@ -467,13 +511,21 @@ class PtbRunConfig:
         }
 
     def to_auto_config(self, *, resolved_config_path: Path) -> AutoRunConfig:
+        budget = Budget(
+            max_wall_clock_s=(
+                self.budget.time_hours * 3600.0
+                if self.budget.time_hours is not None
+                else None
+            ),
+            max_rounds=self.budget.iterations,
+        )
         return AutoRunConfig(
             project_id=self.project_id,
             instruct=self.goal,
             goal=self.goal,
             scenario=self.task,
             criterion=Criterion(metric="score", threshold=None, direction="max"),
-            budget=Budget(max_wall_clock_s=self.budget.time_hours * 3600.0),
+            budget=budget,
             workspace=self.workspace_root,
             backend=os.environ.get("DATAOS_BACKEND", "cli"),
             # precedence: run JSON `agent` block > env var > default (kimi / CLI default model)

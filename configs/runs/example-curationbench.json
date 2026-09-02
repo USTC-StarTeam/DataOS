@@ -20,8 +20,7 @@
     }
   },
   "budget": {
-    "time_hours": 24,
-    "eval_samples": -1
+    "iterations": 11
   },
   "agent": {
     "provider": "codex",

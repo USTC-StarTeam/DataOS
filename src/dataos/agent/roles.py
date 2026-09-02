@@ -414,6 +414,18 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         report_path=str(exp_dir / "report.json"),
         state_path=str(exp_dir / _STATE_FILE),
         remaining_minutes=remaining_minutes,
+        iteration=spec.get("iteration"),
+        max_iterations=spec.get("max_iterations"),
+        remaining_iterations=(
+            spec["max_iterations"] - spec["iteration"]
+            if spec.get("max_iterations") is not None and spec.get("iteration") is not None
+            else None
+        ),
+        suite_dir=spec.get("suite_dir"),
+        suite_target=spec.get("suite_target"),
+        suite_target_state=spec.get("suite_target_state"),
+        suite_run_dir=spec.get("suite_run_dir"),
+        submission_path=spec.get("submission_path"),
     )
 
 
@@ -499,7 +511,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
             res = agent.run(prompt, resume=state.get("session_id"), timeout=remaining)
         except Exception as e:  # noqa: BLE001 — transient transport drops are already retried
             # (reconnect+resume) inside dataos_agent via CliAgent.run; reaching here means a genuine
-            # blocker or the wall-clock/PTB budget is spent, so record it and stop.
+            # blocker or the task-selected execution deadline is spent, so record it and stop.
             state["status"] = "blocked"
             state["last_error"] = str(e)
             _write_state(state_path, state)
@@ -536,7 +548,7 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
 
     report = _report_from_disk(report_path)
     if report is None or not report_schema.is_terminal(report):
-        err = "experimenter produced no terminal report.json before the PTB/experiment deadline"
+        err = "experimenter produced no terminal report.json before its execution stopped"
         if state.get("last_error"):
             err = f"{err}: {state['last_error']}"
         # the eval may have finished before the cut — rescue a real score if one exists
@@ -673,8 +685,8 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
 
 def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -> dict[str, dict]:
     """Run each spec as an agentic experimenter. Experiments execute SEQUENTIALLY, sharing the
-    run's GPU/time budget.
-    ``deadline`` (monotonic) stops launching further experiments once the budget is spent."""
+    run's task-selected budget. ``deadline`` is present only for wall-clock tasks and stops
+    launching further experiments once that budget is spent."""
     if not cfg.target_bench:
         raise ValueError("the role runner needs cfg.target_bench (the single PTB bench)")
     if not cfg.h100_base_model:
@@ -691,11 +703,11 @@ def fan_out(*, cfg, study_id: str, specs: list, deadline: float | None = None) -
     for spec in specs:
         name = spec["name"]
         if deadline is not None and time.monotonic() >= deadline:
-            log.info("fan_out: wall-clock budget spent — skipping remaining experiment %s", name)
+            log.info("fan_out: execution deadline spent — skipping experiment %s", name)
             # No stages: this node never started, so it has nothing to say about train or eval.
             reports[name] = {
                 "id": _make_id("exp"), "name": name, "status": "failed",
-                "error": "skipped: wall-clock budget exhausted",
+                "error": "skipped: execution deadline exhausted",
             }
             continue
         _, report = _run_one(cfg, study_id, spec, exp_root, timeout=_exp_timeout(cfg, deadline))
