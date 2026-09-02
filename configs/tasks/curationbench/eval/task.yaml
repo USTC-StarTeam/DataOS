@@ -21,7 +21,7 @@ native:
     LLaVABench: {row: {split: overall}, field: "Relative Score (main)"}
     OCRBench: {field: "Final Score"}
     HallusionBench: {row: {split: Overall}, mean_fields: [aAcc, fAcc, qAcc]}
-    MMMU_DEV_VAL: {row: {split: val}, field: Overall, multiply: 100}
+    MMMU_DEV_VAL: {row: {split: validation}, field: Overall, multiply: 100}
     MathVista_MINI: {row: {"Task&Skill": Overall}, field: acc}
     MMStar: {row: {split: none}, field: Overall, multiply: 100}
     MMBench: {row: {split: dev}, field: Overall, multiply: 100}

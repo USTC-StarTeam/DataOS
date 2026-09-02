@@ -21,12 +21,14 @@ def _number(value) -> float | None:
 
 
 def _rows(value: object) -> list[dict]:
-    """Turn VLMEvalKit's DataFrame.to_dict() JSON shape back into rows."""
+    """Turn either VLMEvalKit DataFrame JSON orientation back into rows."""
     if not isinstance(value, dict) or not value:
         return []
     columns = {str(key): item for key, item in value.items()}
     if not all(isinstance(item, dict) for item in columns.values()):
         return [columns]
+    if all(str(key).isdigit() for key in columns):
+        return [dict(item) for item in columns.values()]
     indices = []
     for column in columns.values():
         for index in column:
