@@ -7,8 +7,9 @@ provider. The three task contracts are the only driver selection points:
   experiment-local harness worktree;
 - `train/task.yaml`: `dataos-train task-submit` schedules the official
   `audit -> submit -> finetune` workflow;
-- `eval/task.yaml`: `dataos-eval` schedules the official VLMEvalKit evaluation and the task-local
-  collector applies the pinned benchmark's eight declared score selectors.
+- `eval/task.yaml`: `dataos-eval` runs candidate inference on the offline GPU node, runs the
+  official VLMEvalKit judge through the environment gateway on the login node, and applies the
+  pinned benchmark's eight declared score selectors.
 
 PostTrainBench has its own three explicit contracts, so adding this task does not change its
 Operator/dataos-train/lm-eval path. Directory existence has no runtime meaning.
@@ -25,7 +26,8 @@ CLI venv must match all pins. The official harness's two vendor venvs must also 
 Build each vendor project with its own `UV_PROJECT_ENVIRONMENT`; never install those dependencies
 into a DataOS venv. The external profile must map the selected dataset/model IDs to the same
 absolute `inputs.fixed_pool` / `inputs.base_model_path` values used by the run config, name the
-evaluation data directory, and provide a judge endpoint reachable by the evaluation job.
+evaluation data directory, and configure a gateway reachable from the login node. Judge
+credentials remain in the environment's `0600` key file and never enter a Slurm job.
 
 The pinned upstream revision currently has no usable `qwen2-vl-2b` model registry entry even
 though it ships a task with that key. Treat

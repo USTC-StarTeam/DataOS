@@ -13,13 +13,6 @@ compat:
     source_path: vlmeval/utils/result_transfer.py
     sha256: d6225256ec0afa2ac9857b139df2f910b23b693749d2f2eb58cf7e696b9b6974
     install_path: vendor/VLMEvalKit/vlmeval/utils/result_transfer.py
-  vllm_qwen3_next:
-    distribution: vllm
-    version: "0.17.1"
-    original_sha256: 32b4f5fa8727dcf0fd7988ae575bfeb795917777a792d415779dc93d0568e8cb
-    patched_sha256: 51a863bfd7f52ba3f099fc72ad8a6b1e44d848eb1fdd658d38908e919934313b
-    install_path: vendor/VLMEvalKit/.venv/lib/python3.12/site-packages/vllm/model_executor/models/qwen3_next.py
-    selector: DATAOS_VLLM_GDN_PREFILL_BACKEND=triton
   vlmeval_secret_log:
     original_sha256: fc17db161eeeb9c4c7adf3a67874202bf3443403460d42c33a75ce02fe764561
     patched_sha256: 90ef91956c2a69be6e5c8387361e5aeb3e93f08131f6e3743272d6b5476e800c
@@ -43,12 +36,6 @@ models:
     revision: a576ab7b4354916a0cb5b58a3bd973a9a526ee7c
     model_type: idefics3
     relative_path: models/SmolVLM-Base
-
-judge:
-  repository: Qwen/Qwen3.5-27B
-  revision: fc05daec18b0a78c049392ed2e771dde82bdf654
-  model_type: qwen3_5
-  relative_path: models/Qwen3.5-27B
 
 eval_data:
   relative_path: LMUData

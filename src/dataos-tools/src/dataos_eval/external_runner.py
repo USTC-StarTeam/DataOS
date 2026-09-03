@@ -50,6 +50,9 @@ def run(manifest_path: str | Path) -> int:
     if proc.returncode != 0 or (accepted and native.get("status") not in accepted):
         print(json.dumps(native, ensure_ascii=False))
         return 1
+    if not manifest.get("collect_after_run", True):
+        print(json.dumps(native, ensure_ascii=False))
+        return 0
 
     collected = subprocess.run(
         [

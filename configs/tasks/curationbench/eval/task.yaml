@@ -1,11 +1,19 @@
-# Frozen Curation-Bench evaluation. The external driver invokes the official CLI and then the
-# task-local collector converts its native VLMEvalKit files into DataOS summary.json.
+# Frozen Curation-Bench evaluation. Candidate inference runs on the offline GPU node; collect
+# runs the official VLMEvalKit judge on the networked login node and converts its native result.
 version: 1
 stage: eval
 driver: external_cli
 ownership: frozen
 tool: datacuration-bench
-args: [eval, --suite-dir, "{suite_dir}"]
+compute:
+  script: run_vlmeval.py
+  args: [infer, --harness-root, "{tool_root}", --suite-dir, "{suite_dir}",
+         --model-path, "{model_path}", --vlmeval-model, SmolVLM]
+remote_judge:
+  script: run_vlmeval.py
+  args: [judge, --harness-root, "{tool_root}", --suite-dir, "{suite_dir}",
+         --model-path, "{model_path}", --vlmeval-model, SmolVLM,
+         --judge-model, "{judge_model}", --workers, "{judge_workers}"]
 accept_status: [completed]
 collector: collect.py
 followup: |-

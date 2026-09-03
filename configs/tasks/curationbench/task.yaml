@@ -104,6 +104,7 @@ produce:
 # EVAL 契约:只评一个模型(和 posttrainbench 同形)。driver 细节见 eval/task.yaml。
 scoring:
   evaluator: "dataos-eval external_cli driver → official datacuration-bench eval/VLMEvalKit"
+  judge: {model: qwen3.5-plus, workers: 32}
   command: |-
     {{ env.tools.sft_env.path }}/bin/dataos-eval submit --repo {{ run.deploy_root }} --environment {{ run.environment }} --task-config {{ run.task }} --task {{ run.bench }} --model-path {ctx.model_path} --model-name {ctx.label} --output-dir {ctx.eval_dir} --run-root {ctx.run_root} --suite-dir {ctx.suite_dir} --limit -1 --gpus {{ run.resource.gpus }} --cpus {{ run.resource.cpus }}{% if run.resource.get("qos") %} --qos {{ run.resource.qos }}{% endif %}{% if run.resource.get("partition") %} --partition {{ run.resource.partition }}{% endif %}{% if run.resource.get("node") %} --nodelist {{ run.resource.node }}{% endif %}
   result:

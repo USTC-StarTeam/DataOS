@@ -12,7 +12,7 @@
     "deploy_root": "<absolute path to this DataOS checkout on the exec host>",
     "runs_base": "<absolute path where isolated DataOS/Curation suites land>",
     "resource": {
-      "gpus": 1,
+      "gpus": 2,
       "cpus": 8,
       "node": "<optional exact node pin>",
       "qos": "<one of the selected partition's qos_available>",

@@ -328,6 +328,7 @@ class ExternalEvalStage(Stage):
             model_name=model_name,
             output_dir=output_dir,
             suite_dir=suite_dir,
+            needs_judge=bool(self.contract.get("remote_judge")),
         )
 
     def validate(self, spec: ExternalEvalSpec) -> list[str]:
@@ -346,75 +347,67 @@ class ExternalEvalStage(Stage):
             errors.append(f"configured external eval collector does not exist: {collector}")
         try:
             provider, _ = self._tool()
-            judge = provider.get("local_judge")
-            if judge:
-                if not isinstance(judge, dict):
-                    errors.append("external provider local_judge must be a mapping")
+            remote = self.contract.get("remote_judge")
+            if remote:
+                if not provider.get("root"):
+                    errors.append("external remote judge requires the tool provider root")
+                if not isinstance(remote, dict) or not isinstance(
+                    self.contract.get("compute"), dict
+                ):
+                    errors.append("external remote_judge and compute must be mappings")
                 else:
-                    executable = Path(str(judge.get("executable") or ""))
-                    model_path = Path(str(judge.get("model_path") or ""))
-                    if not executable.is_file():
-                        errors.append(f"local judge executable does not exist: {executable}")
-                    if not Path(model_path, "config.json").is_file():
-                        errors.append(f"local judge model does not exist: {model_path}")
-                    if int(judge.get("total_gpus") or 0) < 2:
-                        errors.append("local judge total_gpus must be at least 2")
+                    for phase_name in ("compute", "remote_judge"):
+                        phase = self.contract[phase_name]
+                        script = self._script_path(phase)
+                        if not script.is_file():
+                            errors.append(f"external {phase_name} script does not exist: {script}")
+                    gateway = self.env.get("gateway") or {}
+                    if not gateway.get("base_url"):
+                        errors.append("external remote judge requires gateway.base_url")
+                    if not Path(str(gateway.get("key_file") or "")).is_file():
+                        errors.append("external remote judge gateway.key_file does not exist")
+                    task_judge = (self.task_cfg.get("scoring") or {}).get("judge") or {}
+                    if not task_judge.get("model"):
+                        errors.append("external remote judge requires scoring.judge.model")
         except (KeyError, TypeError, ValueError) as exc:
             errors.append(str(exc))
         return errors
 
-    @staticmethod
-    def _local_judge(provider: dict, spec: ExternalEvalSpec) -> tuple[Resources, list[str]]:
-        judge = provider.get("local_judge")
-        if not judge:
-            return spec.resources, []
-
-        total_gpus = int(judge["total_gpus"])
-        resources = spec.resources.model_copy(
-            update={"gpus": max(spec.resources.gpus, total_gpus)}
+    def _script_path(self, phase: dict) -> Path:
+        return (
+            self.repo
+            / "configs"
+            / "tasks"
+            / self.task_config
+            / "eval"
+            / str(phase.get("script") or "")
         )
-        executable = shlex.quote(str(judge["executable"]))
-        executable_dir = shlex.quote(str(Path(str(judge["executable"])).parent))
-        model_path = shlex.quote(str(judge["model_path"]))
-        model_name = shlex.quote(str(judge["served_model_name"]))
-        port_base = int(judge.get("port_base", 18000))
-        memory = float(judge.get("gpu_memory_utilization", 0.9))
-        max_model_len = int(judge.get("max_model_len", 32768))
-        eager_flag = " --enforce-eager" if judge.get("enforce_eager") is True else ""
-        log_path = shlex.quote(str(Path(spec.run_dir) / f"{spec.name}.judge.log"))
-        pre_cmds = [
-            'IFS="," read -r -a dataos_allocated_gpus <<< "${CUDA_VISIBLE_DEVICES:?}"',
-            f'if [ "${{#dataos_allocated_gpus[@]}}" -lt {total_gpus} ]; then '
-            f"echo 'local judge requires {total_gpus} allocated GPUs' >&2; exit 1; fi",
-            'export BENCHMARK_EVAL_GPUS="${dataos_allocated_gpus[1]}"',
-            f"dataos_judge_port=$(({port_base} + ${{SLURM_JOB_ID:-0}} % 1000))",
-            'export OPENAI_API_BASE="http://127.0.0.1:${dataos_judge_port}/v1/chat/completions"',
-            'export OPENAI_API_KEY="dataos-local-judge"',
-            f'export PATH={executable_dir}:"$PATH"',
-            f'CUDA_VISIBLE_DEVICES="${{dataos_allocated_gpus[0]}}" {executable} serve '
-            f"{model_path} --served-model-name {model_name} --api-key dataos-local-judge "
-            f'--host 127.0.0.1 --port "$dataos_judge_port" '
-            f"--gpu-memory-utilization {memory} --max-model-len {max_model_len}{eager_flag} "
-            f">{log_path} 2>&1 &",
-            "dataos_judge_pid=$!",
-            "trap 'kill \"$dataos_judge_pid\" 2>/dev/null || true' EXIT",
-            'for _ in $(seq 1 600); do curl -fsS "http://127.0.0.1:${dataos_judge_port}/health" '
-            ">/dev/null && break; sleep 2; done",
-            'if ! curl -fsS "http://127.0.0.1:${dataos_judge_port}/health" >/dev/null; then '
-            f"tail -n 100 {log_path} >&2; exit 1; fi",
-        ]
-        return resources, pre_cmds
+
+    @staticmethod
+    def _format_args(phase: dict, values: dict[str, object]) -> list[str]:
+        return [str(value).format_map(values) for value in phase.get("args") or []]
 
     def build(self, spec: ExternalEvalSpec) -> Job:
         provider, executable = self._tool()
+        task_judge = (self.task_cfg.get("scoring") or {}).get("judge") or {}
         values = {
             "suite_dir": spec.suite_dir,
             "output_dir": spec.output_dir,
             "model_path": spec.model_path,
             "model_name": spec.model_name,
             "task": spec.task,
+            "tool_root": str(provider.get("root") or ""),
+            "judge_model": str(task_judge.get("model") or ""),
+            "judge_workers": int(task_judge.get("workers", 32)),
         }
-        args = [str(value).format_map(values) for value in self.contract.get("args") or []]
+        remote = self.contract.get("remote_judge")
+        compute = self.contract.get("compute")
+        if remote:
+            runner = Path(tool_provider(self.env, "dataos-eval")["path"]) / "bin" / "python"
+            executable = runner
+            args = [str(self._script_path(compute)), *self._format_args(compute, values)]
+        else:
+            args = self._format_args(self.contract, values)
         collector = self.repo / "configs" / "tasks" / self.task_config / "eval" / str(
             self.contract["collector"]
         )
@@ -427,9 +420,9 @@ class ExternalEvalStage(Stage):
             "output_dir": spec.output_dir,
             "collector": str(collector),
             "collector_config": self.contract.get("native") or {},
+            "collect_after_run": not bool(remote),
         }
         runner = Path(tool_provider(self.env, "dataos-eval")["path"]) / "bin" / "python"
-        resources, pre_cmds = self._local_judge(provider, spec)
         return Job(
             backend="external_cli",
             job_name=spec.name,
@@ -441,9 +434,59 @@ class ExternalEvalStage(Stage):
             ],
             env={str(k): str(v) for k, v in (provider.get("env") or {}).items()},
             run_dir=spec.run_dir,
-            resources=resources,
-            pre_cmds=pre_cmds,
+            resources=spec.resources,
+            pre_cmds=[],
             assets={
                 f"{spec.name}.external_eval_manifest.json": json.dumps(manifest, indent=2)
             },
         )
+
+    def judge_command(self, record: dict, summary_path: Path) -> str:
+        """Build the external judge+collect command that runs on the networked login node."""
+        del summary_path
+        remote = self.contract.get("remote_judge")
+        if not isinstance(remote, dict):
+            raise ValueError("external eval has no remote_judge contract")
+        provider, _ = self._tool()
+        task_judge = (self.task_cfg.get("scoring") or {}).get("judge") or {}
+        values = {
+            "suite_dir": record["suite_dir"],
+            "output_dir": record["output_dir"],
+            "model_path": record["model_path"],
+            "model_name": record["model_name"],
+            "task": record["task"],
+            "tool_root": str(provider.get("root") or ""),
+            "judge_model": str(task_judge["model"]),
+            "judge_workers": int(task_judge.get("workers", 32)),
+        }
+        runner = Path(tool_provider(self.env, "dataos-eval")["path"]) / "bin" / "python"
+        judge_argv = [
+            str(runner),
+            str(self._script_path(remote)),
+            *self._format_args(remote, values),
+        ]
+        gateway = self.env["gateway"]
+        env = [
+            f"{key}={shlex.quote(str(value))}"
+            for key, value in (provider.get("env") or {}).items()
+        ]
+        env.extend(
+            [
+                f"OPENAI_API_KEY=$(cat {shlex.quote(str(gateway['key_file']))})",
+                f"OPENAI_API_BASE={shlex.quote(str(gateway['base_url']))}",
+            ]
+        )
+        collector = self.repo / "configs" / "tasks" / self.task_config / "eval" / str(
+            self.contract["collector"]
+        )
+        collect_argv = [
+            str(runner),
+            str(collector),
+            "--suite-dir",
+            str(record["suite_dir"]),
+            "--output-dir",
+            str(record["output_dir"]),
+            "--config-json",
+            json.dumps(self.contract.get("native") or {}),
+        ]
+        return f"{' '.join(env)} {shlex.join(judge_argv)} && {shlex.join(collect_argv)}"

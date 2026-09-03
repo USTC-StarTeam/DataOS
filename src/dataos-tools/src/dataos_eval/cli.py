@@ -19,7 +19,7 @@ from dataos_launch import Handle, Resources
 from dataos_launch.launchers.slurm import slurm_time_s
 from dataos_launch.spec import SpecError
 
-from .stage import EvalStage
+from .stage import EvalStage, ExternalEvalStage
 
 #: Suffix, not a name: the spec's own name goes in front so a checkpoint sweep's six
 #: evaluations leave six records instead of overwriting one. `collect` and `status`
@@ -76,6 +76,7 @@ def cmd_submit(args) -> int:
         "model_path": spec.model_path,
         "model_name": spec.model_name,
         "needs_judge": spec.needs_judge,
+        "suite_dir": getattr(spec, "suite_dir", None),
         "chat_template": getattr(spec, "chat_template", None),
         "submitted_at": handle.submitted_at,
     }
@@ -110,8 +111,16 @@ def cmd_collect(args) -> int:
     summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
 
     if record.get("needs_judge") and summary.get("score") is None:
-        cmd = stage.judge_command(record["task"], record["output_dir"], summary_path)
+        if isinstance(stage, ExternalEvalStage):
+            cmd = stage.judge_command(record, summary_path)
+        else:
+            cmd = stage.judge_command(record["task"], record["output_dir"], summary_path)
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
+        if isinstance(stage, ExternalEvalStage):
+            output_dir = Path(record["output_dir"])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "remote_judge_stdout.txt").write_text(r.stdout, encoding="utf-8")
+            (output_dir / "remote_judge_stderr.txt").write_text(r.stderr, encoding="utf-8")
         if r.returncode != 0:
             print(f"judge failed: {r.stderr.strip()[:500]}", file=sys.stderr)
             return 1

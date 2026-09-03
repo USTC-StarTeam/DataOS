@@ -162,17 +162,6 @@ def verify(harness_root: Path, profile_path: Path, task_name: str) -> None:
         errors.append(f"evaluation venv is missing the FlashInfer JIT builder: {ninja}")
     else:
         print(f"[ok] evaluation JIT builder: {ninja}")
-    vllm_patch = manifest["compat"]["vllm_qwen3_next"]
-    vllm_path = harness_root / str(vllm_patch["install_path"])
-    expected_vllm = str(vllm_patch["patched_sha256"])
-    if not vllm_path.is_file():
-        errors.append(f"missing vLLM Qwen3.5 GDN compatibility patch: {vllm_path}")
-    elif (actual_vllm := _sha256(vllm_path)) != expected_vllm:
-        errors.append(
-            f"vLLM Qwen3.5 GDN checksum {actual_vllm} != {expected_vllm}: {vllm_path}"
-        )
-    else:
-        print(f"[ok] vLLM Qwen3.5 GDN compatibility patch: {actual_vllm}")
     secret_patch = manifest["compat"]["vlmeval_secret_log"]
     secret_path = harness_root / str(secret_patch["install_path"])
     expected_secret = str(secret_patch["patched_sha256"])
@@ -236,21 +225,6 @@ def verify(harness_root: Path, profile_path: Path, task_name: str) -> None:
         errors.append(str(exc))
 
     eval_dir = Path(str(profile.get("eval_data_dir") or ""))
-    try:
-        judge_spec = manifest["judge"]
-        judge_path = eval_dir.parent / str(judge_spec["relative_path"])
-        _verify_hf_revision(judge_path, str(judge_spec["revision"]), "judge")
-        judge_config = json.loads((judge_path / "config.json").read_text(encoding="utf-8"))
-        expected_type = str(judge_spec["model_type"])
-        if judge_config.get("model_type") != expected_type:
-            errors.append(
-                f"judge model_type {judge_config.get('model_type')!r} != {expected_type!r}: "
-                f"{judge_path}"
-            )
-        else:
-            print(f"[ok] judge: {judge_path} ({expected_type})")
-    except (KeyError, OSError, TypeError, ValueError) as exc:
-        errors.append(str(exc))
     for name, spec in manifest["eval_data"]["files"].items():
         path = eval_dir / f"{name}.tsv"
         if not path.is_file():

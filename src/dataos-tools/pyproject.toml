@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dataos-tools"
-version = "0.5.4"
+version = "0.5.5"
 description = "The agent's instruments — data / train / eval — and the launcher that submits them"
 requires-python = ">=3.11"
 authors = [{ name = "USTC-StarTeam" }]
