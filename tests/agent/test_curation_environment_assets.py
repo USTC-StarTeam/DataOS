@@ -54,7 +54,12 @@ def test_official_curation_run_reserves_two_h100s_and_uses_remote_judge() -> Non
     assert run["exec"]["resource"]["gpus"] == 2
     assert task["scoring"]["judge"] == {"model": "qwen3.5-plus", "workers": 128}
     assert "compute" in eval_contract and "remote_judge" in eval_contract
-    assert eval_contract["remote_judge"]["args"][-2:] == ["--timeout-seconds", "120"]
+    assert eval_contract["remote_judge"]["args"][-4:] == [
+        "--timeout-seconds",
+        "120",
+        "--request-retries",
+        "1",
+    ]
 
 
 def test_eval_asset_manifest_matches_frozen_collector() -> None:

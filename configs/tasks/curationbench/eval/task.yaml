@@ -14,7 +14,7 @@ remote_judge:
   args: [judge, --harness-root, "{tool_root}", --suite-dir, "{suite_dir}",
          --model-path, "{model_path}", --vlmeval-model, SmolVLM,
          --judge-model, "{judge_model}", --workers, "{judge_workers}",
-         --timeout-seconds, "120"]
+         --timeout-seconds, "120", --request-retries, "1"]
 accept_status: [completed]
 collector: collect.py
 followup: |-

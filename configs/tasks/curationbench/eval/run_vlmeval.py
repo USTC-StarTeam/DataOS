@@ -55,7 +55,16 @@ def _run(args: argparse.Namespace) -> dict:
             raise ValueError("remote judge requires --judge-model")
         if not os.environ.get("OPENAI_API_KEY") or not os.environ.get("OPENAI_API_BASE"):
             raise ValueError("remote judge requires OPENAI_API_KEY and OPENAI_API_BASE")
-        command.extend(["--judge", args.judge_model, "--api-nproc", str(args.workers)])
+        command.extend(
+            [
+                "--judge",
+                args.judge_model,
+                "--api-nproc",
+                str(args.workers),
+                "--retry",
+                str(args.request_retries),
+            ]
+        )
         if args.timeout_seconds is not None:
             command.extend(["--judge-args", json.dumps({"timeout": args.timeout_seconds})])
 
@@ -101,6 +110,7 @@ def main() -> int:
     parser.add_argument("--judge-model")
     parser.add_argument("--workers", type=int, default=32)
     parser.add_argument("--timeout-seconds", type=int)
+    parser.add_argument("--request-retries", type=int, default=1)
     args = parser.parse_args()
     args.mode = "eval" if args.mode == "judge" else args.mode
     try:
