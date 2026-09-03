@@ -52,7 +52,7 @@ def test_official_curation_run_reserves_two_h100s_and_uses_remote_judge() -> Non
     eval_contract = _yaml(TASK_DIR / "eval" / "task.yaml")
 
     assert run["exec"]["resource"]["gpus"] == 2
-    assert task["scoring"]["judge"] == {"model": "qwen3.5-plus", "workers": 32}
+    assert task["scoring"]["judge"] == {"model": "qwen3.5-plus", "workers": 128}
     assert "compute" in eval_contract and "remote_judge" in eval_contract
 
 
