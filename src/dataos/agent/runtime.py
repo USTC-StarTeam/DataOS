@@ -38,9 +38,7 @@ _REQUIRED_CLUSTER_KEYS: dict[str, tuple[str, ...]] = {
     "slurm": ("host", "user", "port", "key", "partition", "qos", "gres"),
     "local": ("gres",),  # still says how many devices this run may take
 }
-_REQUIRED_PATH_KEYS = (
-    "deploy_root", "runs_base", "fixed_pool", "train_env", "eval_env",
-)  # conda_sh dropped — envs are uv venvs (called via {path}/bin/<tool>)
+_REQUIRED_PATH_KEYS = ("deploy_root", "runs_base", "fixed_pool")
 _REQUIRED_GATEWAY_KEYS = ("base_url", "key_file")  # connection facts only; judge model is the task's
 
 
@@ -74,8 +72,21 @@ def _missing_runtime_config_keys(cfg) -> list[str]:
         f"cluster.{key}" for key in required
         if not runtime.get("cluster", {}).get(key)
     ]
+    required_paths = list(_REQUIRED_PATH_KEYS)
+    task_name = str(runtime.get("task") or "posttrainbench")
+    try:
+        from dataos_launch.task_config import load_task_contract
+
+        repo = Path(__file__).resolve().parents[3]
+        stages = load_task_contract(repo, task_name)["stages"]
+        if stages["train"].get("driver") != "external_cli":
+            required_paths.append("train_env")
+        if stages["eval"].get("driver") != "external_cli":
+            required_paths.append("eval_env")
+    except (KeyError, OSError, ValueError):
+        required_paths.extend(("train_env", "eval_env"))
     missing.extend(
-        f"paths.{key}" for key in _REQUIRED_PATH_KEYS
+        f"paths.{key}" for key in required_paths
         if not runtime.get("paths", {}).get(key)
     )
     missing.extend(

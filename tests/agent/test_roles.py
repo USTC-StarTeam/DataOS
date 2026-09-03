@@ -121,6 +121,33 @@ def test_runtime_config_injected_into_subagent_prompt(tmp_path):
     )
 
 
+def test_external_task_does_not_require_native_train_or_eval_envs(tmp_path):
+    cfg = _cfg(tmp_path / "ws")
+    cfg.runtime_config = {
+        "kind": "slurm",
+        "task": "curationbench",
+        "cluster": {
+            "host": "h100.example",
+            "user": "hcgu",
+            "port": 22,
+            "key": "/keys/ssh",
+            "partition": "gpu",
+            "qos": "gpu_priv",
+            "gres": "gpu:2",
+        },
+        "paths": {
+            "deploy_root": "/remote/dataos",
+            "runs_base": "/remote/runs",
+            "fixed_pool": "/remote/pool",
+            "train_env": "",
+            "eval_env": "",
+        },
+        "gateway": {"base_url": "https://gateway.example", "key_file": "/keys/gateway"},
+    }
+
+    assert runtime._missing_runtime_config_keys(cfg) == []
+
+
 def test_queue_credit_overlap_math():
     """Queue credit = the [submit, wait_end] overlap with THIS invocation. Rows arrive as
     (submit, wait_end) epochs resolved cluster-side: a cancelled-pending job is capped at
