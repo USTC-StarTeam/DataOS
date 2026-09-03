@@ -50,8 +50,10 @@ _STATE_FILE = "subagent_state.json"  # on-disk name kept: the resume path reads 
 # archived run dir, so renaming it would strand old runs. The MODULE no longer claims a hierarchy.
 
 
-def _exp_timeout(cfg, deadline: float | None) -> float:
-    """Hard per-experiment timeout: a profile cap, never exceeding the remaining wall-clock."""
+def _exp_timeout(cfg, deadline: float | None) -> float | None:
+    """Wall-clock tasks have a hard cap; iteration-budget tasks run to a terminal result."""
+    if cfg.budget.max_wall_clock_s is None:
+        return None
     cap = _EXP_TIMEOUT_SMOKE_S if cfg.ptb_profile == "smoke" else _EXP_TIMEOUT_FORMAL_S
     if deadline is not None:
         return max(60.0, min(cap, deadline - time.monotonic()))

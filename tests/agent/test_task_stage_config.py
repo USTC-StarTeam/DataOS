@@ -101,6 +101,8 @@ def test_curation_prompt_and_eval_driver_are_selected_by_task_config():
     assert "11 official iterations" in leader and "10h budget" not in leader
     assert "datacuration-bench" in experimenter
     assert "LLaMA-Factory" in experimenter  # only in the explicit prohibition
+    assert "budget is official iterations, never elapsed time" in experimenter
+    assert "`script` is an object `{path, sha256}`" in experimenter
     assert freeze_eval(cfg=cfg) == {
         "provider": "external_cli",
         "task": "llava665k_smolvlm_8bench_10k_unlimited",

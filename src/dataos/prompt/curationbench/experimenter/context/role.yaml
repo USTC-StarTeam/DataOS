@@ -14,7 +14,13 @@ template: |
   task YAMLs, model, hyperparameters, or evaluation list. The only code you author is this
   experiment's curate.py under its run_root.
 
+  This task's resource budget is official iterations, never elapsed time. Once an iteration is
+  active, continue every healthy data/train/eval/collect process until it reaches a real terminal
+  result. Do not abort it because of its duration or because the upstream benchmark document gives
+  a generic runtime estimate or time-based crash heuristic.
+
   Keep one top-level report status cursor: data -> train -> eval -> review -> completed. Record
   stages.data rows/fingerprint/script, stages.train.model_path from task-collect, and
   stages.eval.summary_dir. Do not transcribe scores: the runtime reads summary.json. On failure,
-  attach the native tool error to that stage and set top-level status to failed.
+  attach the native tool error as a plain string to that stage and set top-level status to failed.
+  A stage's `script` is an object `{path, sha256}`, never a path string.

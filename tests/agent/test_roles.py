@@ -148,6 +148,16 @@ def test_external_task_does_not_require_native_train_or_eval_envs(tmp_path):
     assert runtime._missing_runtime_config_keys(cfg) == []
 
 
+def test_iteration_budget_has_no_per_experiment_clock(tmp_path):
+    from dataos.agent.config import Budget
+    from dataos.agent.roles import _exp_timeout
+
+    cfg = _cfg(tmp_path / "ws")
+    cfg.budget = Budget(max_rounds=11)
+
+    assert _exp_timeout(cfg, deadline=None) is None
+
+
 def test_queue_credit_overlap_math():
     """Queue credit = the [submit, wait_end] overlap with THIS invocation. Rows arrive as
     (submit, wait_end) epochs resolved cluster-side: a cancelled-pending job is capped at
