@@ -322,7 +322,9 @@ def _remote_eval_summaries(cfg, study_id: str, name) -> list[tuple[str, dict]]:
     the experimenter was writing when it was cut off.
     """
     rr = _run_root(cfg, study_id, name)
-    out = _ssh_text(cfg, f"ls -1dt {shlex.quote(rr)}/eval/*/summary.json 2>/dev/null")
+    direct = shlex.quote(f"{rr}/eval/summary.json")
+    nested = f"{shlex.quote(rr)}/eval/*/summary.json"
+    out = _ssh_text(cfg, f"ls -1dt {direct} {nested} 2>/dev/null")
     found: list[tuple[str, dict]] = []
     for path in (out or "").split():
         text = _ssh_text(cfg, f"cat {shlex.quote(path)} 2>/dev/null")

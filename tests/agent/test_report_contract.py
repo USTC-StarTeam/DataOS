@@ -204,6 +204,35 @@ def test_eval_limit_comes_from_the_harness_not_the_experimenter(monkeypatch):
     assert parsed.stages.eval.stderr == pytest.approx(3.9)
 
 
+def test_external_eval_summary_can_live_directly_under_eval(monkeypatch):
+    direct = "/runs/p/round-0000/x/eval/summary.json"
+    nested = "/runs/p/round-0000/x/eval/gsm8k_limit-1/summary.json"
+
+    monkeypatch.setattr(
+        roles.runtime, "_run_root", lambda cfg, study_id, name: "/runs/p/round-0000/x"
+    )
+
+    def fake_ssh(cfg, command):
+        if command.startswith("ls -1dt"):
+            assert direct in command
+            assert "/eval/*/summary.json" in command
+            return f"{direct}\n{nested}"
+        if direct in command:
+            return json.dumps({"score": 0.25})
+        if nested in command:
+            return json.dumps({"score": 50.0})
+        return ""
+
+    monkeypatch.setattr(roles.runtime, "_ssh_text", fake_ssh)
+
+    found = roles.runtime._remote_eval_summaries(None, "round-0000", "x")
+
+    assert found == [
+        ("/runs/p/round-0000/x/eval", {"score": 0.25}),
+        ("/runs/p/round-0000/x/eval/gsm8k_limit-1", {"score": 50.0}),
+    ]
+
+
 def _corpus() -> list[Path]:
     root = Path(__file__).resolve().parents[2] / "workspace"
     return sorted(root.glob("*/round-*/experiments/*/report.json")) if root.is_dir() else []
