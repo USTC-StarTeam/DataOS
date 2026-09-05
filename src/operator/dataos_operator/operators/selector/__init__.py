@@ -1,13 +1,16 @@
 """算子命名空间：Selector。"""
 
+from .anchor_refresh_selector import AnchorRefreshSelector
 from .answer_letter_filter import AnswerLetterFilter
 from .cluster_balance_selector import ClusterBalanceSelector
 from .code_validity_filter import CodeValidityFilter
 from .complete_dialog_filter import CompleteDialogFilter
+from .composite_deduplicate_selector import CompositeDeduplicateSelector
 from .deduplicate_selector import DeduplicateSelector
 from .delta_loss_selector import DeltaLossSelector
 from .embedding_deduplicate_selector import EmbeddingDeduplicateSelector
 from .function_call_filter import FunctionCallFilter
+from .group_aware_selector import GroupAwareSelector
 from .has_answer_filter import HasAnswerFilter
 from .image_aspect_ratio_filter import ImageAspectRatioFilter
 from .image_count_filter import ImageCountFilter
@@ -26,17 +29,22 @@ from .random_sample_selector import RandomSampleSelector
 from .ranking_selector import RankingSelector
 from .score_selector import ScoreSelector
 from .set_coverage_selector import SetCoverageSelector
+from .stratified_quota_selector import StratifiedQuotaSelector
 from .tsds_selector import TsdsSelector
+from .weighted_reservoir_selector import WeightedReservoirSelector
 
 __all__ = [
     "AnswerLetterFilter",
+    "AnchorRefreshSelector",
     "ClusterBalanceSelector",
     "CodeValidityFilter",
     "CompleteDialogFilter",
+    "CompositeDeduplicateSelector",
     "DeduplicateSelector",
     "DeltaLossSelector",
     "EmbeddingDeduplicateSelector",
     "FunctionCallFilter",
+    "GroupAwareSelector",
     "HasAnswerFilter",
     "ImageAspectRatioFilter",
     "ImageCountFilter",
@@ -55,5 +63,7 @@ __all__ = [
     "RankingSelector",
     "ScoreSelector",
     "SetCoverageSelector",
+    "StratifiedQuotaSelector",
     "TsdsSelector",
+    "WeightedReservoirSelector",
 ]

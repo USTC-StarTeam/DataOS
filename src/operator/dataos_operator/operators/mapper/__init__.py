@@ -9,6 +9,7 @@ from .image_path_normalizer_mapper import ImagePathNormalizerMapper
 from .image_text_message_mapper import ImageTextMessageMapper
 from .mcq_formatter import McqFormatter
 from .openai_message_mapper import OpenAIMessageMapper
+from .paired_conversation_mapper import PairedConversationMapper
 from .sharegpt_mapper import ShareGPTMapper
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "ImageTextMessageMapper",
     "McqFormatter",
     "OpenAIMessageMapper",
+    "PairedConversationMapper",
     "ShareGPTMapper",
 ]

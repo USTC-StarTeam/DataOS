@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import mimetypes
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -13,21 +14,21 @@ IMAGE_PLACEHOLDER = "<image>"
 REMOTE_IMAGE_SCHEMES = frozenset({"http", "https", "s3", "gs", "oss"})
 
 
-def normalize_image_list(value: Any, *, strict: bool = True) -> list[str]:
-    """Normalize one image reference or a sequence of references to strings."""
+def normalize_image_list(value: Any, *, strict: bool = True) -> list[Any]:
+    """Normalize scalar/list path, PIL, or ``{bytes,path}`` images to a list."""
 
     if value is None:
         return []
-    if isinstance(value, str | Path):
+    if _is_image_value(value):
         candidates: Sequence[Any] = [value]
     elif isinstance(value, Sequence) and not isinstance(value, bytes | bytearray):
         candidates = value
     else:
         if strict:
-            raise ValueError("images must be a path string or a sequence of path strings")
+            raise ValueError("images must be an image value or a sequence of image values")
         return []
 
-    images: list[str] = []
+    images: list[Any] = []
     for candidate in candidates:
         if isinstance(candidate, str | Path):
             text = str(candidate).strip()
@@ -35,8 +36,10 @@ def normalize_image_list(value: Any, *, strict: bool = True) -> list[str]:
                 images.append(text)
             elif strict:
                 raise ValueError("image references must not be empty")
+        elif _is_embedded_image(candidate):
+            images.append(candidate)
         elif strict:
-            raise ValueError(f"image reference must be a path string, got {type(candidate)!r}")
+            raise ValueError(f"unsupported image value: {type(candidate)!r}")
     return images
 
 
@@ -99,11 +102,14 @@ def resolve_local_image_path(
 
 
 def inspect_image(
-    reference: str | Path,
+    reference: Any,
     *,
     media_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Decode an image and return stable local-file metadata."""
+    """Decode a path, PIL image, or ``{bytes,path}`` value into stable metadata."""
+
+    if not isinstance(reference, str | Path):
+        return _inspect_embedded_image(reference)
 
     path = resolve_local_image_path(reference, media_dir=media_dir)
     if not path.is_file():
@@ -150,7 +156,7 @@ def inspect_image(
 
 
 def inspect_image_safe(
-    reference: str | Path,
+    reference: Any,
     *,
     media_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -197,6 +203,34 @@ def compute_file_hash(
     return digest.hexdigest()
 
 
+def compute_image_hash(
+    reference: Any,
+    *,
+    algorithm: str = "sha256",
+    media_dir: str | Path | None = None,
+) -> str:
+    """Hash encoded bytes when present, otherwise a local file or decoded PIL pixels."""
+
+    if isinstance(reference, str | Path):
+        return compute_file_hash(reference, algorithm=algorithm, media_dir=media_dir)
+    if isinstance(reference, Mapping):
+        payload = reference.get("bytes")
+        if isinstance(payload, bytes | bytearray | memoryview):
+            digest = hashlib.new(algorithm)
+            digest.update(bytes(payload))
+            return digest.hexdigest()
+        path = reference.get("path")
+        if isinstance(path, str | Path) and str(path).strip():
+            return compute_file_hash(path, algorithm=algorithm, media_dir=media_dir)
+    if _is_pil_image(reference):
+        digest = hashlib.new(algorithm)
+        digest.update(str(reference.mode).encode())
+        digest.update(f"{reference.size[0]}x{reference.size[1]}".encode())
+        digest.update(reference.tobytes())
+        return digest.hexdigest()
+    raise ValueError(f"unsupported image value: {type(reference)!r}")
+
+
 def normalize_image_metadata(value: Any, *, strict: bool = True) -> list[dict[str, Any]]:
     """Normalize a metadata field to a list of mutable image metadata mappings."""
 
@@ -241,3 +275,79 @@ def count_image_placeholders(messages: Any, *, placeholder: str = IMAGE_PLACEHOL
 
 def _looks_like_windows_drive(value: str) -> bool:
     return len(value) >= 2 and value[0].isalpha() and value[1] == ":"
+
+
+def _is_pil_image(value: Any) -> bool:
+    return all(hasattr(value, attr) for attr in ("getbands", "mode", "size", "tobytes"))
+
+
+def _is_embedded_image(value: Any) -> bool:
+    if _is_pil_image(value):
+        return True
+    if not isinstance(value, Mapping):
+        return False
+    payload = value.get("bytes")
+    path = value.get("path")
+    return isinstance(payload, bytes | bytearray | memoryview) or isinstance(path, str | Path)
+
+
+def _is_image_value(value: Any) -> bool:
+    return isinstance(value, str | Path) or _is_embedded_image(value)
+
+
+def _inspect_embedded_image(reference: Any) -> dict[str, Any]:
+    try:
+        from PIL import Image
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Pillow is required for image inspection. "
+            "Install dataos-operator with the `image` extra."
+        ) from exc
+
+    encoded_bytes: int | None = None
+    path: str | None = None
+    close_image = False
+    image = reference
+    if isinstance(reference, Mapping):
+        payload = reference.get("bytes")
+        raw_path = reference.get("path")
+        if isinstance(payload, bytes | bytearray | memoryview):
+            raw = bytes(payload)
+            encoded_bytes = len(raw)
+            image = Image.open(io.BytesIO(raw))
+            close_image = True
+        elif isinstance(raw_path, str | Path) and str(raw_path).strip():
+            return inspect_image(raw_path)
+        else:
+            raise ValueError("image mapping must contain bytes or path")
+    if not _is_pil_image(image):
+        raise ValueError(f"unsupported embedded image value: {type(reference)!r}")
+    try:
+        image.load()
+        raw_width, raw_height = image.size
+        orientation = image.getexif().get(274) if hasattr(image, "getexif") else None
+        width, height = raw_width, raw_height
+        if orientation in {5, 6, 7, 8}:
+            width, height = raw_height, raw_width
+        image_format = (getattr(image, "format", None) or "unknown").upper()
+        result: dict[str, Any] = {
+            "path": path,
+            "exists": None,
+            "readable": True,
+            "format": image_format,
+            "mime_type": Image.MIME.get(getattr(image, "format", None) or ""),
+            "mode": image.mode,
+            "width": width,
+            "height": height,
+            "pixels": width * height,
+            "aspect_ratio": width / height if height else None,
+            "bytes": encoded_bytes,
+            "channels": len(image.getbands()),
+            "has_alpha": "A" in image.getbands(),
+            "is_animated": bool(getattr(image, "is_animated", False)),
+            "exif_orientation": orientation,
+        }
+        return result
+    finally:
+        if close_image:
+            image.close()

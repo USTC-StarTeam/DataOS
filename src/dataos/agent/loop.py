@@ -112,11 +112,14 @@ def _publish_live(cfg, *, round_idx: int, phase: str, started: float, now: float
     monitor.write_live(Path(cfg.workspace), cfg.project_id)
 
 
-def _safe_catalog() -> list[dict]:
+def _safe_catalog(dataset_backend: str | None = None) -> list[dict]:
     try:
         import dataos
 
-        return dataos.catalog()
+        rows = dataos.catalog()
+        if dataset_backend is None:
+            return rows
+        return [row for row in rows if dataset_backend in row.get("dataset_backends", [])]
     except Exception:
         return []
 
@@ -621,9 +624,13 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
     proj.load()
 
     eval_cfg = freeze_eval(cfg=cfg)
-    data_driver = runtime_compose.task_stage_config(cfg, "data").get("driver")
+    data_stage = runtime_compose.task_stage_config(cfg, "data")
+    data_driver = data_stage.get("driver")
     task_agent = runtime_compose.task_agent_config(cfg)
-    catalog = _safe_catalog() if data_driver == "operator_toolbox" else []
+    has_operator_toolbox = (
+        data_driver == "operator_toolbox" or data_stage.get("toolbox") == "dataos_operator"
+    )
+    catalog = _safe_catalog(data_stage.get("dataset_backend")) if has_operator_toolbox else []
     base_model = cfg.h100_base_model or cfg.base_model_id or "base"
     tree = TreeState.load(proj.project_dir, base_model)
 

@@ -57,6 +57,7 @@ def catalog(
     *,
     kind: OperatorKind | None = None,
     mode: Mode | None = None,
+    dataset_backend: str | None = None,
     fmt: Literal["markdown", "dict"] = "markdown",
 ) -> str | list[dict[str, Any]]:
     """Tier-1 index: one compact line per operator — name, kind, mode, effect.
@@ -77,7 +78,9 @@ def catalog(
             "mode": entry["mode"],
             "effect": entry["summary"],
         }
-        for entry in operator_docs(kind=kind, mode=mode)
+        for entry in operator_docs(
+            kind=kind, mode=mode, dataset_backend=dataset_backend
+        )
     ]
     if fmt == "dict":
         return rows
@@ -139,6 +142,7 @@ def operator_docs(
     name: str | None = None,
     kind: OperatorKind | None = None,
     mode: Mode | None = None,
+    dataset_backend: str | None = None,
 ) -> list[OperatorDoc]:
     """Return the introspected per-operator documentation entries (structured)."""
     entries: list[OperatorDoc] = []
@@ -149,6 +153,8 @@ def operator_docs(
         if kind is not None and entry["kind"] != kind:
             continue
         if mode is not None and entry["mode"] != mode:
+            continue
+        if dataset_backend is not None and dataset_backend not in entry["dataset_backends"]:
             continue
         if name is not None and not _name_matches(entry, name):
             continue
@@ -181,6 +187,7 @@ def _build_entry(spec: OperatorSpec) -> OperatorDoc | None:
         "run_input": run_input,
         "run_output": run_output,
         "supports_offline_run": True,
+        "dataset_backends": list(operator_cls.dataset_backends),
         "operator_class": spec.operator_class,
     }
     if online:

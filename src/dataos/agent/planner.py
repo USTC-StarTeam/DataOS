@@ -22,6 +22,7 @@ def _summarize_catalog(catalog: list[dict] | None, limit: int = 60) -> list[dict
             "kind": op.get("kind"),
             "mode": op.get("mode"),  # offline (data-prep) | online (training-time policy)
             "effect": op.get("effect"),  # one-line summary of what the operator does
+            "dataset_backends": op.get("dataset_backends"),
             "params": [p.get("name") for p in (op.get("params") or [])],
         }
         out.append({k: v for k, v in row.items() if v is not None})

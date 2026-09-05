@@ -43,6 +43,9 @@ stages:
     driver: external_cli
     ownership: agent
     tool: datacuration-bench
+    toolbox: dataos_operator
+    toolbox_prompt: curationbench/experimenter/turn/operator_toolbox
+    dataset_backend: indexed
     invoke: |-
       Code has already created this DataOS run's one official N-iteration suite and activated
       exactly one target for this durable tree node. Use the supplied {ctx.suite_dir} and
@@ -62,7 +65,7 @@ stages:
       another DataOS run's suite. Write the selection implementation in the worktree's `curation/`
       and commit it on the isolated branch. Write a
       thin {ctx.run_root}/run_curation.py that invokes that script with the task-reported dataset,
-      submission path, and target_rows using `{{ env.tools.curation_bench.path }}/bin/python`.
+      submission path, and target_rows using `{{ env.tools.sft_env.path }}/bin/python`.
       Submit the wrapper through
       `{{ env.tools.sft_env.path }}/bin/dataos-data probe \
       --repo {{ run.deploy_root }} --environment {{ run.environment }} \
@@ -74,8 +77,9 @@ stages:
       may instead pass the configured GPU count, but then it must actively satisfy the guard.
       The wrapper must propagate the curate process's exit code and produce exactly the
       task-declared row count at {ctx.submission_path}. The dataset must be a
-      HuggingFace save_to_disk dataset with `images` and `texts` columns. Do not use
-      dataos-operator or convert the multimodal rows to Alpaca.
+      HuggingFace save_to_disk dataset with `images` and `texts` columns. Use the declared
+      dataos-operator toolbox where its indexed operators fit; never convert the multimodal rows
+      to Alpaca or rebuild selected image payloads from Python records.
   train: {contract: train/task.yaml}
   eval: {contract: eval/task.yaml}
 

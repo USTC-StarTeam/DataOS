@@ -28,6 +28,7 @@ def test_shipped_tasks_select_all_three_stage_drivers_explicitly():
         "eval": "external_cli",
     }
     assert curation["stages"]["train"]["ownership"] == "frozen"
+    assert curation["stages"]["data"]["toolbox"] == "dataos_operator"
 
 
 def test_curation_contract_resolves_without_nonexistent_run_fields():
@@ -56,6 +57,8 @@ def test_curation_contract_resolves_without_nonexistent_run_fields():
         "coordinator": "suite.py",
     }
     assert task["stages"]["train"]["driver"] == "external_cli"
+    assert task["stages"]["data"]["toolbox"] == "dataos_operator"
+    assert task["stages"]["data"]["dataset_backend"] == "indexed"
     assert "dataos-train task-submit" in task["stages"]["train"]["command"]
     assert "--gpus 0" in task["stages"]["data"]["invoke"]
     assert "datacuration-bench eval" not in task["scoring"]["command"]
@@ -161,6 +164,10 @@ def test_curation_experiment_prompt_receives_the_claimed_official_target(tmp_pat
     assert "Official suite: /suite" in text
     assert "never call `init` or `next`" in text
     assert "/suite/task_iter1/curated/final_submission" in text
+    assert "CURATION TOOLBOX" in text
+    assert "weighted_reservoir_selector" in text
+    assert "length_filter" not in text
+    assert "convert to Alpaca" in text
 
 
 def test_curation_tree_parent_is_strategy_only_and_model_resets_to_root():
@@ -176,3 +183,23 @@ def test_curation_tree_parent_is_strategy_only_and_model_resets_to_root():
     assert spec["init_model"] == "/models/root"
     assert spec["train"]["model_name_or_path"] == "/models/root"
     assert spec["data"] == {"selector": "quality"}
+
+
+def test_curation_leader_receives_the_operator_catalog():
+    from dataos.agent.planner import _build_prompt
+
+    text = _build_prompt(
+        context={"round": 2},
+        catalog=[
+            {
+                "name": "weighted_reservoir_selector",
+                "kind": "selector",
+                "params": [{"name": "sample_size"}],
+            }
+        ],
+        catalog_path="/workspace/operator_catalog.json",
+        template="curationbench/leader/turn/plan",
+    )
+
+    assert "weighted_reservoir_selector" in text
+    assert "/workspace/operator_catalog.json" in text

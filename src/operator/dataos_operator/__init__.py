@@ -12,9 +12,19 @@ from dataos_operator._lookup import dir_with_operators as _dir_with_operators
 from dataos_operator._lookup import resolve as _resolve
 from dataos_operator.dataset import Dataset
 from dataos_operator.usage import catalog, guide, operator_docs, reference, usage
+from dataos_operator.view import DatasetView
 
 #: Eagerly imported names only. Operators are reachable by name without being listed here.
-__all__ = ["Dataset", "catalog", "usage", "guide", "reference", "operator_docs", "__version__"]
+__all__ = [
+    "Dataset",
+    "DatasetView",
+    "catalog",
+    "usage",
+    "guide",
+    "reference",
+    "operator_docs",
+    "__version__",
+]
 
 
 def __getattr__(name: str) -> _Any:
@@ -23,6 +33,7 @@ def __getattr__(name: str) -> _Any:
 
 def __dir__() -> list[str]:
     return _dir_with_operators(globals())
+
 
 # Read from the installed distribution instead of a second hand-maintained literal: this
 # constant had drifted to 0.5.0 while pyproject said 0.8.x, and `guide()` reports it to the

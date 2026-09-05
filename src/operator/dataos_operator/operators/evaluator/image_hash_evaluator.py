@@ -7,7 +7,7 @@ from typing import Any
 
 from dataos_operator.core import EvaluatorOperator, Record
 from dataos_operator.core.image import (
-    compute_file_hash,
+    compute_image_hash,
     normalize_image_list,
     normalize_image_metadata,
     normalize_image_reference,
@@ -64,11 +64,12 @@ class ImageHashEvaluator(EvaluatorOperator):
         for index, image in enumerate(images):
             item = dict(existing[index]) if index < len(existing) else {}
             try:
-                item.setdefault(
-                    "path",
-                    normalize_image_reference(image, media_dir=self.media_dir),
-                )
-                item[self.algorithm] = compute_file_hash(
+                if isinstance(image, str | Path):
+                    item.setdefault(
+                        "path",
+                        normalize_image_reference(image, media_dir=self.media_dir),
+                    )
+                item[self.algorithm] = compute_image_hash(
                     image,
                     algorithm=self.algorithm,
                     media_dir=self.media_dir,

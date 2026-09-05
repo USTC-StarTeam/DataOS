@@ -13,8 +13,12 @@
 }
 ```
 
-`messages` 中的 `<image>` 与顶层 `images` 按出现顺序一一对应。文件解析和哈希目前只
-处理本地图片；路径规范化可以保留 HTTP、S3、GS 和 OSS URI，但不会主动下载远端文件。
+`messages` 中的 `<image>` 与顶层 `images` 按出现顺序一一对应。元数据和哈希算子也接受
+Hugging Face `Image` 解码后的 scalar PIL 图片，以及 `{bytes, path}` Arrow 图片值；路径
+规范化只处理 path 输入，可以保留 HTTP、S3、GS 和 OSS URI，但不会主动下载远端文件。
+
+图片 hash 的含义取决于表示：path 和 `{bytes, path}` 的 bytes 使用原始编码字节；只有 PIL
+而没有原始字节时，使用 mode、尺寸和解码像素，保证相同像素内容得到稳定值。
 
 ## 已实现算子
 

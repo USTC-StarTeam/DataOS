@@ -69,6 +69,12 @@ def test_filters_and_modes() -> None:
     assert online and all(e["mode"] == "online" for e in online)
     assert {"loss_selector", "doremi_mixer", "loss_reweighter"} <= {e["name"] for e in online}
 
+    indexed = catalog(dataset_backend="indexed", fmt="dict")
+    assert {"weighted_reservoir_selector", "anchor_refresh_selector"} <= {
+        row["name"] for row in indexed
+    }
+    assert "length_filter" not in {row["name"] for row in indexed}
+
 
 def test_reference_is_the_full_manual() -> None:
     text = reference()

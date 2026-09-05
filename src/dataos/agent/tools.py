@@ -101,10 +101,13 @@ class OperatorToolbox:
         import dataos_operator
 
         env = resolved.get("environment", {})
+        data_contract = (resolved.get("task", {}).get("stages") or {}).get("data", {})
         tool = _tool_providing(env, "dataos-data")
+        template = data_contract.get("toolbox_prompt", "experimenter/turn/stage_data")
+        dataset_backend = data_contract.get("dataset_backend")
         return _prompt.render(
-            "experimenter/turn/stage_data",
-            catalog=dataos_operator.catalog(),
+            template,
+            catalog=dataos_operator.catalog(dataset_backend=dataset_backend),
             data_bin=f"{tool.get('path', '<sft_env>')}/bin/dataos-data",
             data_env=tool.get("path", "<sft_env>"),
             provides=", ".join(tool.get("provides") or []) or "<the env's declared packages>",

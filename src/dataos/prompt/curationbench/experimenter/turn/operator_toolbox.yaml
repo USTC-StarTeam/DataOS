@@ -1,0 +1,21 @@
+description: >
+  Curation-Bench indexed operator toolbox. Render params: catalog, data_env, provides; data_bin
+  and placement are accepted for the common toolbox renderer but are not repeated here.
+template: |
+  CURATION TOOLBOX — use the installed `dataos_operator` package from `{{ data_env }}` inside this
+  iteration's committed curate.py. It ships: {{ provides }}. Inspect exact signatures with
+  `python -c "import dataos_operator as o; print(o.guide())"` and `o.usage('<op>')`; never vendor
+  or pip-install it.
+
+  This is an indexed multimodal path, not the PTB text path:
+  - open the official pool with
+    `from dataos_operator.integrations.curationbench import load_pool`;
+  - use `DatasetView`-compatible evaluators/selectors so the 665K images remain lazy in Arrow;
+  - preserve source row identity and finish with
+    `save_submission(selection, output_path, manifest_path=...)`;
+  - do not call `Dataset(list(hf_dataset))`, convert to Alpaca, or rebuild PIL/image bytes;
+  - ordinary record-oriented text operators remain available only after an explicitly bounded
+    shortlist is materialized.
+
+  Installed operator catalog:
+  {{ catalog }}

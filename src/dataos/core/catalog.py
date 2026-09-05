@@ -80,7 +80,18 @@ def _describe_spec(
         "operator_class": spec.operator_class,
         "params": params,
         "accepts_kwargs": accepts_kwargs,
+        "dataset_backends": _dataset_backends(spec.operator_class),
     }
+
+
+def _dataset_backends(operator_class: str | None) -> list[str]:
+    if not operator_class:
+        return ["record"]
+    try:
+        klass = _import_class(operator_class)
+    except (ImportError, AttributeError):
+        return ["record"]
+    return list(getattr(klass, "dataset_backends", ("record",)))
 
 
 def _resolve_params(

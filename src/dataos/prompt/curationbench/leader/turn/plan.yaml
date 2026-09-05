@@ -1,6 +1,6 @@
 description: >
-  Curation-Bench per-round planning request. Render params: context_json,
-  validation_errors_json (optional).
+  Curation-Bench per-round planning request. Render params: context_json, catalog_json,
+  catalog_pointer, catalog_path, validation_errors_json (optional).
 template: |
   Choose the next single curation experiment and return one ExperimentPlan JSON object only.
 
@@ -10,6 +10,16 @@ template: |
 
   Context bundle:
   {{ context_json }}
+  {% if catalog_pointer %}
+
+  Available compatible data operators: read {{ catalog_pointer }}. Use their exact names in the
+  recipe when they implement the intended step; the experimenter may add a run-local operator for
+  a genuinely missing operation.
+  {% else %}
+
+  Available compatible data operators (also persisted at {{ catalog_path }}):
+  {{ catalog_json }}
+  {% endif %}
   {% if validation_errors_json is defined and validation_errors_json %}
 
   Your previous plan failed code validation:

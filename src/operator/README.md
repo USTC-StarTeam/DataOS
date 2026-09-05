@@ -90,6 +90,11 @@ operator_specs = [asdict(spec) for spec in list_operator_specs()]
 
 `Dataset` 内部以 list-of-dicts 作为标准存储：每条 record 都是普通 Python dict，任意异构字段、缺失字段、混合类型都会被无损保留，算子和字段路径工具完全按 dict 处理。Hugging Face `datasets`（Arrow，列式）只作为**导出/落盘**形态——仅在 `save_to_disk()` / `from_disk()` / `push_to_hf()` / `hf_dataset` 时才按需转换，因此 `datasets` 也只在这些场景下才会被 import。
 
+大规模多模态策展使用并行的 `DatasetView`：它只保留原始 Arrow dataset、source row indices
+和轻量派生列，图片直到最终 `source.select(indices).save_to_disk(...)` 才被触碰。现有 `Dataset`
+和文本算子的调用、默认字段与导出行为不变。Curation-Bench 的适配与推荐算子链见
+[`docs/curation_operators.md`](docs/curation_operators.md)。
+
 读取本地 JSONL：
 
 ```python

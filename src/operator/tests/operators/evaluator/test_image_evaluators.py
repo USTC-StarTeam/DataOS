@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 from pathlib import Path
 
 from PIL import Image
@@ -66,3 +67,20 @@ def test_image_hash_evaluator_non_strict_mode_records_invalid_uri() -> None:
 
     assert metadata["path"] == "ftp://example.com/image.png"
     assert "unsupported image URI scheme" in metadata["sha256_error"]
+
+
+def test_image_evaluators_accept_scalar_pil_and_arrow_bytes() -> None:
+    pil_image = Image.new("RGB", (7, 5), color=(1, 2, 3))
+    buffer = io.BytesIO()
+    pil_image.save(buffer, format="PNG")
+    payload = buffer.getvalue()
+
+    pil_metadata = ImageMetadataEvaluator().run({"images": pil_image})[0]["metadata"]["images"][0]
+    byte_hash = ImageHashEvaluator().run({"images": {"bytes": payload, "path": None}})[0][
+        "metadata"
+    ]["images"][0]
+
+    assert pil_metadata["width"] == 7
+    assert pil_metadata["height"] == 5
+    assert pil_metadata["readable"] is True
+    assert byte_hash["sha256"] == hashlib.sha256(payload).hexdigest()

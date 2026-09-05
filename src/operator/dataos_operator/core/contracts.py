@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         PolicyAction,
         RuntimeContext,
     )
+    from dataos_operator.view import DatasetView
 
 OperatorKind: TypeAlias = Literal[
     "evaluator",
@@ -100,6 +101,8 @@ def is_record(value: object) -> TypeGuard[Record]:
 def is_dataset(value: object) -> TypeGuard[Dataset]:
     if isinstance(value, str | bytes | bytearray) or is_record(value):
         return False
+    if getattr(value, "_dataos_dataset_view", False):
+        return True
     if not isinstance(value, Sequence):
         # A HuggingFace ``datasets.Dataset`` sizes, indexes to a Mapping and iterates records —
         # it just is not REGISTERED as ``collections.abc.Sequence``, so the isinstance test above
@@ -120,8 +123,6 @@ def is_multi_dataset(value: object) -> TypeGuard[Sequence[Dataset]]:
     if not isinstance(value, Sequence) or len(value) == 0:
         return False
     return all(is_dataset(item) for item in value)
-
-
 
 
 def _normalize_dataset_input(value: object, *, operator_name: str) -> list[Dataset]:
@@ -184,6 +185,8 @@ def _runtime_dataset_class() -> type[RuntimeDataset]:
 
 
 def _dataset_metadata(value: object) -> dict[str, Any]:
+    if getattr(value, "_dataos_dataset_view", False):
+        return dict(cast("DatasetView", value).metadata)
     runtime_dataset_class = _runtime_dataset_class()
     if isinstance(value, runtime_dataset_class):
         return dict(value.metadata)
@@ -290,6 +293,7 @@ class DataOperator(ABC, Generic[InputT, DOperatorOutput]):
 
     operator_name: ClassVar[str] = ""
     operator_kind: ClassVar[OperatorKind]
+    dataset_backends: ClassVar[tuple[str, ...]] = ("record",)
     resource_config_keys: ClassVar[tuple[str, ...]] = ()
     id_key: str
     text_key: str
@@ -341,7 +345,7 @@ class DataOperator(ABC, Generic[InputT, DOperatorOutput]):
     def name(self) -> str:
         return self.operator_name or self.__class__.__module__.rsplit(".", 1)[-1]
 
-    def run(self, data: InputT) -> RuntimeDataset:
+    def run(self, data: InputT) -> RuntimeDataset | DatasetView:
         """运行算子，并统一返回可继续链式处理的 Dataset。"""
 
         runtime_dataset_class = _runtime_dataset_class()
@@ -375,6 +379,10 @@ class DataOperator(ABC, Generic[InputT, DOperatorOutput]):
         history.append(run_metadata)
         metadata.update(run_metadata)
         metadata["history"] = history
+
+        if getattr(output, "_dataos_dataset_view", False):
+            metadata["records"] = len(cast("DatasetView", output))
+            return cast("DatasetView", output).with_metadata(metadata)
 
         records = _runtime_dataset_records(output)
         metadata["records"] = len(records)

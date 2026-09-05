@@ -70,11 +70,18 @@ def build_stages(resolved: dict, registry: _tools.ToolRegistry | None = None) ->
     external_data = data_contract.get("driver") == "external_cli"
     external_eval = eval_contract.get("driver") == "external_cli"
     train_frozen = train_contract.get("ownership") == "frozen"
-    data_invoke = (
-        str(data_contract.get("invoke", "")).strip()
-        if data_contract.get("driver") == "external_cli"
-        else "\n\n".join(op.invoke(resolved) for op in registry.operators)
+    uses_toolbox = not external_data or data_contract.get("toolbox") == "dataos_operator"
+    toolbox_invoke = (
+        "\n\n".join(op.invoke(resolved) for op in registry.operators) if uses_toolbox else ""
     )
+    if external_data:
+        data_parts = []
+        if data_contract.get("toolbox") == "dataos_operator":
+            data_parts.append(toolbox_invoke)
+        data_parts.append(str(data_contract.get("invoke", "")).strip())
+        data_invoke = "\n\n".join(part for part in data_parts if part)
+    else:
+        data_invoke = toolbox_invoke
     return [
         Stage(
             name="data",

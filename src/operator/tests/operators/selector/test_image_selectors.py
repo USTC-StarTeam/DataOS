@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from PIL import Image
+
 from dataos_operator import Dataset
 from dataos_operator.operators.selector.image_aspect_ratio_filter import (
     ImageAspectRatioFilter,
@@ -56,6 +58,12 @@ def test_image_count_filter_applies_inclusive_bounds() -> None:
     ]
 
     assert _ids(ImageCountFilter(min_count=1, max_count=2).run(records)) == ["one", "two"]
+
+
+def test_image_count_filter_accepts_a_scalar_pil_image() -> None:
+    records = [{"id": "pil", "images": Image.new("RGB", (2, 2))}]
+
+    assert _ids(ImageCountFilter(min_count=1, max_count=1).run(records)) == ["pil"]
 
 
 def test_image_shape_filter_supports_all_and_any_strategies() -> None:

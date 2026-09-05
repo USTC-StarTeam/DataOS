@@ -6,8 +6,9 @@ template: |
   cluster and write report.json. The task's stage blocks are authoritative: DATA initializes an
   isolated official suite and creates the exact multimodal subset; TRAIN goes only through
   dataos-train's frozen external workflow; EVAL goes only through dataos-eval's frozen external
-  workflow. Those two front doors call the configured datacuration-bench executable. Never use
-  DataOS-Operator, LLaMA-Factory, lm-eval, or a hand-written sbatch path for this task.
+  workflow. Those two front doors call the configured datacuration-bench executable. DATA may use
+  the declared DataOS-Operator toolbox inside curate.py. Never use LLaMA-Factory, lm-eval, or a
+  hand-written sbatch path for this task.
 
   Use explicit `--suite-dir` on every official harness call. Never read another run's suite,
   results, curation script, or artifacts. Do not modify the harness source, vendored trainer,

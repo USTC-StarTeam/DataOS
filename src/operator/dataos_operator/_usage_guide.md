@@ -17,6 +17,23 @@ ds = Dataset.from_records([{"messages": [...], "metadata": {...}}, ...])
 ds = Dataset.from_local("/path/to/data.jsonl")        # local jsonl
 ```
 
+Large Arrow-backed multimodal pools use `DatasetView` instead. It keeps source row indices and
+derived scalar columns while leaving image payloads lazy, and its `save_to_disk()` exports the
+original source rows without intermediate metadata:
+
+```python
+from dataos_operator import ConversationFeatureEvaluator, WeightedReservoirSelector
+from dataos_operator.integrations.curationbench import load_pool, save_submission
+
+view = load_pool("/path/to/hf/save_to_disk")
+view = ConversationFeatureEvaluator(texts_key="texts").run(view)
+view = WeightedReservoirSelector(sample_size=10_000, seed=42).run(view)
+save_submission(view, "/path/to/submission", manifest_path="selection.jsonl")
+```
+
+Operators whose reference says they support `DatasetView` are safe on this path. Convert to the
+record-oriented `Dataset` only after an explicitly bounded shortlist.
+
 Dotted field paths (e.g. `metadata.domain`) are used throughout for keys.
 
 ## How operators are used
