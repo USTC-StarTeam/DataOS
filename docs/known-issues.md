@@ -173,3 +173,37 @@ submit/status/collect）——sbatch 头（单节点、env 节点池、partition
 模板删除（collect 从 env.gateway + scoring.judge 自行推导）；stage_eval kb /
 task.j2 / investigator baseline 段同步改写；baseline 评测在 eval_samples=-2(AUTO)
 下恒为全量（-1）。
+
+# Known issues — 2026-09-05 Curation-Bench 算子复盘
+
+来源：`/zhdd/home/hlv/cbench/harvest_20260813_1604` 的 22 组 results.tsv、175 条有效
+得分和 181 份 curate.py，以及 DataOS 首个 SmolVLM 11-iteration 正式 run。
+
+## P16 Curation external driver 错误屏蔽 operator toolbox（✅ 已修）
+
+DATA 的 `driver` 同时决定调度方法和是否向 leader/experimenter 暴露算子：Curation
+必须走官方 `external_cli`，于是 catalog 被置空，prompt 又显式禁止 DataOS-Operator，
+H100 的专属 venv 也没有安装它。三层共同导致每轮在 curate.py 里重写过滤、打分、配额
+和采样。修复后两条轴正交：`driver: external_cli` 保留官方 suite/audit/submit 生命周期，
+`toolbox: dataos_operator` 声明 agent 可用的数据算法；`dataset_backend: indexed` 只暴露
+不会物化 665K 图片的兼容算子。
+
+## P17 generic quality 忽略输出格式，SmolVLM 的 MCQ 覆盖反向下降（观察）
+
+当前随机 10K 含约 974 条视觉 MCQ，n0003 generic-quality refresh 降到 693 条，同时仍
+保留约 1,800 条坐标回答；MMBench 只有 16.92。旧轨迹两条独立 SmolVLM 高分配方都把
+约 4,300–4,400 行给视觉 MCQ、约 4,000–4,200 行给 long-form，并过滤 RefCOCO 坐标
+输出，MMBench 达 25.8–27.9，aggregate 达 0.2725–0.2741。跨 run judge 不完全相同，
+不能把绝对差全部归因于配方，但 format balance 是下一次最值得做的受控实验维度。
+
+经验没有进入 leader prompt；它沉淀为通用能力：conversation feature、weighted
+reservoir、stratified quota、group-aware selection、composite dedup 和 anchor refresh。
+具体 quota/dose 仍由 leader 根据本 run 证据决定。
+
+## P18 大池不能走 list-of-dicts（✅ indexed path 已加入）
+
+现有 `Dataset` 和文本算子保持不变。新 `DatasetView` 只保存 Arrow source、row indices
+和轻量派生列，最终用原始 dataset 的 `select(indices).save_to_disk()` 导出，不重编码
+图片。真实 563,345 行池的 conversation-feature + weighted-reservoir 10K smoke 用时约
+44 秒、峰值 RSS 约 1.1GB；H100 当前 665,298 行 scalar-Image schema 的 dataos-data
+probe 28 秒完成，并保持原始 `id/subset/images/texts` features。
