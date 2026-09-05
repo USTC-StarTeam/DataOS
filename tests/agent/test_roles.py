@@ -85,6 +85,121 @@ def test_subagent_resumes_same_session_until_report(tmp_path, monkeypatch):
     assert state["status"] == "completed"
 
 
+def test_execution_host_network_failure_preserves_handle_and_resumes(tmp_path, monkeypatch):
+    calls = []
+    waits = []
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, task, *, output=None, resume=None, timeout=None):
+            calls.append(resume)
+            report_path = tmp_path / "experiments" / "explore-0" / "report.json"
+            if len(calls) == 1:
+                report_path.write_text(
+                    json.dumps(
+                        {
+                            "id": "n0001",
+                            "status": "failed",
+                            "stages": {
+                                "eval": {
+                                    "handle": "/remote/eval.handle.json",
+                                    "job_id": "123",
+                                    "error": "ssh: connect: No route to host",
+                                }
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            else:
+                report_path.write_text(
+                    json.dumps(
+                        {
+                            "id": "n0001",
+                            "status": "completed",
+                            "stages": {
+                                "eval": {"score": 0.5, "limit": -1},
+                                "review": {"conclusion": "recovered"},
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            return SimpleNamespace(
+                text="poll complete" if len(calls) > 1 else "network unavailable",
+                session_id="session-123",
+                stop_reason="end_turn",
+            )
+
+    monkeypatch.setattr(role_runner, "build_agent", lambda *args, **kwargs: FakeAgent(**kwargs))
+    monkeypatch.setattr(role_runner.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        role_runner,
+        "_wait_for_execution_host",
+        lambda _cfg, *, deadline: waits.append(deadline) or True,
+    )
+
+    spec = {"name": "explore-0", "data": {}, "train": {}, "init_model": "/models/parent"}
+    _, report = role_runner._run_one(
+        _cfg(tmp_path / "ws"), "round-0000", spec, tmp_path / "experiments", timeout=10
+    )
+
+    assert report_schema.read(report).status == "completed"
+    assert len(calls) == 2
+    assert calls[1] == "session-123"
+    assert waits
+
+
+def test_real_stage_failure_remains_terminal(tmp_path, monkeypatch):
+    calls = []
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, task, *, output=None, resume=None, timeout=None):
+            calls.append(resume)
+            report_path = tmp_path / "experiments" / "explore-0" / "report.json"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "id": "n0001",
+                        "status": "failed",
+                        "stages": {
+                            "train": {
+                                "handle": "/remote/train.handle.json",
+                                "job_id": "123",
+                                "error": "CUDA out of memory",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return SimpleNamespace(
+                text="training failed",
+                session_id="session-123",
+                stop_reason="end_turn",
+            )
+
+    monkeypatch.setattr(role_runner, "build_agent", lambda *args, **kwargs: FakeAgent(**kwargs))
+    monkeypatch.setattr(
+        role_runner,
+        "_wait_for_execution_host",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not wait")),
+    )
+
+    spec = {"name": "explore-0", "data": {}, "train": {}, "init_model": "/models/parent"}
+    _, report = role_runner._run_one(
+        _cfg(tmp_path / "ws"), "round-0000", spec, tmp_path / "experiments", timeout=10
+    )
+
+    assert report_schema.read(report).status == "failed"
+    assert calls == [None]
+
+
 def test_runtime_config_injected_into_subagent_prompt(tmp_path):
     cfg = _cfg(tmp_path / "ws")
     cfg.runtime_config = {

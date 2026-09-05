@@ -63,6 +63,22 @@ def _command(cfg, action: str, *, expected_iteration: int | None = None) -> list
 def claim(cfg, node: dict) -> dict | None:
     """Claim or resume the official target corresponding to this durable DataOS node."""
     expected = int(node["round"]) + 1
+    if (
+        node.get("iteration") == expected
+        and node.get("suite_dir")
+        and node.get("suite_target")
+        and node.get("suite_run_dir")
+        and node.get("submission_path")
+    ):
+        return {
+            "status": "target_activated",
+            "iteration": expected,
+            "suite_dir": node["suite_dir"],
+            "target_key": node["suite_target"],
+            "target_state": node.get("suite_target_state") or "active",
+            "run_dir": node["suite_run_dir"],
+            "default_submission_path": node["submission_path"],
+        }
     command = _command(cfg, "claim", expected_iteration=expected)
     if command is None:
         return None

@@ -49,6 +49,35 @@ def test_claim_maps_a_durable_round_to_one_official_target(monkeypatch):
     assert "/deploy/configs/tasks/curationbench/suite.py" in command
 
 
+def test_claim_reuses_the_target_already_persisted_on_the_node(monkeypatch):
+    def unexpected_exec(*_args, **_kwargs):
+        raise AssertionError("a persisted claim must not require the execution host")
+
+    monkeypatch.setattr(runtime, "exec_host_command", unexpected_exec)
+    result = iterations.claim(
+        _cfg(),
+        {
+            "round": 1,
+            "iteration": 2,
+            "suite_dir": "/suite",
+            "suite_target": "task_iter2",
+            "suite_target_state": "active",
+            "suite_run_dir": "/suite/task_iter2",
+            "submission_path": "/suite/task_iter2/curated/final_submission",
+        },
+    )
+
+    assert result == {
+        "status": "target_activated",
+        "iteration": 2,
+        "suite_dir": "/suite",
+        "target_key": "task_iter2",
+        "target_state": "active",
+        "run_dir": "/suite/task_iter2",
+        "default_submission_path": "/suite/task_iter2/curated/final_submission",
+    }
+
+
 def test_non_iteration_task_has_no_suite_coordinator():
     cfg = AutoRunConfig(project_id="ptb", budget=Budget(max_wall_clock_s=10))
     assert iterations.claim(cfg, {"round": 0}) is None

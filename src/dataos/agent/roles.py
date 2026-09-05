@@ -49,6 +49,17 @@ _EXP_TIMEOUT_FORMAL_S = 10 * 3600.0  # PTB hard cap: 10 h / 1 H100
 _STATE_FILE = "subagent_state.json"  # on-disk name kept: the resume path reads it in every
 # archived run dir, so renaming it would strand old runs. The MODULE no longer claims a hierarchy.
 
+_EXEC_HOST_NETWORK_ERRORS = (
+    "no route to host",
+    "network is unreachable",
+    "connection timed out",
+    "connection refused",
+    "connection reset by peer",
+    "connection closed by remote host",
+    "could not resolve hostname",
+    "kex_exchange_identification",
+)
+
 
 def _exp_timeout(cfg, deadline: float | None) -> float | None:
     """Wall-clock tasks have a hard cap; iteration-budget tasks run to a terminal result."""
@@ -75,6 +86,77 @@ def _write_state(path: Path, state: dict) -> None:
 def _report_from_disk(path: Path) -> dict | None:
     data = _read_json(path)
     return data if isinstance(data, dict) else None
+
+
+def _execution_host_wait(report: dict | None) -> tuple[str, str] | None:
+    """Return the in-flight stage whose durable handle is hidden by a network failure.
+
+    Losing the route to the execution host says nothing about the remote job's terminal state.
+    A model can nevertheless mistake the failed *poll* for a failed *stage* and write a terminal
+    report.  Accepting that report spends an iteration and abandons the still-owned handle.  Keep
+    this whitelist narrow: a stage without a handle, or an actual tool/job error, remains failed.
+    """
+    if not isinstance(report, dict):
+        return None
+    status = report.get("status")
+    stages = report.get("stages")
+    if not isinstance(stages, dict):
+        return None
+    for name, stage in stages.items():
+        if status not in {"failed", name} or not isinstance(stage, dict):
+            continue
+        error = stage.get("error")
+        if not isinstance(error, str) or not error:
+            continue
+        if not (stage.get("handle") or stage.get("job_id")):
+            continue
+        if any(marker in error.lower() for marker in _EXEC_HOST_NETWORK_ERRORS):
+            return str(name), error
+    return None
+
+
+def _reopen_execution_host_wait(report_path: Path, report: dict) -> tuple[str, str] | None:
+    pending = _execution_host_wait(report)
+    if pending is None:
+        return None
+    stage, _ = pending
+    if report.get("status") == "failed":
+        report["status"] = stage
+        atomic_write_json(report_path, report)
+    return pending
+
+
+def _wait_for_execution_host(cfg, *, deadline: float | None) -> bool:
+    """Wait without spending agent turns until the configured execution host is reachable."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            runtime.exec_host_command(cfg, ["true"], timeout=10)
+            return True
+        except Exception as exc:  # noqa: BLE001 - classify a narrow transport whitelist below
+            if not any(marker in str(exc).lower() for marker in _EXEC_HOST_NETWORK_ERRORS):
+                raise
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            if attempt == 1 or attempt % 10 == 0:
+                log.warning("execution host unreachable; preserving stage handle and waiting: %s", exc)
+            delay = max(float(getattr(cfg, "poll_interval_s", 10.0)), 60.0)
+            time.sleep(delay if remaining is None else min(delay, remaining))
+
+
+def _record_execution_host_recovery(report_path: Path, report: dict, stage: str, error: str) -> None:
+    stage_data = (report.get("stages") or {}).get(stage)
+    if not isinstance(stage_data, dict):
+        return
+    if stage_data.get("error") == error:
+        stage_data.pop("error", None)
+    fixes = stage_data.setdefault("fixes", [])
+    note = f"Recovered execution-host connectivity after: {error}"
+    if isinstance(fixes, list) and note not in fixes:
+        fixes.append(note)
+    atomic_write_json(report_path, report)
 
 
 def _sweep_point(eval_dir: str, summary: dict) -> dict:
@@ -454,7 +536,16 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
     if eval_limit is None:
         eval_limit = 20 if cfg.ptb_profile == "smoke" else 200
     existing_report = _report_from_disk(report_path)
-    if existing_report is not None and report_schema.is_terminal(existing_report):
+    pending_host = (
+        _reopen_execution_host_wait(report_path, existing_report)
+        if existing_report is not None
+        else None
+    )
+    if (
+        existing_report is not None
+        and pending_host is None
+        and report_schema.is_terminal(existing_report)
+    ):
         report = _stamp_report(
             cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir,
             eval_limit=eval_limit, report=existing_report,
@@ -499,6 +590,23 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
                           remaining_minutes=int(timeout / 60) if timeout else None)
     last_text = ""
     while True:
+        report = _report_from_disk(report_path)
+        pending_host = (
+            _reopen_execution_host_wait(report_path, report) if report is not None else None
+        )
+        if pending_host is not None:
+            stage, error = pending_host
+            state["status"] = "waiting_for_execution_host"
+            state["last_error"] = error
+            _write_state(state_path, state)
+            if not _wait_for_execution_host(cfg, deadline=deadline):
+                break
+            report = _report_from_disk(report_path) or report
+            _record_execution_host_recovery(report_path, report, stage, error)
+            state["status"] = "running"
+            state.pop("last_error", None)
+            _write_state(state_path, state)
+
         remaining = None if deadline is None else max(
             0.0, deadline + runtime._queue_wait_s(cfg) - time.monotonic()
         )
@@ -526,6 +634,16 @@ def _run_one(cfg, study_id: str, spec: dict, exp_root: Path, timeout: float | No
                  state.get("session_id"), last_text[:800] + ("…" if len(last_text) > 800 else ""))
 
         report = _report_from_disk(report_path)
+        pending_host = (
+            _reopen_execution_host_wait(report_path, report) if report is not None else None
+        )
+        if pending_host is not None:
+            prompt = _continue_prompt(
+                state,
+                last_text,
+                remaining_minutes=int(remaining / 60) if remaining is not None else None,
+            )
+            continue
         if report is not None and report_schema.is_terminal(report):
             state["status"] = report_schema.read(report).status
             _write_state(state_path, state)
