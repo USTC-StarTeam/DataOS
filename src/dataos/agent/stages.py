@@ -67,36 +67,19 @@ def build_stages(resolved: dict, registry: _tools.ToolRegistry | None = None) ->
     review_template = (task_agent.get("turns") or {}).get(
         "review_stage", "experimenter/turn/stage_review"
     )
-    external_data = data_contract.get("driver") == "external_cli"
     external_eval = eval_contract.get("driver") == "external_cli"
     train_frozen = train_contract.get("ownership") == "frozen"
-    uses_toolbox = not external_data or data_contract.get("toolbox") == "dataos_operator"
-    toolbox_invoke = (
-        "\n\n".join(op.invoke(resolved) for op in registry.operators) if uses_toolbox else ""
-    )
-    if external_data:
-        data_parts = []
-        if data_contract.get("toolbox") == "dataos_operator":
-            data_parts.append(toolbox_invoke)
-        data_parts.append(str(data_contract.get("invoke", "")).strip())
-        data_invoke = "\n\n".join(part for part in data_parts if part)
-    else:
-        data_invoke = toolbox_invoke
+    data_parts = []
+    if data_contract.get("toolbox") == "dataos-operator":
+        data_parts.extend(op.invoke(resolved) for op in registry.operators)
+    data_parts.append(str(data_contract.get("invoke", "")).strip())
+    data_invoke = "\n\n".join(part for part in data_parts if part)
     return [
         Stage(
             name="data",
             role="turn fixed-pool sources into THIS experiment's training dataset",
-            input=(
-                "the external task's frozen dataset plus this node's curation strategy"
-                if external_data
-                else "the pool sources named in the DATA RECIPE (dirs under the fixed pool)"
-            ),
-            output=(
-                "{ctx.submission_path} — the official exact-size multimodal submission"
-                if external_data
-                else "{ctx.run_root}/data/sft — an HF save_to_disk dataset; the job derives "
-                     "LLaMA-Factory's train.json + dataset_info.json from it"
-            ),
+            input=data_contract.get("input", "the task's declared data pool"),
+            output=data_contract.get("output", "the task's declared training dataset"),
             invoke=data_invoke,
             where="inside the Slurm GPU job (pool lives there); only bounded llm_* scoring on login",
             owner=(OWNER_OURS if data_contract.get("ownership") == "agent" else OWNER_PROVIDED),

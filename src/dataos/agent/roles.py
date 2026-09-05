@@ -364,12 +364,7 @@ def _task_prompt(*, cfg, study_id: str, spec: dict, exp_dir: Path, eval_limit: i
         or cfg.h100_base_model
     )
     data = spec.get("data") or {}
-    data_driver = runtime_compose.task_stage_config(cfg, "data").get("driver")
-    recipe = (
-        {"sources": data.get("sources", []), "recipe": data.get("recipe", [])}
-        if data_driver == "operator_toolbox"
-        else data
-    )
+    recipe = data
     runtime_block = _runtime_prompt_block(
         cfg=cfg, study_id=study_id, spec=spec, exp_dir=exp_dir, eval_limit=eval_limit,
     )

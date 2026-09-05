@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[2]
 def test_shipped_tasks_select_all_three_stage_drivers_explicitly():
     ptb = load_task_contract(REPO, "posttrainbench")
     assert {name: cfg["driver"] for name, cfg in ptb["stages"].items()} == {
-        "data": "operator_toolbox",
+        "data": "dataos-data",
         "train": "native",
         "eval": "posttrainbench",
     }
@@ -23,12 +23,12 @@ def test_shipped_tasks_select_all_three_stage_drivers_explicitly():
 
     curation = load_task_contract(REPO, "curationbench")
     assert {name: cfg["driver"] for name, cfg in curation["stages"].items()} == {
-        "data": "external_cli",
+        "data": "dataos-data",
         "train": "external_cli",
         "eval": "external_cli",
     }
     assert curation["stages"]["train"]["ownership"] == "frozen"
-    assert curation["stages"]["data"]["toolbox"] == "dataos_operator"
+    assert curation["stages"]["data"]["toolbox"] == "dataos-operator"
 
 
 def test_curation_contract_resolves_without_nonexistent_run_fields():
@@ -57,7 +57,7 @@ def test_curation_contract_resolves_without_nonexistent_run_fields():
         "coordinator": "suite.py",
     }
     assert task["stages"]["train"]["driver"] == "external_cli"
-    assert task["stages"]["data"]["toolbox"] == "dataos_operator"
+    assert task["stages"]["data"]["toolbox"] == "dataos-operator"
     assert task["stages"]["data"]["dataset_backend"] == "indexed"
     assert "dataos-train task-submit" in task["stages"]["train"]["command"]
     assert "--gpus 0" in task["stages"]["data"]["invoke"]

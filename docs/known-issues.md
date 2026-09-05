@@ -185,7 +185,8 @@ DATA 的 `driver` 同时决定调度方法和是否向 leader/experimenter 暴�
 必须走官方 `external_cli`，于是 catalog 被置空，prompt 又显式禁止 DataOS-Operator，
 H100 的专属 venv 也没有安装它。三层共同导致每轮在 curate.py 里重写过滤、打分、配额
 和采样。修复后两条轴正交：`driver: external_cli` 保留官方 suite/audit/submit 生命周期，
-`toolbox: dataos_operator` 声明 agent 可用的数据算法；`dataset_backend: indexed` 只暴露
+`driver: dataos-data` 指向真实执行前门，`toolbox: dataos-operator` 声明 agent 可用的
+数据算法；`dataset_backend: indexed` 只暴露
 不会物化 665K 图片的兼容算子。
 
 ## P17 generic quality 忽略输出格式，SmolVLM 的 MCQ 覆盖反向下降（观察）

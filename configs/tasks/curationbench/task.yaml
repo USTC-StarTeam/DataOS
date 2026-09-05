@@ -40,12 +40,14 @@ agent:
 stages:
   data:
     stage: data
-    driver: external_cli
+    driver: dataos-data
     ownership: agent
     tool: datacuration-bench
-    toolbox: dataos_operator
+    toolbox: dataos-operator
     toolbox_prompt: curationbench/experimenter/turn/operator_toolbox
     dataset_backend: indexed
+    input: "the external task's frozen dataset plus this node's curation strategy"
+    output: "{ctx.submission_path} — the official exact-size multimodal submission"
     invoke: |-
       Code has already created this DataOS run's one official N-iteration suite and activated
       exactly one target for this durable tree node. Use the supplied {ctx.suite_dir} and

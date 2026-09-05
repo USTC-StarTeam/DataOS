@@ -625,11 +625,8 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
 
     eval_cfg = freeze_eval(cfg=cfg)
     data_stage = runtime_compose.task_stage_config(cfg, "data")
-    data_driver = data_stage.get("driver")
     task_agent = runtime_compose.task_agent_config(cfg)
-    has_operator_toolbox = (
-        data_driver == "operator_toolbox" or data_stage.get("toolbox") == "dataos_operator"
-    )
+    has_operator_toolbox = data_stage.get("toolbox") == "dataos-operator"
     catalog = _safe_catalog(data_stage.get("dataset_backend")) if has_operator_toolbox else []
     base_model = cfg.h100_base_model or cfg.base_model_id or "base"
     tree = TreeState.load(proj.project_dir, base_model)

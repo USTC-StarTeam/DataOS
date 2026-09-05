@@ -13,8 +13,13 @@ agent:
 stages:
   data:
     stage: data
-    driver: operator_toolbox
+    driver: dataos-data
     ownership: agent
+    toolbox: dataos-operator
+    toolbox_prompt: experimenter/turn/stage_data
+    dataset_backend: record
+    input: "the pool sources named in the DATA RECIPE (dirs under the fixed pool)"
+    output: "{ctx.run_root}/data/sft — an HF save_to_disk dataset; the job derives LLaMA-Factory's train.json + dataset_info.json from it"
   train: {contract: train/task.yaml}
   eval: {contract: eval/task.yaml}
 

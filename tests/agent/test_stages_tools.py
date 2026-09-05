@@ -11,7 +11,13 @@ from dataos.agent import tools as _tools
 def _resolved(*, frozen: bool = False) -> dict:
     task = {
         "stages": {
-            "data": {"stage": "data", "driver": "operator_toolbox", "ownership": "agent"},
+            "data": {
+                "stage": "data",
+                "driver": "dataos-data",
+                "ownership": "agent",
+                "toolbox": "dataos-operator",
+                "toolbox_prompt": "experimenter/turn/stage_data",
+            },
             "train": {"stage": "train", "driver": "native", "ownership": "agent"},
             "eval": {"stage": "eval", "driver": "posttrainbench", "ownership": "frozen"},
         },
