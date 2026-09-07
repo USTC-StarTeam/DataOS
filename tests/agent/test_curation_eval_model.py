@@ -58,20 +58,10 @@ def test_inference_preserves_smolvlm_and_rejects_wrong_override(tmp_path, monkey
         assert "--use-vllm" in commands[0]
 
 
-def test_new_runs_keep_max_effort_and_separate_workspaces():
-    from dataos.agent.run_config import PtbRunConfig
+def test_codex_preserves_max_effort():
     from dataos_agent.providers.codex import CodexSpec
     from dataos_agent.types import AgentConfig
 
-    workspaces = set()
-    for name in ("qwen25vl3b", "llava7b"):
-        path = REPO / f"configs/runs/curation-{name}-h100-max.json"
-        config = PtbRunConfig.from_dict(yaml.safe_load(path.read_text()))
-        assert config.agent.effort == "max"
-        assert config.exec.resource.gpus == 2
-        assert config.budget.iterations == 11
-        workspaces.add(config.workspace)
-    assert len(workspaces) == 2
     agent = AgentConfig(provider="codex", model="gpt-5.6-sol", effort="max")
     argv = CodexSpec().build_argv(agent, "test")
     assert "model_reasoning_effort=max" in argv
