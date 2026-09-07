@@ -32,12 +32,15 @@ def _target(suite_dir: Path, model_path: Path) -> tuple[dict, Path, list[str], P
 
 def _run(args: argparse.Namespace) -> dict:
     target, run_dir, benchmarks, eval_data_dir = _target(args.suite_dir, args.model_path)
+    model_name = _model_name(args.harness_root, Path(target["task_path"]))
+    if args.vlmeval_model and args.vlmeval_model != model_name:
+        raise ValueError(f"eval model {args.vlmeval_model!r} != official model {model_name!r}")
     vlmeval = args.harness_root / "vendor" / "VLMEvalKit"
     command = [
         str(vlmeval / ".venv" / "bin" / "python"),
         str(vlmeval / "run.py"),
         "--model",
-        args.vlmeval_model,
+        model_name,
         "--model-path",
         str(args.model_path),
         "--data",
@@ -100,13 +103,28 @@ def _run(args: argparse.Namespace) -> dict:
     return result
 
 
+def _model_name(harness_root: Path, task_path: Path) -> str:
+    task = yaml.safe_load(task_path.read_text(encoding="utf-8"))["task"]
+    return subprocess.check_output(
+        [
+            str(harness_root / ".venv" / "bin" / "python"),
+            "-c",
+            "import sys; from benchmark.core.model_registry import get_model; "
+            "print(get_model(sys.argv[1]).vlmeval_model_name)",
+            task["model_key"],
+        ],
+        cwd=harness_root,
+        text=True,
+    ).strip()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=["infer", "judge"])
     parser.add_argument("--harness-root", type=Path, required=True)
     parser.add_argument("--suite-dir", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True)
-    parser.add_argument("--vlmeval-model", required=True)
+    parser.add_argument("--vlmeval-model")
     parser.add_argument("--judge-model")
     parser.add_argument("--workers", type=int, default=32)
     parser.add_argument("--timeout-seconds", type=int)

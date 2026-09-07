@@ -8,11 +8,11 @@ tool: datacuration-bench
 compute:
   script: run_vlmeval.py
   args: [infer, --harness-root, "{tool_root}", --suite-dir, "{suite_dir}",
-         --model-path, "{model_path}", --vlmeval-model, SmolVLM]
+         --model-path, "{model_path}"]
 remote_judge:
   script: run_vlmeval.py
   args: [judge, --harness-root, "{tool_root}", --suite-dir, "{suite_dir}",
-         --model-path, "{model_path}", --vlmeval-model, SmolVLM,
+         --model-path, "{model_path}",
          --judge-model, "{judge_model}", --workers, "{judge_workers}",
          --timeout-seconds, "120", --request-retries, "1"]
 accept_status: [completed]

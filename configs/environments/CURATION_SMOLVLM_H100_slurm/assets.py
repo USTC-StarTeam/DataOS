@@ -126,8 +126,10 @@ def _verify_dataset(path: Path, task: dict[str, Any], manifest: dict[str, Any]) 
     print(f"[ok] dataset: {len(value)} rows, columns={value.column_names}")
 
 
-def verify(harness_root: Path, profile_path: Path, task_name: str) -> None:
-    manifest = _read_yaml(MANIFEST)
+def verify(
+    harness_root: Path, profile_path: Path, task_name: str, manifest_path: Path = MANIFEST
+) -> None:
+    manifest = _read_yaml(manifest_path)
     profile = _read_yaml(profile_path)
     errors: list[str] = []
     if task_name not in manifest["scope"]["tasks"]:
@@ -251,11 +253,12 @@ def main() -> None:
     check.add_argument("--harness-root", type=Path, required=True)
     check.add_argument("--profile", type=Path, required=True)
     check.add_argument("--task", required=True)
+    check.add_argument("--manifest", type=Path, default=MANIFEST)
     args = parser.parse_args()
     if args.command == "prefetch-eval":
         prefetch_eval(args.asset_root)
     else:
-        verify(args.harness_root, args.profile, args.task)
+        verify(args.harness_root, args.profile, args.task, args.manifest)
 
 
 if __name__ == "__main__":
