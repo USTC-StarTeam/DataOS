@@ -209,6 +209,47 @@ def test_best_over_tree_final_model(tmp_path):
     assert (Path(ws) / "p" / "final_model.json").is_file()
 
 
+@pytest.mark.parametrize("status,score", [("failed", None), ("completed", None)])
+def test_curation_invalid_result_stops_without_new_iteration(tmp_path, monkeypatch, status, score):
+    from dataos.agent import iterations
+
+    cfg = _cfg(str(tmp_path / "ws"))
+    cfg.runtime_config = {"task": "curationbench"}
+    cfg.target_bench = "llava665k_smolvlm_8bench_10k_unlimited"
+    cfg.budget = Budget(max_rounds=11)
+    claims = []
+    calls = []
+    monkeypatch.setattr(iterations, "claim", lambda cfg, node: claims.append(node["id"]))
+
+    def fail(**kwargs):
+        reports = _fake_fan_out(**kwargs)
+        calls.append(kwargs["study_id"])
+        pdir = Path(cfg.workspace) / cfg.project_id / kwargs["study_id"] / "experiments"
+        for name, report in reports.items():
+            report["status"] = status
+            report["stages"]["eval"]["score"] = score
+            (pdir / name / "report.json").write_text(json.dumps(report))
+
+    monkeypatch.setattr(roles, "fan_out", fail)
+    for _ in range(2):
+        result = run_auto(cfg, _clock=lambda: 0.0)
+        assert result["stop_reason"] == "execution:invalid_result"
+        assert result["rounds_completed"] == 0
+    assert calls == ["round-0000", "round-0000"]
+    assert claims == ["n0001", "n0001"]
+    pdir = Path(cfg.workspace) / cfg.project_id
+    assert not list(pdir.glob("round-*/review.json"))
+    assert not (pdir / "round-0001").exists()
+    assert (pdir / "execution_blocked.json").exists()
+    monkeypatch.setattr(roles, "fan_out", _fake_fan_out)
+    monkeypatch.setattr(iterations, "finalize", lambda cfg: None)
+    cfg.budget = Budget(max_rounds=1)
+    repaired = run_auto(cfg, _clock=lambda: 0.0)
+    assert repaired["stop_reason"] == "budget:iterations"
+    assert claims == ["n0001", "n0001", "n0001"]
+    assert not (pdir / "execution_blocked.json").exists()
+
+
 def test_resume_skips_done_round(tmp_path):
     ws = str(tmp_path / "ws")
     run_auto(_cfg(ws), _clock=_clock_for_rounds(ws, 1))

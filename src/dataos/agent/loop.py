@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -916,6 +917,25 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             score,
             mpath,
         )
+
+        iteration_budget = (task_agent.get("budget") or {}).get("unit") == "iterations"
+        if iteration_budget and (
+            status != "completed" or score is None or not math.isfinite(score)
+        ):
+            reason = "execution:invalid_result"
+            log.error("STOP: %s at node %s; inspect %s before resuming", reason, node_id, report_path)
+            atomic_write_json(Path(proj.project_dir) / "execution_blocked.json", {
+                "node_id": node_id, "round": round_idx, "report_path": report_path,
+                "status": status, "score": score, "stop_reason": reason,
+            })
+            _publish_live(
+                cfg, round_idx=round_idx, phase="blocked", started=started, now=_clock(),
+                node_id=node_id, node_name=node.get("experiment_name"),
+            )
+            return _finish(proj, reason, best, round_idx, events, tree)
+
+        if iteration_budget:
+            (Path(proj.project_dir) / "execution_blocked.json").unlink(missing_ok=True)
 
         digest = study.summary()
         _node = tree.get(node_id)

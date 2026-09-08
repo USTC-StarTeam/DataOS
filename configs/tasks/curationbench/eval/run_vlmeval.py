@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 from pathlib import Path
@@ -53,6 +54,8 @@ def _run(args: argparse.Namespace) -> dict:
     ]
     if args.mode == "infer":
         command.append("--use-vllm")
+        if model_name == "Qwen2.5-VL-3B-Instruct":
+            command.insert(1, str(Path(__file__).with_name("vlmeval_entry.py")))
     else:
         if not args.judge_model:
             raise ValueError("remote judge requires --judge-model")
@@ -82,7 +85,21 @@ def _run(args: argparse.Namespace) -> dict:
             "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
         }
     )
+    # Upstream catches each benchmark exception and may exit zero after skipping all eight.
+    # A process exit code alone must never complete an official iteration.
+    validation = [
+        str(vlmeval / ".venv" / "bin" / "python"),
+        str(Path(__file__).with_name("validate_predictions.py")),
+        "--results-dir", str(run_dir / "eval" / "results"),
+        "--model", model_name, "--benchmarks", *benchmarks,
+    ]
+    if args.mode == "eval":
+        subprocess.run(validation, cwd=vlmeval, env=env, check=True)
     subprocess.run(command, cwd=vlmeval, env=env, check=True)
+    if args.mode == "infer":
+        subprocess.run(validation, cwd=vlmeval, env=env, check=True)
+    if args.mode == "eval":
+        _validate_scores(run_dir / "eval" / "results", model_name, benchmarks)
     result = {
         "status": "completed",
         "results_dir": str(run_dir / "eval" / "results"),
@@ -101,6 +118,21 @@ def _run(args: argparse.Namespace) -> dict:
         )
     result["target"] = target["key"]
     return result
+
+
+def _validate_scores(results_dir: Path, model: str, benchmarks: list[str]) -> None:
+    import runpy
+
+    score_value = runpy.run_path(str(Path(__file__).with_name("collect.py")))["_score"]
+    config = yaml.safe_load(Path(__file__).with_name("task.yaml").read_text())["native"]
+    results = json.loads((results_dir / "results.json").read_text())
+    if set(results) != {model} or not isinstance(results[model], dict):
+        raise ValueError("evaluation results do not match the official model")
+    for benchmark in benchmarks:
+        value = score_value(benchmark, results[model].get(benchmark), config["selectors"][benchmark])
+        maximum = float(config["normalization"][benchmark])
+        if not math.isfinite(value) or not 0 <= value <= maximum:
+            raise ValueError(f"invalid score for {benchmark}: {value}")
 
 
 def _model_name(harness_root: Path, task_path: Path) -> str:
