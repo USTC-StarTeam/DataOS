@@ -7,6 +7,11 @@ harness:
   version: "0.3.0"
 
 compat:
+  qwen_text_only:
+    original_sha256: 6aabb3317e993a4802ab7db8971197263bbefeed438f1b3afe6309a6334fca9d
+    patched_sha256: b28ff15e306809bf072fe5ee125ed559eacb065e18b5377cf9d625f67d7c7a7e
+    install_path: vendor/curation-train/src/curation_train/train_qwen2vl.py
+    invariant: preserve all rows and labels; text-only inputs have no image placeholder
   vlmeval_result_transfer:
     repository: https://github.com/open-compass/VLMEvalKit.git
     revision: 401916c00a4769884aeca865a77674abe0c62a26

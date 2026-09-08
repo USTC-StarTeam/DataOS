@@ -205,6 +205,13 @@ def verify(
         task = _task_spec(harness_root, task_name)
         dataset_id = str(task["dataset"]["dataset_id"])
         model_key = str(task["model_key"])
+        qwen_compat = manifest["compat"].get("qwen_text_only")
+        if model_key == "qwen2.5-vl-3b-instruct" and qwen_compat:
+            qwen_path = harness_root / qwen_compat["install_path"]
+            if _sha256(qwen_path) != qwen_compat["patched_sha256"]:
+                errors.append(f"Qwen text-only compatibility checksum mismatch: {qwen_path}")
+            else:
+                print("[ok] Qwen text-only/DDP compatibility patch")
         dataset_path = Path(profile["dataset_path_map"][dataset_id])
         model_path = Path(profile["model_path_map"][model_key])
         dataset_manifest = manifest["datasets"][dataset_id]
