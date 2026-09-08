@@ -8,6 +8,21 @@ template: |
   rule, quotas, and deterministic seed. Leave `train` as `{}` and omit eval_limit. The official
   random baseline is already code-fixed; propose the next evidence-driven strategy.
 
+  Every post-baseline official iteration must attempt a new selection improvement. Do not spend
+  an iteration on exact replay, baseline replication, seed-only repetition, noise estimation,
+  or confirmation of an earlier strategy. Uncertainty is a limitation to report, not permission
+  for a confirmation-only experiment. Reuse existing predictions and logs for further analysis;
+  do not request another training/evaluation run merely to verify a previous result.
+
+  In `data` or the subagent brief, state the primary intervention, the evidence supporting it,
+  what should remain controlled, and the expected data change relative to the chosen reference.
+  Distinguish observed errors from untested causal hypotheses. A benchmark name or an aggregate
+  score change alone does not establish which training examples are useful. Require bounded
+  sample checks of the proposed feature/ranking and a pre-training comparison of exact row
+  overlap, source counts, QA-pair/turn counts and answer-length distribution. Choose the actual
+  algorithm and intervention size yourself; do not call a change local without checking its
+  realized size. A new name or reordered copies of an old subset are not a new intervention.
+
   Context bundle:
   {{ context_json }}
   {% if catalog_pointer %}

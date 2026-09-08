@@ -168,6 +168,10 @@ def test_curation_experiment_prompt_receives_the_claimed_official_target(tmp_pat
     assert "weighted_reservoir_selector" in text
     assert "length_filter" not in text
     assert "convert to Alpaca" in text
+    assert "perform a bounded pre-training check within this same target" in text
+    assert "stable pool row indices or full-row hashes" in text
+    assert "later confirmation-only plans are forbidden" in text
+    assert "must reuse durable handles/results" in text
 
 
 def test_curation_tree_parent_is_strategy_only_and_model_resets_to_root():
@@ -203,3 +207,21 @@ def test_curation_leader_receives_the_operator_catalog():
 
     assert "weighted_reservoir_selector" in text
     assert "/workspace/operator_catalog.json" in text
+    assert "Do not spend" in text
+    assert "baseline replication, seed-only repetition, noise estimation" in text
+    assert "primary intervention" in text
+    assert "expected data change" in text
+
+
+def test_curation_review_requires_item_evidence_without_confirmation_rounds():
+    from dataos import prompt
+
+    text = prompt.render("curationbench/experimenter/turn/stage_review")
+    assert "per-item predictions" in text
+    assert "incorrect examples" in text and "correct controls" in text
+    assert "observations, causal hypotheses and unresolved uncertainty" in text
+    assert "Do not recommend a new official" in text
+    assert "noise estimation or confirmation" in text
+    assert "out of curation code and" in text
+    assert "training submissions" in text
+    assert "canonical score is present and finite" in text

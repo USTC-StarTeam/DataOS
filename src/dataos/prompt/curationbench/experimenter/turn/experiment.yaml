@@ -34,6 +34,27 @@ template: |
   eval landed: do not curate, train, or evaluate again. Collect the existing official result and
   finish report.json for this same target.
 
+  For every post-baseline selector, perform a bounded pre-training check within this same target:
+  - Inspect a small deterministic sample of highly ranked/selected candidates and same-source
+    random controls. Check whether they actually exhibit the claimed capability or quality.
+    Inspect images when making visual-grounding claims; if unavailable, record that limitation.
+    Keywords, length, format validity and source labels are proxies, not verified usefulness.
+  - Check feature prevalence, empty groups and quota capacity before committing to the selection.
+    Compare realized exact-row overlap/replacement, source counts, QA-pair/turn counts and
+    answer-length distribution with the intended reference and the leader's stated controls.
+    Use stable pool row indices or full-row hashes, not unverified `(subset,id)` uniqueness.
+    Record the actual effect of deduplication and image-group caps rather than just their names.
+  - Write sample counts, reference paths, observations, unresolved assumptions and selection
+    statistics into the existing `stages.data` report. Correct unintended deviations during DATA
+    before submitting frozen TRAIN; do not consume another target to fix a preflight issue.
+
+  Do not use an official iteration to confirm an earlier strategy, replicate the random baseline,
+  estimate noise, or rerun the same selected rows under a different name/order/seed. Compare
+  selection membership with earlier submissions in this suite; if it is unchanged, revise the
+  selection before TRAIN. Recovery of unfinished work in the current target is allowed, but it
+  must reuse durable handles/results and must not create an additional confirmation experiment.
+  The first official random baseline stays unchanged; later confirmation-only plans are forbidden.
+
   {{ env_ops }}
 
   {{ task_def }}

@@ -3,7 +3,23 @@ description: >
   than PostTrainBench predictions.jsonl. No render params.
 template: |
   Review the official summary.json, its native eight-benchmark results, and the bounded train/eval
-  log tails. Explain which capabilities moved, whether audit or data-composition evidence suggests
-  a selector-side cause, and any crash/anomaly. Do not rescore or edit the frozen evaluator. Write
-  `stages.review` with a concise conclusion and the supporting per-benchmark evidence, then set the
-  top-level report status to `completed`.
+  log tails. For the main changed or weak capabilities, inspect a small bounded sample of existing
+  per-item predictions and their already-produced official outcomes, including incorrect examples
+  and correct controls when available. Record benchmark/item references, sample counts and what
+  was actually inspected. Inspect images before making visual-grounding claims; otherwise say
+  that visual evidence is unavailable. If correctness is not recorded, do not invent labels or
+  judge scores. Summaries alone do not justify a claim of a sampled error analysis.
+
+  In `stages.review`, separate observations, causal hypotheses and unresolved uncertainty. Relate
+  the observations to the realized DATA controls and sample checks, not just the proposed recipe.
+  A lower score does not prove missing training formats, and a keyword/source/length score does
+  not prove training value. Do not claim significance from an unreplicated small score difference.
+  Keep raw evaluation questions, answers, images and item identities out of curation code and
+  training submissions; only generalized error categories may inform later selection.
+
+  Explain crashes and invalid/missing results as execution failures, not negative strategy
+  evidence. Do not rescore, retrain, or edit the frozen evaluator. Do not recommend a new official
+  iteration for exact replay, baseline replication, noise estimation or confirmation of an earlier
+  strategy; analyze existing artifacts and report uncertainty instead. Write a concise conclusion
+  and supporting per-benchmark/sample evidence, then set the top-level status to `completed` only
+  when the canonical score is present and finite and all configured benchmarks completed.
