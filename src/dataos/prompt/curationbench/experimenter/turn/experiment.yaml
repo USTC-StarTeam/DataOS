@@ -34,6 +34,17 @@ template: |
   eval landed: do not curate, train, or evaluate again. Collect the existing official result and
   finish report.json for this same target.
 
+  For newly planned selections, baseline/parent data is a comparison reference, not an implicit
+  retained subset or excluded subset. Implement the plan against the full frozen pool with its
+  stated eligibility/ranking/sampling rule. Do not introduce an unrequested retention quota or
+  discard previously selected rows merely because they appeared in the reference. Report natural
+  row overlap after selection, separately from distribution controls. If the plan explicitly
+  retains particular rows/groups, record the supporting evidence instead of assuming that the
+  reference's aggregate score establishes those rows' value.
+  During recovery, preserve an already-materialized submission and reuse running/completed
+  train/eval work. Do not rebuild data or repeat training just to retrofit new planning rules;
+  those rules govern the next newly planned selection.
+
   For every post-baseline selector, perform a bounded pre-training check within this same target:
   - Inspect a small deterministic sample of highly ranked/selected candidates and same-source
     random controls. Check whether they actually exhibit the claimed capability or quality.

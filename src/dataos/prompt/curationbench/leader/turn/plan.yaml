@@ -8,6 +8,18 @@ template: |
   rule, quotas, and deterministic seed. Leave `train` as `{}` and omit eval_limit. The official
   random baseline is already code-fixed; propose the next evidence-driven strategy.
 
+  Baseline and parent nodes are performance/evidence references, not automatically valuable
+  collections of rows. Start each new selection design from the full frozen candidate pool and
+  define the selection criterion or sampling algorithm before discussing overlap with a reference.
+  Do not default to retaining a percentage of baseline/parent rows merely because that node has
+  a score or is currently best. Specific row/group retention needs explicit evidence of its value.
+  Previously selected rows remain eligible under the new rule: do not force zero overlap or
+  exclude them just to make the dataset look new. Measure natural overlap after selection.
+  Choose source, QA-volume, length or capability-distribution controls only when justified by
+  the current hypothesis; do not automatically lock every distribution or confuse distribution
+  control with preserving row identity. Anchor refresh remains available when evidence warrants
+  it, not as the default interpretation of choosing a parent.
+
   Every post-baseline official iteration must attempt a new selection improvement. Do not spend
   an iteration on exact replay, baseline replication, seed-only repetition, noise estimation,
   or confirmation of an earlier strategy. Uncertainty is a limitation to report, not permission

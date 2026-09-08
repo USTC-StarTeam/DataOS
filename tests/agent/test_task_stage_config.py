@@ -172,6 +172,10 @@ def test_curation_experiment_prompt_receives_the_claimed_official_target(tmp_pat
     assert "stable pool row indices or full-row hashes" in text
     assert "later confirmation-only plans are forbidden" in text
     assert "must reuse durable handles/results" in text
+    assert "baseline/parent data is a comparison reference" in text
+    assert "Do not introduce an unrequested retention quota" in text
+    assert "reuse running/completed" in text
+    assert "those rules govern the next newly planned selection" in text
 
 
 def test_curation_tree_parent_is_strategy_only_and_model_resets_to_root():
@@ -211,6 +215,11 @@ def test_curation_leader_receives_the_operator_catalog():
     assert "baseline replication, seed-only repetition, noise estimation" in text
     assert "primary intervention" in text
     assert "expected data change" in text
+    assert "full frozen candidate pool" in text
+    assert "Do not default to retaining a percentage" in text
+    assert "do not force zero overlap" in text
+    assert "Measure natural overlap after selection" in text
+    assert "Anchor refresh remains available when evidence warrants" in text
 
 
 def test_curation_review_requires_item_evidence_without_confirmation_rounds():
@@ -225,3 +234,6 @@ def test_curation_review_requires_item_evidence_without_confirmation_rounds():
     assert "out of curation code and" in text
     assert "training submissions" in text
     assert "canonical score is present and finite" in text
+    assert "Evaluate the selection criterion" in text
+    assert "not evidence that its individual rows should be retained" in text
+    assert "arbitrary row-identity preservation" in text

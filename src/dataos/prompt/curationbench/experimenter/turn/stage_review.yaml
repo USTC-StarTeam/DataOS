@@ -17,6 +17,13 @@ template: |
   Keep raw evaluation questions, answers, images and item identities out of curation code and
   training submissions; only generalized error categories may inform later selection.
 
+  Evaluate the selection criterion, not how much of a baseline was kept. A good reference score
+  is not evidence that its individual rows should be retained, and natural overlap is neither a
+  defect nor proof of quality. Recommend full-pool selection rules supported by the observed
+  examples; recommend retaining specific rows/groups only with corresponding evidence. Separate
+  necessary distribution controls from arbitrary row-identity preservation. Do not default to an
+  anchored partial refresh solely because a previous aggregate score was higher.
+
   Explain crashes and invalid/missing results as execution failures, not negative strategy
   evidence. Do not rescore, retrain, or edit the frozen evaluator. Do not recommend a new official
   iteration for exact replay, baseline replication, noise estimation or confirmation of an earlier
