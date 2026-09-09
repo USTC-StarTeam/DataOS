@@ -66,6 +66,16 @@ template: |
   must reuse durable handles/results and must not create an additional confirmation experiment.
   The first official random baseline stays unchanged; later confirmation-only plans are forbidden.
 
+  If quota capacity is infeasible before materializing or officially submitting data, preserve
+  the measured joint capacities, requested quotas, shortfalls and diagnostic file paths in
+  stages.data. Set stages.data.failure_kind to quota_capacity, submission_materialized to false,
+  official_submit_called to false, and rows to 0; identify the data job handle and record TRAIN
+  and EVAL as not_started. Put capacities, requested_quotas and shortfalls in
+  stages.data.capacity_diagnostic. Return a failed report without starting downstream work. Code may ask
+  the leader for a bounded correction of this same target. Never change the official queue.
+  If stages.data.preflight_revision is present, read its revised plan and diagnostic_path before
+  proceeding: the leader's revised DATA intent supersedes the archived failed allocation.
+
   {{ env_ops }}
 
   {{ task_def }}

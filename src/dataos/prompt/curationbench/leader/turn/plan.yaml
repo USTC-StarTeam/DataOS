@@ -20,6 +20,11 @@ template: |
   control with preserving row identity. Anchor refresh remains available when evidence warrants
   it, not as the default interpretation of choosing a parent.
 
+  Explicit quotas must be feasible against measured joint capacities AFTER the planned filters
+  and diversity controls. Do not create source-by-format cells by multiplying independent
+  marginals without checking those cells exist. Where capacities are not yet known, specify a
+  capacity-aware allocation rule and its intent instead of inventing an exact quota table.
+
   Every post-baseline official iteration must attempt a new selection improvement. Do not spend
   an iteration on exact replay, baseline replication, seed-only repetition, noise estimation,
   or confirmation of an earlier strategy. Uncertainty is a limitation to report, not permission

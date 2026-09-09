@@ -107,3 +107,17 @@ def finalize(cfg) -> dict | None:
     if result.get("status") != "suite_completed":
         raise RuntimeError(f"iteration suite did not finalize: {result}")
     return result
+
+
+def preflight_check(cfg, node: dict, data_handle: str) -> dict:
+    expected = int(node["round"]) + 1
+    command = _command(cfg, "preflight-check", expected_iteration=expected)
+    if command is None:
+        return {"eligible": False, "reason": "not_an_iteration_task"}
+    command.extend(["--data-handle", data_handle])
+    result = json.loads(runtime.exec_host_command(cfg, command))
+    if result.get("eligible") and (
+        result.get("iteration") != expected or result.get("target_key") != node.get("suite_target")
+    ):
+        raise RuntimeError("preflight check returned a different official target")
+    return result

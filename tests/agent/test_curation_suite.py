@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -108,6 +109,47 @@ def test_completed_target_is_reconciled_without_advancing(monkeypatch):
 
     assert result["iteration"] == 1 and result["target_state"] == "completed"
     assert controller.targets[1].state == "pending"
+
+
+@pytest.mark.parametrize("state,submitted,job_state,eligible", [
+    ("active", None, "FAILED", True),
+    ("active", None, "COMPLETED", True),
+    ("completed", None, "FAILED", False),
+    ("active", "/submission", "FAILED", False),
+    ("active", None, "RUNNING", False),
+    ("active", None, "TIMEOUT", False),
+])
+def test_preflight_check_is_read_only_and_requires_no_training(
+    tmp_path, monkeypatch, state, submitted, job_state, eligible,
+):
+    module = _module(monkeypatch)
+    project_root = tmp_path / "project" / "_curation_suite"
+    suite = project_root / "suite"
+    target = suite / "task_iter1"
+    target.mkdir(parents=True)
+    state_path = suite / "suite_state.json"
+    state_path.write_text(json.dumps({"active_index": 0, "targets": [{
+        "key": "task_iter1", "state": state, "iteration": 1, "task_id": "task",
+        "run_dir": str(target),
+    }]}))
+    session_path = target / "session_state.json"
+    session_path.write_text(json.dumps({
+        "last_submission_path": submitted, "finetune_model_path": None,
+        "_finetune_result": None, "_finetune_submission_path": None,
+    }))
+    data_root = project_root.parent / "round-0000" / "candidate"
+    data_root.mkdir(parents=True)
+    handle = data_root / "data_handle.json"
+    handle.write_text(json.dumps({"launcher": "slurm", "job_id": "123", "run_dir": str(data_root)}))
+    before = (state_path.read_bytes(), session_path.read_bytes())
+    monkeypatch.setattr(module.subprocess, "check_output", lambda *a, **kw: f"123|{job_state}\n")
+    args = types.SimpleNamespace(project_root=str(project_root), expected_iteration=1,
+                                 task="task", data_handle=str(handle))
+    assert module.preflight_check(args)["eligible"] is eligible
+    assert before == (state_path.read_bytes(), session_path.read_bytes())
+    if eligible:
+        (target / "finetune" / "ft-in-progress").mkdir(parents=True)
+        assert module.preflight_check(args)["reason"] == "training_attempt_present"
 
 
 def test_finalize_refuses_pending_and_closes_a_terminal_queue(monkeypatch):

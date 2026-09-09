@@ -19,11 +19,13 @@ from pathlib import Path
 from typing import Any
 
 from dataos.core.io import atomic_write_json
+from dataos.core.study import _slug
 from dataos.agent import report as report_schema
 from dataos.agent.eval_freeze import freeze_eval
 
 from . import budget as _budget
 from . import iterations as _iterations
+from . import preflight_repair as _preflight_repair
 from . import runtime
 from . import runtime_compose
 from . import roles
@@ -459,7 +461,9 @@ def _plan_context(
     }
 
 
-def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) -> list[str]:
+def _validate_plan(
+    plan, tree, cfg: AutoRunConfig, recon: dict | None = None, *, existing_node_id: str | None = None,
+) -> list[str]:
     errors: list[str] = []
     parent = plan.parent_node_id
     if not tree.has_node(parent):
@@ -470,7 +474,9 @@ def _validate_plan(plan, tree, cfg: AutoRunConfig, recon: dict | None = None) ->
     name = (plan.name or "").strip()
     if not name:
         errors.append("name is required")
-    elif name in tree.experiment_names():
+    elif name in tree.experiment_names() and not (
+        existing_node_id and tree.get(existing_node_id).get("experiment_name") == name
+    ):
         errors.append(f"name {name!r} already exists in the tree")
 
     if "model_name_or_path" in (plan.train or {}):
@@ -852,8 +858,15 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                 iteration["target_state"],
             )
 
+        exp_root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments"
+        _preflight_repair.activate_pending(
+            cfg=cfg, node=node, tree=tree,
+            report_path=exp_root / _slug(node["experiment_name"]) / "report.json",
+        )
         spec = _spec_from_node(node, eval_cfg, cfg)
-        if not (study.plan and study.plan.get("experiments")):
+        if not (study.plan and study.plan.get("experiments")) or (
+            (study.plan or {}).get("plan_revision", 0) != node.get("plan_revision", 0)
+        ):
             study.set_plan(
                 {
                     "goal": spec.get("hypothesis") or f"round {round_idx}",
@@ -861,6 +874,7 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
                     "parent_node_id": spec.get("parent_node_id"),
                     "init_model": spec.get("init_model"),
                     "experiments": [spec],
+                    **({"plan_revision": node["plan_revision"]} if "plan_revision" in node else {}),
                 }
             )
             log.info("round %d: wrote plan.json for node %s", round_idx, node_id)
@@ -922,7 +936,32 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
         if iteration_budget and (
             status != "completed" or score is None or not math.isfinite(score)
         ):
-            reason = "execution:invalid_result"
+            repair_policy = task_agent.get("preflight_repair") or {}
+
+            def propose_repair(context):
+                nonlocal session_id
+                _publish_live(
+                    cfg, round_idx=round_idx, phase="planning", started=started, now=_clock(),
+                    node_id=node_id, node_name=node.get("experiment_name"),
+                )
+                plan, session_id = next_plan(
+                    agent=main_agent, context=context, catalog=catalog, session_id=session_id,
+                    catalog_path=str(catalog_path), template=repair_policy["plan_template"],
+                )
+                _save_session(Path(proj.project_dir), session_id=session_id,
+                              phase="preflight_repair", round_idx=round_idx)
+                return plan
+
+            if _preflight_repair.attempt(
+                cfg=cfg, node=node, tree=tree, report_path=Path(report_path), policy=repair_policy,
+                propose=propose_repair,
+                validate=lambda plan: _validate_plan(
+                    plan, tree, cfg, recon, existing_node_id=node_id,
+                ),
+            ):
+                log.info("round %d: accepted DATA revision for %s; reusing target", round_idx, node_id)
+                continue
+            reason = node.get("preflight_repair_stop") or "execution:invalid_result"
             log.error("STOP: %s at node %s; inspect %s before resuming", reason, node_id, report_path)
             atomic_write_json(Path(proj.project_dir) / "execution_blocked.json", {
                 "node_id": node_id, "round": round_idx, "report_path": report_path,

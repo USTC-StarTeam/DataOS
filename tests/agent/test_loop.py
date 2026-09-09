@@ -263,6 +263,68 @@ def test_resume_skips_done_round(tmp_path):
     assert (Path(ws) / "p" / "round-0001" / "review.json").is_file()
 
 
+def test_curation_repairs_data_and_finishes_without_spending_another_target(tmp_path, monkeypatch):
+    from dataos.agent import iterations, planner
+    from dataos.agent.schemas import ExperimentPlan
+
+    cfg = _cfg(str(tmp_path / "ws"))
+    cfg.runtime_config = {"task": "curationbench"}
+    cfg.target_bench = "llava665k_smolvlm_8bench_10k_unlimited"
+    cfg.budget = Budget(max_rounds=2)
+    claims, executions = [], []
+
+    def claim(cfg, node):
+        if not node.get("iteration"):
+            claims.append(node["round"])
+        return {"iteration": node["round"] + 1, "suite_dir": "/suite",
+                "target_key": f"task_iter{node['round'] + 1}", "target_state": "active",
+                "run_dir": "/suite/target", "default_submission_path": "/suite/target/data"}
+
+    monkeypatch.setattr(iterations, "claim", claim)
+    monkeypatch.setattr(iterations, "finalize", lambda cfg: {"status": "suite_completed"})
+    monkeypatch.setattr(iterations, "preflight_check", lambda *args: {"eligible": True})
+
+    def plan(**kwargs):
+        context = kwargs["context"]
+        data = {"quotas": {"rare": 1500}} if "diagnostic" not in context else {
+            "strata_weights": {"rare": 1},
+        }
+        return ExperimentPlan(parent_node_id="n0001", name="candidate", hypothesis="coverage",
+                              data=data), "session"
+
+    monkeypatch.setattr(planner, "next_plan", plan)
+
+    def execute(**kwargs):
+        sid = kwargs["study_id"]
+        executions.append(sid)
+        reports = _fake_fan_out(**kwargs)
+        if sid == "round-0001" and executions.count(sid) == 1:
+            report = next(iter(reports.values()))
+            report.update(status="failed", stages={"data": {
+                "rows": 0, "submission_materialized": False, "official_submit_called": False,
+                "failure_kind": "quota_capacity", "handle_path": "/data_handle.json",
+                "capacity_diagnostic": {"capacities": {"rare": 500}, "shortfalls": {"rare": 1000}},
+            }})
+            path = Path(cfg.workspace) / cfg.project_id / sid / "experiments/candidate/report.json"
+            path.write_text(json.dumps(report))
+        elif sid == "round-0001":
+            assert kwargs["specs"][0]["data"] == {"strata_weights": {"rare": 1}}
+
+    monkeypatch.setattr(roles, "fan_out", execute)
+    result = run_auto(cfg, _clock=lambda: 0.0)
+    assert result["rounds_completed"] == 2 and claims == [0, 1]
+    assert executions == ["round-0000", "round-0001", "round-0001"]
+    root = Path(cfg.workspace) / cfg.project_id
+    tree = json.loads((root / "tree.json").read_text())
+    assert len(tree["nodes"]) == 3
+    assert tree["nodes"][-1]["plan_revision"] == 1
+    assert len(list(root.glob("round-*/review.json"))) == 2
+    study_plan = json.loads((root / "round-0001/plan.json").read_text())
+    assert study_plan["plan_revision"] == 1
+    assert study_plan["experiments"][0]["data"] == {"strata_weights": {"rare": 1}}
+    assert not (root / "round-0002").exists()
+
+
 def test_validate_plan_source_gate():
     """The source gate checks EXISTENCE in recon profiles only (no quality labels)."""
     from dataos.agent.loop import _validate_plan

@@ -1,0 +1,37 @@
+description: >
+  Repair an infeasible DATA plan in the same unsubmitted official target. Uses the normal
+  planner render parameters: context_json, catalog_json, catalog_pointer, catalog_path,
+  validation_errors_json.
+template: |
+  Revise the current ExperimentPlan to fix its DATA quota-capacity failure. This is a bounded
+  pre-training correction inside the SAME official target, not a new experiment or a scored
+  confirmation round. Return one ExperimentPlan JSON only. Keep the exact existing name and
+  parent_node_id, leave train empty, and preserve eval_limit. Never change suite/iteration,
+  target_rows, model, training recipe, evaluator or original data values.
+
+  Read the measured post-filter/post-deduplication/post-image-cap capacities. Do not assume
+  independent source and QA-density marginals can be crossed into feasible joint strata.
+  Empty cells receive no quota, allocations must not exceed capacity, and total rows must equal
+  the official target. Use existing capacity-aware selectors or a fully specified feasible
+  allocation rule. Do not fabricate, split, merge or relabel rows to fill missing cells.
+
+  The old plan's fixed mixture and no-backfill/stop-on-shortfall directives are strategy choices,
+  not benchmark requirements. Explicitly revise them when necessary and explain the change in
+  data or subagent_brief; do not silently backfill while claiming the old mixture was preserved.
+  Make a substantive correction to the selection constraints or allocation, not a rename,
+  seed-only change or merely different prose. Update the hypothesis/expected signal if needed.
+  The revised DATA stage must recheck capacity and perform its bounded sample audit before TRAIN.
+  Reuse valid feature/capacity caches rather than repeating expensive image scans unnecessarily.
+
+  Select from the full frozen pool. Reference rows remain naturally eligible; no implicit
+  retention or exclusion. Do not request a new official iteration to validate an old strategy.
+
+  Repair context (includes previous plan, measured diagnosis and remaining correction budget):
+  {{ context_json }}
+
+  Compatible operator catalog:
+  {{ catalog_json }}
+  {% if validation_errors_json %}
+  Code validation errors:
+  {{ validation_errors_json }}
+  {% endif %}

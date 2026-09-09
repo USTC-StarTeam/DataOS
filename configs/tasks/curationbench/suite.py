@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -121,21 +122,68 @@ def finalize(args) -> dict:
     return result
 
 
+def preflight_check(args) -> dict:
+    """Read-only proof that a failed DATA job has not submitted or started training."""
+    suite_dir = Path(args.project_root) / "suite"
+    state = json.loads((suite_dir / "suite_state.json").read_text())
+    expected = args.expected_iteration
+    target = state["targets"][expected - 1]
+    if (state.get("active_index") != expected - 1 or target.get("state") != "active"
+            or target.get("task_id") != args.task or target.get("iteration") != expected):
+        return {"eligible": False, "reason": "target_not_active"}
+    run_dir = Path(target["run_dir"])
+    session = json.loads((run_dir / "session_state.json").read_text())
+    for key in ("last_submission_path", "finetune_model_path", "_finetune_result",
+                "_finetune_submission_path"):
+        if key not in session or session[key] is not None:
+            return {"eligible": False, "reason": "submission_or_training_present"}
+    if any((run_dir / "finetune").glob("ft-*")):
+        return {"eligible": False, "reason": "training_attempt_present"}
+    handle = json.loads(Path(args.data_handle).read_text())
+    handle = handle.get("launch", handle)
+    data_root = Path(handle["run_dir"]).resolve()
+    project = Path(args.project_root).resolve().parent
+    if (not data_root.is_relative_to(project) or data_root.parent.name != f"round-{expected - 1:04d}"
+            or Path(args.data_handle).resolve().parent != data_root):
+        return {"eligible": False, "reason": "data_handle_outside_target"}
+    if handle.get("launcher") != "slurm":
+        return {"eligible": False, "reason": "unsupported_data_launcher"}
+    job_id = str(handle["job_id"])
+    if not job_id.isdigit():
+        raise ValueError("invalid DATA job id")
+    output = subprocess.check_output(
+        ["sacct", "-j", job_id, "--noheader", "--parsable2", "--format=JobIDRaw,State"],
+        text=True,
+    )
+    states = [line.split("|")[1] for line in output.splitlines()
+              if line.split("|")[0] == job_id]
+    if len(states) != 1 or states[0] not in {"FAILED", "COMPLETED"}:
+        return {"eligible": False, "reason": "data_job_not_finished", "states": states}
+    return {"eligible": True, "target_key": target["key"], "iteration": expected,
+            "data_job_id": job_id, "data_job_state": states[0]}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("claim", "finalize"))
+    parser.add_argument("action", choices=("claim", "finalize", "preflight-check"))
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--profile", required=True)
     parser.add_argument("--task", required=True)
     parser.add_argument("--iterations", required=True, type=int)
     parser.add_argument("--expected-iteration", type=int)
+    parser.add_argument("--data-handle")
     args = parser.parse_args()
     if args.iterations < 1:
         parser.error("--iterations must be positive")
-    if args.action == "claim":
+    if args.action in {"claim", "preflight-check"}:
         if args.expected_iteration is None or not 1 <= args.expected_iteration <= args.iterations:
             parser.error("claim requires --expected-iteration within the suite")
-        result = claim(args)
+        if args.action == "preflight-check":
+            if not args.data_handle:
+                parser.error("preflight-check requires --data-handle")
+            result = preflight_check(args)
+        else:
+            result = claim(args)
     else:
         result = finalize(args)
     print(json.dumps(result, indent=2))

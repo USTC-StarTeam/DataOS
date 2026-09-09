@@ -14,6 +14,9 @@ name: curationbench
 # strategy: Curation-Bench has no PTB source profiler, its first scored run is an official random
 # curation baseline, and every iteration resets to the task's frozen root model.
 agent:
+  preflight_repair:
+    max_revisions: 2
+    plan_template: curationbench/leader/turn/repair
   budget:
     unit: iterations
     coordinator: suite.py
