@@ -34,11 +34,18 @@ template: |
   In `data` or the subagent brief, state the primary intervention, the evidence supporting it,
   what should remain controlled, and the expected data change relative to the chosen reference.
   Distinguish observed errors from untested causal hypotheses. A benchmark name or an aggregate
-  score change alone does not establish which training examples are useful. Require bounded
-  sample checks of the proposed feature/ranking and a pre-training comparison of exact row
+  score change alone does not establish which training examples are useful. Require a
+  pre-training comparison of exact row
   overlap, source counts, QA-pair/turn counts and answer-length distribution. Choose the actual
   algorithm and intervention size yourself; do not call a change local without checking its
   realized size. A new name or reordered copies of an old subset are not a new intervention.
+
+  Do not add a separate sample-quality acceptance stage before training. Human/agent spot-check
+  preferences, defect-confirmation rates or subjective quality thresholds must not gate TRAIN.
+  Quality scoring/filtering may be the selection algorithm itself, but once a compliant subset
+  is selected, proceed through the official audit/submit/train/eval workflow. Retain objective
+  checks for exact row count, schema, original-row identity and feasible allocation. Do not
+  reintroduce a mandatory ranking comparison or image-answer spot-check pass rate.
 
   Context bundle:
   {{ context_json }}

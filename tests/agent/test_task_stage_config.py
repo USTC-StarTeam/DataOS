@@ -168,7 +168,10 @@ def test_curation_experiment_prompt_receives_the_claimed_official_target(tmp_pat
     assert "weighted_reservoir_selector" in text
     assert "length_filter" not in text
     assert "convert to Alpaca" in text
-    assert "perform a bounded pre-training check within this same target" in text
+    assert "check objective data feasibility and integrity" in text
+    assert "There is no separate sample-quality admission gate" in text
+    assert "supersedes sample-quality audit gates in older plans" in text
+    assert "official contamination audit remain" in text
     assert "stable pool row indices or full-row hashes" in text
     assert "later confirmation-only plans are forbidden" in text
     assert "must reuse durable handles/results" in text
@@ -220,6 +223,8 @@ def test_curation_leader_receives_the_operator_catalog():
     assert "do not force zero overlap" in text
     assert "Measure natural overlap after selection" in text
     assert "Anchor refresh remains available when evidence warrants" in text
+    assert "Do not add a separate sample-quality acceptance stage" in text
+    assert "Require bounded\n  sample checks" not in text
 
 
 def test_curation_review_requires_item_evidence_without_confirmation_rounds():
@@ -237,3 +242,14 @@ def test_curation_review_requires_item_evidence_without_confirmation_rounds():
     assert "Evaluate the selection criterion" in text
     assert "not evidence that its individual rows should be retained" in text
     assert "arbitrary row-identity preservation" in text
+    assert "not a pre-training sample-quality gate" in text
+
+
+def test_capacity_repair_does_not_reintroduce_sample_quality_gates():
+    from dataos import prompt
+
+    text = prompt.render("curationbench/leader/turn/repair", context_json="{}", catalog_json="[]",
+                         validation_errors_json=None)
+    assert "objective capacity, exact row count and schema" in text
+    assert "Do not introduce or preserve a separate sample-quality admission gate" in text
+    assert "perform its bounded sample audit" not in text

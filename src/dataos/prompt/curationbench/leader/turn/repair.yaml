@@ -20,7 +20,9 @@ template: |
   data or subagent_brief; do not silently backfill while claiming the old mixture was preserved.
   Make a substantive correction to the selection constraints or allocation, not a rename,
   seed-only change or merely different prose. Update the hypothesis/expected signal if needed.
-  The revised DATA stage must recheck capacity and perform its bounded sample audit before TRAIN.
+  The revised DATA stage must recheck objective capacity, exact row count and schema before TRAIN.
+  Do not introduce or preserve a separate sample-quality admission gate. Ranking-preference,
+  defect-confirmation or manual image-answer pass rates are not conditions for starting training.
   Reuse valid feature/capacity caches rather than repeating expensive image scans unnecessarily.
 
   Select from the full frozen pool. Reference rows remain naturally eligible; no implicit

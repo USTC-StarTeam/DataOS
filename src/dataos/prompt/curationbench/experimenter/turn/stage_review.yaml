@@ -11,7 +11,7 @@ template: |
   judge scores. Summaries alone do not justify a claim of a sampled error analysis.
 
   In `stages.review`, separate observations, causal hypotheses and unresolved uncertainty. Relate
-  the observations to the realized DATA controls and sample checks, not just the proposed recipe.
+  the observations to the realized DATA controls, not just the proposed recipe.
   A lower score does not prove missing training formats, and a keyword/source/length score does
   not prove training value. Do not claim significance from an unreplicated small score difference.
   Keep raw evaluation questions, answers, images and item identities out of curation code and
@@ -23,6 +23,9 @@ template: |
   examples; recommend retaining specific rows/groups only with corresponding evidence. Separate
   necessary distribution controls from arbitrary row-identity preservation. Do not default to an
   anchored partial refresh solely because a previous aggregate score was higher.
+
+  These post-evaluation observations are explanatory, not a pre-training sample-quality gate.
+  Do not recommend withholding the next training run until a subjective spot-check threshold passes.
 
   Explain crashes and invalid/missing results as execution failures, not negative strategy
   evidence. Do not rescore, retrain, or edit the frozen evaluator. Do not recommend a new official

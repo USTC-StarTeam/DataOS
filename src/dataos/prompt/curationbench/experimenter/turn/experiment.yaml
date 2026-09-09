@@ -45,19 +45,25 @@ template: |
   train/eval work. Do not rebuild data or repeat training just to retrofit new planning rules;
   those rules govern the next newly planned selection.
 
-  For every post-baseline selector, perform a bounded pre-training check within this same target:
-  - Inspect a small deterministic sample of highly ranked/selected candidates and same-source
-    random controls. Check whether they actually exhibit the claimed capability or quality.
-    Inspect images when making visual-grounding claims; if unavailable, record that limitation.
-    Keywords, length, format validity and source labels are proxies, not verified usefulness.
+  Before training, check objective data feasibility and integrity within this same target:
   - Check feature prevalence, empty groups and quota capacity before committing to the selection.
     Compare realized exact-row overlap/replacement, source counts, QA-pair/turn counts and
     answer-length distribution with the intended reference and the leader's stated controls.
     Use stable pool row indices or full-row hashes, not unverified `(subset,id)` uniqueness.
     Record the actual effect of deduplication and image-group caps rather than just their names.
-  - Write sample counts, reference paths, observations, unresolved assumptions and selection
+  - Write reference paths, unresolved assumptions and selection
     statistics into the existing `stages.data` report. Correct unintended deviations during DATA
     before submitting frozen TRAIN; do not consume another target to fix a preflight issue.
+
+  There is no separate sample-quality admission gate before TRAIN. Do not require manual/agent
+  spot-checks, ranking-preference counts, defect-confirmation rates or image-answer quality
+  pass thresholds. Such diagnostics cannot reject the submission or mark the experiment failed.
+  This instruction supersedes sample-quality audit gates in older plans and recovery history.
+  Preserve the selected rows and cached scores, remove only the obsolete admission checks, and
+  continue through the official audit/submit/train/eval workflow once objective checks pass.
+  Do not falsify old audit observations or mark a failed quality check as passed. Keep those
+  records as historical diagnostics. The selection algorithm's own quality scoring/filtering,
+  exact row count, schema, original-data preservation and official contamination audit remain.
 
   Do not use an official iteration to confirm an earlier strategy, replicate the random baseline,
   estimate noise, or rerun the same selected rows under a different name/order/seed. Compare

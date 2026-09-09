@@ -14,6 +14,13 @@ provider. The three task contracts are the only driver selection points:
 PostTrainBench has its own three explicit contracts, so adding this task does not change its
 Operator/dataos-train/lm-eval path. Directory existence has no runtime meaning.
 
+There is no DataOS sample-quality admission stage before training. Objective row-count, schema,
+original-row identity and allocation checks remain, as does the official contamination audit.
+Quality scoring/filtering may be part of curation, but subjective spot-check pass rates or
+selected-versus-rejected preference rates must not block training. Existing spot-check records
+remain historical diagnostics; they are not rewritten as passed. Post-evaluation error analysis
+is separate and remains available.
+
 ## Deployment requirements
 
 Add one `tools` provider to the selected environment with `root`, `path`, `profile`, `provides`,
