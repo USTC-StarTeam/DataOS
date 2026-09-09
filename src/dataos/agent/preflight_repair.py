@@ -39,23 +39,26 @@ def diagnosis(report: dict) -> dict | None:
         return None
     stages = report.get("stages") or {}
     data = stages.get("data") or {}
-    if data.get("submission_materialized") is not False or data.get("rows") != 0:
+    materialized = data.get("submission_materialized", data.get("official_submission_created"))
+    if materialized is not False or data.get("rows") != 0:
         return None
     if data.get("official_submit_called") is True:
         return None
     for name in ("train", "eval"):
         stage = stages.get(name) or {}
-        if stage.get("status", stage.get("state")) not in (None, "not_started", "skipped"):
+        if stage.get("status", stage.get("state")) not in (None, "not_started", "not_run", "skipped"):
             return None
         if any(value for key, value in stage.items() if key not in {"status", "state", "reason"}):
             return None
     evidence = data.get("capacity_diagnostic")
     if not (data.get("failure_kind") == "quota_capacity" and isinstance(evidence, dict)
             and evidence.get("capacities") and evidence.get("shortfalls")):
-        # Historical reports contain these same structured measurements under the two
+        # Historical reports contain these same structured measurements under the
         # preflight layouts already emitted by the deployed selectors. Never match error text.
         stats = data.get("selection_statistics") or {}
         preflight = data.get("preflight") or {}
+        failure = data.get("failure_evidence") or {}
+        cell = failure.get("exhausted_cell") or {}
         if stats.get("quota_shortfalls") and stats.get("post_deduplication_post_image_cap_capacities"):
             evidence = {
                 "capacities": stats["post_deduplication_post_image_cap_capacities"],
@@ -66,6 +69,16 @@ def diagnosis(report: dict) -> dict | None:
             evidence = {
                 "capacities": preflight.get("final_eligible_source_by_qa_bin"),
                 "shortfalls": preflight["infeasible_required_cells_at_raw_pool_level"],
+            }
+        elif (cell.get("key") and isinstance(cell.get("deficit"), int) and cell["deficit"] > 0
+              and isinstance(cell.get("qualified_after_fixed_rules"), int)
+              and isinstance(cell.get("n0004_final_quota"), int)):
+            evidence = {
+                "capacities": {cell["key"]: cell["qualified_after_fixed_rules"]},
+                "requested_quotas": {cell["key"]: cell["n0004_final_quota"]},
+                "shortfalls": {cell["key"]: cell["deficit"]},
+                "source_qualified": failure.get("source_qualified"),
+                "qualified_rows": failure.get("qualified_rows"),
             }
         else:
             return None

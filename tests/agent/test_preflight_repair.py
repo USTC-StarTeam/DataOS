@@ -89,6 +89,15 @@ def test_legacy_capacity_layouts_are_recognized_without_error_string_matching():
         "final_eligible_source_by_qa_bin": {"source|many": 10000},
     }
     assert repair.diagnosis(report) is not None
+    data.pop("preflight")
+    data.pop("submission_materialized")
+    data["official_submission_created"] = False
+    report["stages"]["train"]["status"] = "not_run"
+    data["failure_evidence"] = {"exhausted_cell": {
+        "key": "ocr|short", "deficit": 14, "qualified_after_fixed_rules": 2,
+        "n0004_final_quota": 16,
+    }}
+    assert repair.diagnosis(report)["evidence"]["capacities"] == {"ocr|short": 2}
 
 
 def test_revision_is_archived_and_activated_on_the_same_node(tmp_path, monkeypatch):
