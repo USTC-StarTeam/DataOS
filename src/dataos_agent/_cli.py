@@ -6,8 +6,10 @@ finalise status from the exit code. No provider-specific logic lives here."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import shutil
+import tempfile
 from typing import AsyncIterator, Callable, Iterable
 
 from ._retry import is_recoverable_text
@@ -27,22 +29,30 @@ async def run_cli(
     parse_line: ParseLine,
     finalize: Callable[[Result, str], None] | None = None,
     idle_timeout: float | None = None,
+    stdin_text: str | None = None,
 ) -> AsyncIterator[Event]:
     exe = shutil.which(bin) or (bin if bin.startswith("/") else None)
     if exe is None:
         raise CLINotFound(f"CLI not found on PATH: {bin!r}")
 
-    proc = await asyncio.create_subprocess_exec(
-        exe, *argv,
-        stdin=asyncio.subprocess.DEVNULL,   # headless: never block waiting on stdin
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=cwd,
-        env=env,
-        # codex emits huge single-line JSON events (aggregated command output);
-        # the default 64KiB stream limit kills the read with LimitOverrunError
-        limit=16 * 1024 * 1024,
-    )
+    # A seekable private temporary file avoids both ARG_MAX and pipe-write deadlocks when
+    # the child emits output before reading its prompt. The child inherits its own fd.
+    with (tempfile.TemporaryFile() if stdin_text is not None
+          else contextlib.nullcontext(None)) as prompt_file:
+        if prompt_file is not None:
+            prompt_file.write(stdin_text.encode("utf-8"))
+            prompt_file.seek(0)
+        proc = await asyncio.create_subprocess_exec(
+            exe, *argv,
+            stdin=prompt_file if prompt_file is not None else asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            env=env,
+            # codex emits huge single-line JSON events (aggregated command output);
+            # the default 64KiB stream limit kills the read with LimitOverrunError
+            limit=16 * 1024 * 1024,
+        )
     acc = Result()
 
     # stderr is drained CONCURRENTLY into a bounded tail buffer: a PIPE that is only read
@@ -112,7 +122,7 @@ async def run_cli(
         if acc.status == "done" and rc not in (0, None):
             # non-zero exit that the stream didn't already explain
             acc.status = "error"
-            acc.error = (stderr_text.strip() or f"exit code {rc}")[:2000]
+            acc.error = f"exit code {rc}: {stderr_text.strip()[-2000:]}"
         if acc.status == "error" and acc.error and is_recoverable_text(acc.error):
             # recognised transient transport fault — the healing wrapper reconnects+resumes
             acc.status = "disconnected"

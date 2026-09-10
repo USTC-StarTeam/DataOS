@@ -83,6 +83,8 @@ def diagnosis(report: dict) -> dict | None:
         else:
             return None
     handle = data.get("handle_path") or data.get("handle") or data.get("data_handle")
+    if not handle and isinstance(data.get("job"), dict):
+        handle = data["job"].get("handle")
     if not isinstance(handle, str) or not handle:
         return None
     return {"error": data.get("error"), "evidence": evidence, "data_handle": handle}

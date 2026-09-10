@@ -172,6 +172,14 @@ def test_prose_or_seed_only_revision_is_rejected(tmp_path, monkeypatch):
     assert "did not change DATA" in node["preflight_repairs"][0]["error"]
 
 
+def test_nested_job_handle_is_recognized():
+    report = _report()
+    data = report["stages"]["data"]
+    handle = data.pop("handle_path")
+    data["job"] = {"handle": handle, "job_id": "123", "status": "failed"}
+    assert repair.diagnosis(report)["data_handle"] == handle
+
+
 def test_remote_proof_blocks_repair_and_is_rechecked_before_activation(tmp_path, monkeypatch):
     tree, node, path = _setup(tmp_path, monkeypatch)
     monkeypatch.setattr(repair.iterations, "preflight_check", lambda *args: {"eligible": False})

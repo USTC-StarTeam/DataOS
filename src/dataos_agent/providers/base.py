@@ -29,6 +29,7 @@ class CliSpec(ProviderSpec):
     """A code-agent CLI backend. Subclasses set ``bin`` and implement the two hooks."""
 
     bin: str = ""
+    prompt_via_stdin: bool = False
 
     # The egress this CLI's endpoint is reachable through. Declared PER PROVIDER —
     # claude and codex talk to different vendors and need not share an egress.
@@ -61,14 +62,20 @@ class CliSpec(ProviderSpec):
         return {**os.environ, **overrides} if overrides else None
 
     async def stream(self, config: AgentConfig, prompt: str) -> AsyncIterator[Event]:
+        argv = self.build_argv(config, prompt)
+        stdin_text = None
+        if self.prompt_via_stdin:
+            stdin_text = argv[-1]
+            argv[-1] = "-"
         async for ev in run_cli(
             self.bin,
-            self.build_argv(config, prompt),
+            argv,
             cwd=config.workspace,
             env=self.env(config),
             parse_line=self.parse_line,
             finalize=self.finalize,
             idle_timeout=config.idle_timeout,  # stall watchdog (not the wall clock)
+            stdin_text=stdin_text,
         ):
             yield ev
 

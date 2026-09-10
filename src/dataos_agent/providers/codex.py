@@ -23,6 +23,7 @@ _PROJECT_DOC_MAX_BYTES = 262144
 class CodexSpec(CliSpec):
     name = "codex"
     bin = "codex"
+    prompt_via_stdin = True
     proxy = "http://192.168.1.99:8401"                # the OpenAI-reachable egress
 
     def build_argv(self, config: AgentConfig, prompt: str) -> list[str]:
