@@ -384,6 +384,9 @@ def start_vllm_server(
     if startup_timeout <= 0:
         raise ValueError("startup_timeout_s must be positive")
     server_env = os.environ.copy()
+    # Absolute Python/CLI paths do not activate a venv. JIT helpers (notably ninja) must
+    # resolve from the same environment even when the caller did not source activate.
+    server_env["PATH"] = f"{Path(sys.executable).parent}:{os.environ.get('PATH', os.defpath)}"
     server_env.update({
         key: str(value).format(output_dir=str(output_dir))
         for key, value in family.get("server_env", {}).items()

@@ -162,6 +162,7 @@ def test_qwen38_retry_cleans_workers_and_uses_declared_startup_settings(
     def popen(command, **kwargs):
         events.append("start")
         assert kwargs["start_new_session"] is True
+        assert kwargs["env"]["PATH"].startswith(f"{Path(evaluator.sys.executable).parent}:")
         assert kwargs["env"]["VLLM_CACHE_ROOT"] == f"{tmp_path}/cache/vllm"
         assert "--enforce-eager" in command
         assert command[command.index("--gdn-prefill-backend") + 1] == "triton"
