@@ -3,6 +3,8 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from dataos.agent import runtime
 from dataos.agent import roles as role_runner
 from dataos.agent import report as report_schema
@@ -283,6 +285,29 @@ def test_formal_experiment_uses_configured_24h_budget(tmp_path, monkeypatch):
     monkeypatch.setattr("dataos.agent.roles.time.monotonic", lambda: 100.0)
     assert _exp_timeout(cfg, deadline=None) == 24 * 3600
     assert _exp_timeout(cfg, deadline=100 + 12 * 3600) == 12 * 3600
+
+
+def test_investigator_uses_configured_baseline_root(tmp_path, monkeypatch):
+    from dataos.agent import roles
+
+    cfg = _cfg(tmp_path / "ws")
+    cfg.runtime_config = {"paths": {"runs_base": "/configured/runs"}}
+    facts = {}
+    monkeypatch.setattr(
+        "dataos.agent.runtime_compose.render_sections", lambda *a, **k: ("", "", ""),
+    )
+    monkeypatch.setattr(roles._prompt, "render", lambda name, **kw: facts.update(kw) or "recon")
+    monkeypatch.setattr(roles, "system_prompt", lambda *a: "")
+
+    def ready(*args, **kwargs):
+        raise RuntimeError("agent construction reached")
+
+    monkeypatch.setattr(roles, "build_agent", ready)
+    with pytest.raises(RuntimeError, match="agent construction reached"):
+        roles.run_investigator(cfg=cfg, proj=SimpleNamespace(project_dir=tmp_path))
+    assert facts["baseline_run_root"] == (
+        f"/configured/runs/{cfg.project_id}/round-0000/baseline"
+    )
 
 
 def test_queue_credit_overlap_math():
