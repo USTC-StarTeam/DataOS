@@ -45,7 +45,6 @@ log = logging.getLogger(__name__)
 # experiment into artificial 150-turn pieces (which only added latency + a failure surface).
 ROLE_MAX_STEPS = 100_000
 _EXP_TIMEOUT_SMOKE_S = 2 * 3600.0  # hard per-experiment timeout: 2 h (smoke)
-_EXP_TIMEOUT_FORMAL_S = 10 * 3600.0  # PTB hard cap: 10 h / 1 H100
 _STATE_FILE = "subagent_state.json"  # on-disk name kept: the resume path reads it in every
 # archived run dir, so renaming it would strand old runs. The MODULE no longer claims a hierarchy.
 
@@ -65,7 +64,9 @@ def _exp_timeout(cfg, deadline: float | None) -> float | None:
     """Wall-clock tasks have a hard cap; iteration-budget tasks run to a terminal result."""
     if cfg.budget.max_wall_clock_s is None:
         return None
-    cap = _EXP_TIMEOUT_SMOKE_S if cfg.ptb_profile == "smoke" else _EXP_TIMEOUT_FORMAL_S
+    cap = cfg.budget.max_wall_clock_s
+    if cfg.ptb_profile == "smoke":
+        cap = min(cap, _EXP_TIMEOUT_SMOKE_S)
     if deadline is not None:
         return max(60.0, min(cap, deadline - time.monotonic()))
     return cap

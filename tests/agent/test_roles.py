@@ -273,6 +273,18 @@ def test_iteration_budget_has_no_per_experiment_clock(tmp_path):
     assert _exp_timeout(cfg, deadline=None) is None
 
 
+def test_formal_experiment_uses_configured_24h_budget(tmp_path, monkeypatch):
+    from dataos.agent.config import Budget
+    from dataos.agent.roles import _exp_timeout
+
+    cfg = _cfg(tmp_path / "ws")
+    cfg.ptb_profile = "formal"
+    cfg.budget = Budget(max_wall_clock_s=24 * 3600)
+    monkeypatch.setattr("dataos.agent.roles.time.monotonic", lambda: 100.0)
+    assert _exp_timeout(cfg, deadline=None) == 24 * 3600
+    assert _exp_timeout(cfg, deadline=100 + 12 * 3600) == 12 * 3600
+
+
 def test_queue_credit_overlap_math():
     """Queue credit = the [submit, wait_end] overlap with THIS invocation. Rows arrive as
     (submit, wait_end) epochs resolved cluster-side: a cancelled-pending job is capped at
