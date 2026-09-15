@@ -84,6 +84,24 @@ async def test_raised_transport_fault_reconnects():
     assert len(spec.calls) == 2
 
 
+async def test_claude_generic_server_error_resumes_same_session():
+    spec = make_spec("claude_server", [
+        ("result", "error", "API Error: Server error。 请求 ID：example"),
+        ("ok", "recovered"),
+    ])
+    result = await aquery("continue", provider=spec.name)
+    assert result.text == "recovered"
+    assert spec.calls[1].extra["resume"] == "claude_server-session"
+
+
+@pytest.mark.parametrize("reason", [
+    "authentication failed", "invalid api key", "insufficient_quota",
+    "credit balance too low", "invalid_request_error", "HTTP 401", "HTTP 403",
+])
+def test_fatal_errors_are_not_hidden_by_server_error_text(reason):
+    assert not is_recoverable_text(f"API Error: Server error: {reason}")
+
+
 async def test_disconnected_result_reconnects():
     spec = make_spec("s3", [("result", "disconnected", "eof occurred"), ("ok", "back")])
     r = await aquery("hi", provider="s3")

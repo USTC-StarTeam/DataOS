@@ -1,0 +1,10 @@
+description: Resume incomplete reconnaissance without discarding work or reconstructing routing facts.
+template: |
+  The reconnaissance at {{ recon_path }} or baseline report at {{ baseline_report_path }}
+  is not complete. Finish BOTH deliverables using the existing work and native results.
+  {% if runtime_config_path %}
+  First reload the authoritative run snapshot at {{ runtime_config_path }}. Its connection
+  details and absolute paths override any remembered host, port, job ID or workspace.
+  {% endif %}
+  Reread current handle files. Adopt active jobs and reuse completed baseline results;
+  do not submit another baseline or redo a completed profiling pass.

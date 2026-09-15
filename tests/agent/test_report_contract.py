@@ -39,6 +39,9 @@ def _render(producer: str) -> str:
         lm_bridge="/b", recon_path="/r.json", baseline_run_root="/rr",
         baseline_eval_dir="/rr/eval/x", baseline_report_path="/br.json", eval_limit=-1,
         env_ops="", task_def="",
+        eval_cli="/e/bin/dataos-eval", environment="example-slurm", task_config="posttrainbench",
+        gpus=1, baseline_completed=False,
+        recon_draft_path="/draft.json",
     )
 
 

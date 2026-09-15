@@ -680,9 +680,10 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             recon = roles.run_investigator(
                 cfg=cfg, proj=proj, catalog=catalog, deadline=recon_deadline
             )
-        except Exception as e:  # noqa: BLE001 — recon failure must not brick the run
-            log.error("RECON failed (%s); proceeding without source gating", e)
-            recon = None
+        except Exception:
+            log.exception("RECON failed; preserving this run for recovery before planning")
+            _publish_live(cfg, round_idx=-1, phase="blocked", started=started, now=_clock())
+            raise
 
     while True:
         now = _clock()
@@ -913,6 +914,8 @@ def run_auto(cfg: AutoRunConfig, *, _clock=time.monotonic) -> dict[str, Any]:
             exp_root,
             spec["name"],
         )
+        if status == "completed" and mpath is None and not (node.get("plan") or {}).get("train"):
+            mpath = node.get("init_model_path")  # an evaluated baseline is a valid checkpoint
         tree.attach_report(
             node_id,
             report_path=report_path,

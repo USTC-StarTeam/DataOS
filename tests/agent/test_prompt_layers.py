@@ -49,6 +49,15 @@ def test_no_block_is_shared_between_roles(role):
         assert block.startswith(f"{role}/context/"), f"{role} pulls {block} from another role"
 
 
+@pytest.mark.parametrize("role", _ROLES)
+def test_authoritative_run_snapshot_survives_in_role_context(role):
+    from dataos.agent.backend import system_prompt
+
+    cfg = AutoRunConfig(project_id="t", workspace="/tmp/x", target_bench="healthbench")
+    cfg.runtime_config_path = "/tmp/x/t/resolved_config.json"
+    assert cfg.runtime_config_path in system_prompt(role, cfg)
+
+
 def test_turn_templates_are_not_part_of_the_context_file():
     for role, blocks in _BLOCKS.items():
         assert not any("/turn/" in b for b in blocks), f"{role} composes a turn template"

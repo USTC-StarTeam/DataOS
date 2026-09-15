@@ -146,6 +146,22 @@ def test_collect_fails_clean_without_score(tmp_path, capsys):
     assert rc == 1
 
 
+def test_collect_does_not_duplicate_an_inflight_judge(tmp_path, capsys):
+    import fcntl
+
+    output = tmp_path / "eval"
+    output.mkdir()
+    handle = tmp_path / "eval_handle.json"
+    handle.write_text(json.dumps({
+        "job_id": "1", "task": "healthbench", "output_dir": str(output), "needs_judge": True,
+    }))
+    with (output / ".judge.lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        rc = _run_cli(["collect", "--repo", str(REPO), str(handle)])
+    assert rc == 2
+    assert json.loads(capsys.readouterr().out)["state"] == "JUDGING"
+
+
 def _argv(d: dict) -> list[str]:
     argv = []
     for k, v in d.items():

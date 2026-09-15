@@ -30,6 +30,10 @@ class AgentError(RuntimeError):
     exhausted, etc.). Never a transient transport fault — those are retried inside
     dataos_agent before a result ever reaches here."""
 
+    def __init__(self, message: str, *, session_id: str | None = None):
+        super().__init__(message)
+        self.session_id = session_id
+
 
 class CliAgent:
     """The runtime's ``.run(task, *, output=...)`` agent contract, backed by a
@@ -103,7 +107,8 @@ class CliAgent:
         # genuinely fail when they run out of turns without a complete answer.
         if result.status != "done" and not (result.status == "max_steps" and output is None):
             raise AgentError(
-                f"cli_agent error ({result.status}): {result.error or text[:200]}"
+                f"cli_agent error ({result.status}): {result.error or text[:200]}",
+                session_id=result.session_id,
             )
 
         if output is not None:

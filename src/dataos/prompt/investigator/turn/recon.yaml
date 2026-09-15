@@ -2,10 +2,18 @@ description: >
   Investigator task message — one-shot intel gathering + the round-0 baseline eval.
   Render params: target_bench, base_model, fixed_pool, deploy_root, eval_env_python,
   cluster_json, profile_script, lm_bridge, recon_path, baseline_run_root, baseline_eval_dir,
-  baseline_report_path, eval_limit, env_ops, task_def.
+  baseline_report_path, eval_limit, env_ops, task_def, eval_cli, environment, task_config,
+  gpus, baseline_completed, recon_draft_path.
 template: |
   Gather ground-truth intel and write ONE file — the recon report — to:
     {{ recon_path }}   (a LOCAL path on THIS host; write it with your shell)
+
+  If {{ recon_draft_path }} exists, recover the prior source profiles and notes from it.
+  It is a DRAFT, not an authority for routing or results: verify its benchmark/judge facts
+  against this run's configuration, replace stale baseline claims with the completed report,
+  and never use hostnames or job IDs from the draft. Preserve measured pool statistics.
+  Do not repeat a completed whole-pool profiling pass; inspect bounded sections of its saved
+  output rather than dumping the whole JSON or transcript into context again.
 
   TARGET benchmark: {{ target_bench }}
   Base model on H100: {{ base_model }}
@@ -19,7 +27,8 @@ template: |
   -o IdentitiesOnly=yes <user>@<host> '…'`). Login-node discipline is in your system prompt —
   read only the specific files/paths named here. ALL your jobs are single-node — the profiler
   is light CPU work (run it inline on the login node or as a single-node job), and the
-  baseline eval takes ONE GPU on ONE node. Never request multi-node (NumNodes>1) jobs.
+  baseline eval uses {{ gpus }} GPU(s) on ONE node as declared by the run.
+  Never request multi-node (NumNodes>1) jobs.
 
   BASELINE EVAL (you also own round 0 — running it yourself is what makes your
   baseline_diagnosis first-hand evidence instead of a guess):
@@ -29,14 +38,22 @@ template: |
 
   PIPELINE — overlap, don't serialize:
     1. gather the eval contract (part 1 below — you need it to run the eval correctly);
+  {% if baseline_completed %}
+    2. The baseline report above is already completed and scored. REUSE it and its native
+       evaluation artifacts. Do NOT submit another baseline, rerun inference or rejudge it.
+       Finish the reconnaissance and diagnosis against that existing result.
+  {% else %}
     2. SUBMIT the baseline eval with the exact scoring command from the TASK section at the
        bottom (a dataos-eval submit — the CLI owns ALL scheduling; fill model_path =
        {{ base_model }}, eval_dir = the one above, run_root = the one above, limit =
-       {{ eval_limit }}). NEVER hand-write sbatch for it, NEVER shard eval across nodes;
+       {{ eval_limit }}). First check existing handles: adopt an active evaluation rather than
+       submitting it again. NEVER hand-write sbatch for it, NEVER shard eval across nodes;
+  {% endif %}
     3. WHILE it runs, do parts 3-4 (pool profiles + notes + shortlist) — the eval takes
        tens of minutes, the profiler takes minutes, so there is plenty of time; poll
-       `dataos-eval status --repo {{ deploy_root }} <handle>` between steps;
-    4. when it goes terminal: `dataos-eval collect --repo {{ deploy_root }} <handle>` (it
+       `{{ eval_cli }} status <handle>` ON THE LOGIN NODE between steps. The handle is an
+       absolute JSON file path, not a guessed job label; status takes no --repo flag;
+    4. when it goes terminal: `{{ eval_cli }} collect --repo {{ deploy_root }} --environment {{ environment }} --task-config {{ task_config }} <handle>` (it
        prints the score — for judge benches it also runs the login-node judge step itself),
        read a handful of raw predictions from the eval dir and
        write report.json to the local path above:

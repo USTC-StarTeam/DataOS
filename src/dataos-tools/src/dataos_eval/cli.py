@@ -115,9 +115,22 @@ def cmd_cancel(args) -> int:
 
 
 def cmd_collect(args) -> int:
+    import fcntl
+
     stage = _stage(args)
     record = json.loads(Path(args.handle).read_text())
     summary_path = Path(record["output_dir"]) / "summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    with (summary_path.parent / ".judge.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(json.dumps({"state": "JUDGING", "handle": args.handle}))
+            return 2
+        return _collect_locked(stage, record, summary_path, lock.fileno())
+
+
+def _collect_locked(stage, record: dict, summary_path: Path, lock_fd: int) -> int:
     summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
 
     if record.get("needs_judge") and summary.get("score") is None:
@@ -125,7 +138,10 @@ def cmd_collect(args) -> int:
             cmd = stage.judge_command(record, summary_path)
         else:
             cmd = stage.judge_command(record["task"], record["output_dir"], summary_path)
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
+        r = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, check=False,
+            pass_fds=(lock_fd,),  # retain ownership if the calling agent disconnects
+        )
         if isinstance(stage, ExternalEvalStage):
             output_dir = Path(record["output_dir"])
             output_dir.mkdir(parents=True, exist_ok=True)

@@ -719,6 +719,7 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
     baseline_report = (
         Path(proj.project_dir) / "round-0000" / "experiments" / "baseline" / "report.json"
     )
+    saved_baseline = report_schema.read(_read_json(baseline_report) or {})
     from . import runtime_compose
 
     env_ops, task_def, _ = runtime_compose.render_sections(
@@ -731,12 +732,20 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
         fixed_pool=paths.get("fixed_pool", ""),
         deploy_root=deploy_root,
         eval_env_python=f"{eval_env}/bin/python" if eval_env else "python",
+        eval_cli=f"{paths.get('train_env', '')}/bin/dataos-eval",
+        environment=runtime_config.get("environment", "example-slurm"),
+        task_config=runtime_config.get("task", "posttrainbench"),
+        gpus=str(cluster.get("gres", "gpu:1")).rsplit(":", 1)[-1],
+        baseline_completed=(
+            saved_baseline.status == "completed" and saved_baseline.score is not None
+        ),
         cluster_json=json.dumps(
             {k: cluster.get(k) for k in ("host", "user", "port", "key")}, ensure_ascii=False
         ),
         profile_script=f"{deploy_root}/resources/recon/{runtime_config.get('task', 'posttrainbench')}/profile_source.py",
         lm_bridge=f"{task_dir}/eval",
         recon_path=str(recon_path),
+        recon_draft_path=str(recon_path.with_name("recon_draft.json")),
         baseline_run_root=baseline_run_root,
         baseline_eval_dir=f"{baseline_run_root}/eval/{cfg.target_bench}_limit{limit_tag}",
         baseline_report_path=str(baseline_report),
@@ -764,6 +773,8 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
         except Exception as e:
             # A dead investigator means the run has no pool intel and no baseline. Proceeding
             # would hand the leader a hollow recon it cannot tell from a real one — fail loudly.
+            if getattr(e, "session_id", None):
+                atomic_write_json(session_path, {"session_id": e.session_id})
             raise RuntimeError(f"recon: investigator failed: {e}") from e
         session_id = getattr(res, "session_id", None) or session_id
         if session_id:
@@ -786,11 +797,10 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
                      (recon.get("baseline_diagnosis") or {}).get("cause"),
                      report_schema.read(baseline_done).score)
             return recon
-        prompt = (
-            "recon.json is not yet complete at %s, or the baseline report is missing at %s. "
-            "Finish BOTH deliverables: recon.json (eval_format_contract, baseline_diagnosis, "
-            "candidate_sources, source_profiles) and the baseline report.json."
-            % (recon_path, baseline_report)
+        prompt = _prompt.render(
+            "investigator/turn/resume", recon_path=str(recon_path),
+            baseline_report_path=str(baseline_report),
+            runtime_config_path=getattr(cfg, "runtime_config_path", None),
         )
     # The run's wall-clock budget ran out first. NEVER synthesise a stand-in recon: an empty
     # shortlist and empty profiles are indistinguishable from a real survey once the leader has

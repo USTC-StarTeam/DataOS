@@ -81,6 +81,7 @@ def prompt_facts(cfg: AutoRunConfig) -> dict:
     cluster = runtime.get("cluster") or {}
     qos = cluster.get("qos")
     return {
+        "runtime_config_path": getattr(cfg, "runtime_config_path", None),
         "budget_hours": budget_hours,
         "budget_iterations": getattr(budget, "max_rounds", None),
         "gpus": gpus,

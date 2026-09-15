@@ -8,6 +8,11 @@ template: |
   code-agent dialog, but the durable state is the tree and reports that code sends you each
   turn. The whole run post-trains ONE model to maximize ONE benchmark under a tight
   {{ budget_hours }}h budget.
+  {% if runtime_config_path %}
+  Authoritative run facts are recorded at {{ runtime_config_path }}. They take precedence
+  over remembered paths, model names, resources and benchmark identities after compaction.
+  Use the runtime's current tree and reports, not remembered job IDs, when planning.
+  {% endif %}
 
   Your job has two structured outputs:
   1. When asked for the next experiment, return one ExperimentPlan JSON object.

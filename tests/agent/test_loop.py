@@ -209,6 +209,24 @@ def test_best_over_tree_final_model(tmp_path):
     assert (Path(ws) / "p" / "final_model.json").is_file()
 
 
+def test_untrained_baseline_keeps_the_evaluated_checkpoint(tmp_path, monkeypatch):
+    ws = str(tmp_path / "ws")
+    cfg = _cfg(ws)
+    cfg.h100_base_model = "/models/untouched"
+
+    def baseline_only(*, cfg, study_id, specs, deadline=None):
+        root = Path(cfg.workspace) / cfg.project_id / study_id / "experiments" / "baseline"
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "report.json").write_text(json.dumps({
+            "status": "completed", "stages": {"eval": {"score": 63.5, "limit": -1}},
+        }))
+
+    monkeypatch.setattr(roles, "fan_out", baseline_only)
+    result = run_auto(cfg, _clock=_clock_for_rounds(ws, 1))
+    assert result["final_model"]["final_model"] == "/models/untouched"
+    assert result["final_model"]["score"] == 63.5
+
+
 @pytest.mark.parametrize("status,score", [("failed", None), ("completed", None)])
 def test_curation_invalid_result_stops_without_new_iteration(tmp_path, monkeypatch, status, score):
     from dataos.agent import iterations

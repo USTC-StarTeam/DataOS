@@ -47,6 +47,8 @@ _NET_ERR_MARKERS: frozenset[str] = frozenset(
         "bad gateway",
         "gateway timeout",
         "overloaded",
+        "api error: server error",
+        "internal server error",
         "too many requests",
         # codex CLI internal hang (models_manager refresh child never exits) — the CLI
         # prints it to stderr and dies; it is a transport-side fault, resume-safe
@@ -73,6 +75,11 @@ def is_recoverable_text(text: str) -> bool:
     into its result event instead of raising (path B, e.g. "Connection closed
     mid-response")."""
     hay = str(text).lower()
+    if any(marker in hay for marker in (
+        "authentication failed", "invalid api key", "insufficient_quota",
+        "credit balance", "invalid_request_error", " 401", " 403",
+    )):
+        return False
     return any(marker in hay for marker in _NET_ERR_MARKERS)
 
 
