@@ -63,22 +63,19 @@ def test_every_evaluable_family_has_an_env_that_can_train_it():
     agent transcripts. Both halves are declarations now, so they can be compared here instead.
     """
     families = set(_protocol()["model_families"])
-    for env_yaml in (REPO / "configs" / "environments").glob("*/env.yaml"):
+    trainable = set()
+    for env_yaml in (REPO / "configs" / "environments").glob("*/env*.yaml"):
         tools = yaml.safe_load(env_yaml.read_text(encoding="utf-8")).get("tools") or {}
-        trainable = {
+        trainable.update({
             family
             for tool in tools.values()
             if isinstance(tool, dict) and "llamafactory" in (tool.get("provides") or [])
             for family in (tool.get("model_families") or [])
-        }
-        if not trainable:  # env declares no scoping — every family resolves to its one env
-            continue
-        missing = families - trainable
-        assert not missing, (
-            f"{env_yaml.relative_to(REPO)} can train {sorted(trainable)} but the protocol "
-            f"declares {sorted(missing)} too — add them to a `model_families` list, or drop "
-            "them from protocol.yaml"
-        )
+        })
+    # Heterogeneous architectures belong in separate frozen environments. The catalog must
+    # cover every evaluable family; each individual environment need not cover all of them.
+    missing = families - trainable
+    assert not missing, f"no environment declares training support for {sorted(missing)}"
 
 
 def test_the_eval_tool_owns_no_bench_knowledge():

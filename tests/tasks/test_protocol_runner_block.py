@@ -20,7 +20,9 @@ This module pins the wiring in both directions:
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -107,3 +109,45 @@ def test_an_undeclared_bench_is_refused_not_guessed(evaluator):
     with pytest.raises(SystemExit) as err:
         evaluator.bench_protocol("not_a_bench")
     assert "not declared" in str(err.value)
+
+
+@pytest.mark.parametrize("family, parser", [("qwen3_5", "qwen3_coder"), ("qwen3", "hermes")])
+def test_tool_parser_uses_checkpoint_architecture(evaluator, tmp_path, family, parser):
+    (tmp_path / "config.json").write_text(json.dumps({"model_type": family}))
+    assert evaluator.tool_call_parser_name(str(tmp_path), "misleading-llama-name") == parser
+
+
+def test_qwen38_server_uses_all_allocated_gpus(evaluator, tmp_path, monkeypatch):
+    (tmp_path / "config.json").write_text('{"model_type": "qwen3_5"}')
+    commands = []
+    monkeypatch.setattr(evaluator, "find_free_port", lambda: 12345)
+    monkeypatch.setattr(evaluator, "wait_for_health", lambda *_: None)
+    monkeypatch.setattr(
+        evaluator.subprocess, "Popen",
+        lambda command, **_: commands.append(command) or SimpleNamespace(),
+    )
+    evaluator.start_vllm_server(
+        "bfcl", str(tmp_path), tmp_path / "template.jinja", "checkpoint", tmp_path,
+        tensor_parallel_size=8,
+    )
+    command = commands[0]
+    for flag, value in [
+        ("--tensor-parallel-size", "8"), ("--tool-call-parser", "qwen3_coder"),
+        ("--reasoning-parser", "qwen3"), ("--max-model-len", "32768"),
+    ]:
+        assert command[command.index(flag) + 1] == value
+
+
+def test_legacy_single_gpu_server_arguments_are_unchanged(evaluator, tmp_path, monkeypatch):
+    (tmp_path / "config.json").write_text('{"model_type": "qwen3"}')
+    commands = []
+    monkeypatch.setattr(evaluator, "find_free_port", lambda: 12345)
+    monkeypatch.setattr(evaluator, "wait_for_health", lambda *_: None)
+    monkeypatch.setattr(
+        evaluator.subprocess, "Popen",
+        lambda command, **_: commands.append(command) or SimpleNamespace(),
+    )
+    evaluator.start_vllm_server("bfcl", str(tmp_path), tmp_path / "template", "qwen", tmp_path)
+    assert "--tensor-parallel-size" not in commands[0]
+    assert "--reasoning-parser" not in commands[0]
+    assert "qwen3_coder" not in commands[0]

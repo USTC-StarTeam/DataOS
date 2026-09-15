@@ -17,6 +17,11 @@ version: 1
 # 唯一声明处。按 model_type 而不是路径子串来键：续训节点的模型路径是父节点的
 # final_model 目录，不含任何族名，而存下来的模型永远保留 model_type。
 model_families:
+  qwen3_5:
+    eval_template: qwen3_8.jinja
+    train_template: qwen3_8
+    tool_call_parser: qwen3_coder
+    server_args: [--reasoning-parser, qwen3, --max-model-len, "32768", --disable-custom-all-reduce]
   qwen3:
     eval_template: qwen3.jinja
     train_template: qwen3            # LF 内建

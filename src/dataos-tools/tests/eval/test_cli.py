@@ -80,6 +80,13 @@ def test_submit_clamps_time_to_the_partition_max(tmp_path, capsys):
     assert launcher.time_limit(Resources(**spec["job"]["resources"])) == "72:00:00"
 
 
+def test_eval_gpu_allocation_reaches_tensor_parallelism(tmp_path, capsys):
+    spec = _dry_run_spec(tmp_path, capsys, gpus=8, cpus=64)
+    command = spec["job"]["command"]
+    assert command[command.index("--tensor-parallel-size") + 1] == "8"
+    assert spec["job"]["resources"]["gpus"] == 8
+
+
 def test_submit_writes_handle_with_fake_sbatch(tmp_path, monkeypatch, capsys):
     fake = tmp_path / "sbatch"
     fake.write_text("#!/bin/bash\necho 424242\n")

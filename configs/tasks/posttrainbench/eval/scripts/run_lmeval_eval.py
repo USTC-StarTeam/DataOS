@@ -132,6 +132,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task", choices=sorted(TASK_ALIASES), required=True)
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--model-name", default="posttrainbench-model")
+    parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument(
         "--limit",
@@ -224,12 +225,20 @@ def protocol_digest(*paths: Path) -> str:
 
 
 def tool_call_parser_name(model_path: str, model_name: str) -> str:
-    lowered = f"{model_name} {model_path}".lower()
-    if any(family in lowered for family in ("qwen", "gemma", "smollm")):
-        return "hermes"
-    if "llama" in lowered:
-        return "llama3_json"
+    declared = model_protocol(model_path).get("tool_call_parser")
+    if declared:
+        return str(declared)
+    # All previously supported PTB families use Hermes. Labels must not select a parser.
     return "hermes"
+
+
+def model_protocol(model_path: str) -> dict:
+    """Resolve model-specific serving requirements from architecture, never a label."""
+    import yaml
+
+    family = json.loads((Path(model_path) / "config.json").read_text())["model_type"]
+    protocol = yaml.safe_load(PROTOCOL_PATH.read_text())
+    return protocol["model_families"].get(family, {})
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +360,7 @@ def start_vllm_server(
     model_name: str,
     output_dir: Path,
     attempts: int = 3,
+    tensor_parallel_size: int = 1,
 ) -> tuple[subprocess.Popen, int]:
     """Start vLLM on a free port, retrying a server that dies before it is healthy.
 
@@ -366,6 +376,8 @@ def start_vllm_server(
       diagnosable.
     """
     vllm_bin = Path(sys.executable).with_name("vllm")
+    if tensor_parallel_size < 1:
+        raise ValueError("tensor_parallel_size must be positive")
     job = os.environ.get("SLURM_JOB_ID", str(os.getpid()))
     last: Exception | None = None
     for attempt in range(1, attempts + 1):
@@ -386,6 +398,9 @@ def start_vllm_server(
             "--generation-config",
             "vllm",
         ]
+        if tensor_parallel_size != 1:
+            command.extend(["--tensor-parallel-size", str(tensor_parallel_size)])
+        command.extend(model_protocol(model_path).get("server_args", []))
         if task == "bfcl":
             command.extend(
                 [
@@ -463,7 +478,8 @@ def stop_vllm_server(process: subprocess.Popen) -> None:
 
 
 def direct_vllm_model_args(
-    task: str, model_path: str, chat_template: Path, tokenizer: str | None = None
+    task: str, model_path: str, chat_template: Path, tokenizer: str | None = None,
+    tensor_parallel_size: int = 1,
 ) -> dict[str, Any]:
     # vLLM 0.13's in-process ``LLM``/``EngineArgs`` rejects ``chat_template`` as a
     # kwarg (only ``vllm serve`` takes ``--chat-template``). The in-process path
@@ -472,7 +488,7 @@ def direct_vllm_model_args(
         "pretrained": model_path,
         "trust_remote_code": True,
         "dtype": "auto",
-        "tensor_parallel_size": 1,
+        "tensor_parallel_size": tensor_parallel_size,
         "gpu_memory_utilization": direct_gpu_memory(task),
         "max_model_len": 32768,
         "generation_config": "vllm",
@@ -605,11 +621,13 @@ def main() -> None:
         if is_direct(task):
             model = "vllm"
             model_args = direct_vllm_model_args(
-                task, args.model_path, chat_template, tokenizer=protocol_tok
+                task, args.model_path, chat_template, tokenizer=protocol_tok,
+                tensor_parallel_size=args.tensor_parallel_size,
             )
         else:
             server, port = start_vllm_server(
-                task, args.model_path, chat_template, args.model_name, output_dir
+                task, args.model_path, chat_template, args.model_name, output_dir,
+                tensor_parallel_size=args.tensor_parallel_size,
             )
             model = "ptb-local-tool-chat-completions"
             model_args = server_model_args(
@@ -699,6 +717,7 @@ def main() -> None:
         "template": chat_template.name,
     }
     summary["runner"] = {
+        "tensor_parallel_size": args.tensor_parallel_size,
         "path": "direct" if direct else "server",
         # True = the model dir carried a chat template that renders DIFFERENTLY from the
         # protocol's. This is the field that separates "harmless inherited copy" from

@@ -68,6 +68,7 @@ DATAOS_TEMPLATES: tuple[str, ...] = ("smollm3", "smollm3_nothink")
 #: family name, while a saved model always keeps its ``model_type``.
 MODEL_TYPE_TEMPLATES: dict[str, str] = {
     "qwen3": "qwen3",
+    "qwen3_5": "qwen3_8",  # Qwen3.8 retains the qwen3_5 architecture identifier
     "smollm3": "smollm3",  # registered below; LF's own `smollm` is the SmolLM1/2 format
     "gemma3": "gemma3",  # NOT `gemma`: same text slots, but gemma3 carries Gemma3Plugin
 }

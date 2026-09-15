@@ -1,0 +1,10 @@
+# LLaMA-Factory's upstream qwen3_8 template (including its reasoning instructions).
+llamafactory @ file:///data2/hcgu/dataos_diagnostics/qwen38-27b-20260915/llamafactory-97b32d3133b501432141a82949d5c7bc4d94f23a.tar.gz
+transformers==5.8.0
+vllm==0.23.0
+torch==2.11.0
+torchaudio==2.11.0
+torchvision==0.26.0
+lm-eval==0.4.12
+deepspeed
+qwen-vl-utils

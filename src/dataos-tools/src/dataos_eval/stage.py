@@ -250,6 +250,7 @@ class EvalStage(Stage):
                 "--chat-template", spec.chat_template,
                 "--output-dir", spec.output_dir,
                 "--limit", str(spec.limit),
+                "--tensor-parallel-size", str(spec.resources.gpus),
             ],
             env=job_env,
             run_dir=spec.run_dir,
