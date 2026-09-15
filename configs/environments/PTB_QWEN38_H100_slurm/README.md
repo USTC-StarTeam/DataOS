@@ -22,6 +22,13 @@ vLLM uses qwen3_coder tool parsing, qwen3 reasoning parsing, a 32K context, and 
 allocated GPU count as tensor parallelism. Training and evaluation must retain these
 same model-specific conventions before/after adaptation.
 
+Startup uses a 30-minute readiness allowance, eager execution and Triton GDN prefill.
+Job 42829 exposed a cold FlashInfer compilation timeout, compiler temporary-storage
+exhaustion, and orphaned workers retaining GPU memory across retries. Each server now
+owns a private process group; retry/completion cleanup terminates that whole group.
+vLLM and FlashInfer caches are placed under the evaluation output directory on run storage.
+These are serving changes; BFCL questions, generation limits, and scoring are unchanged.
+
 LLaMA-Factory is pinned to upstream commit `97b32d3133b501432141a82949d5c7bc4d94f23a`.
 Its source archive is staged under the preparation directory referenced by requirements.txt.
 Install requirements into the isolated venv, then use `scripts/sync_envs.py` to install

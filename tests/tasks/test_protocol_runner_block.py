@@ -121,7 +121,7 @@ def test_qwen38_server_uses_all_allocated_gpus(evaluator, tmp_path, monkeypatch)
     (tmp_path / "config.json").write_text('{"model_type": "qwen3_5"}')
     commands = []
     monkeypatch.setattr(evaluator, "find_free_port", lambda: 12345)
-    monkeypatch.setattr(evaluator, "wait_for_health", lambda *_: None)
+    monkeypatch.setattr(evaluator, "wait_for_health", lambda *_, **__: None)
     monkeypatch.setattr(
         evaluator.subprocess, "Popen",
         lambda command, **_: commands.append(command) or SimpleNamespace(),
@@ -142,7 +142,7 @@ def test_legacy_single_gpu_server_arguments_are_unchanged(evaluator, tmp_path, m
     (tmp_path / "config.json").write_text('{"model_type": "qwen3"}')
     commands = []
     monkeypatch.setattr(evaluator, "find_free_port", lambda: 12345)
-    monkeypatch.setattr(evaluator, "wait_for_health", lambda *_: None)
+    monkeypatch.setattr(evaluator, "wait_for_health", lambda *_, **__: None)
     monkeypatch.setattr(
         evaluator.subprocess, "Popen",
         lambda command, **_: commands.append(command) or SimpleNamespace(),
@@ -151,3 +151,41 @@ def test_legacy_single_gpu_server_arguments_are_unchanged(evaluator, tmp_path, m
     assert "--tensor-parallel-size" not in commands[0]
     assert "--reasoning-parser" not in commands[0]
     assert "qwen3_coder" not in commands[0]
+
+
+def test_qwen38_retry_cleans_workers_and_uses_declared_startup_settings(
+    evaluator, tmp_path, monkeypatch,
+):
+    (tmp_path / "config.json").write_text('{"model_type": "qwen3_5"}')
+    events = []
+
+    def popen(command, **kwargs):
+        events.append("start")
+        assert kwargs["start_new_session"] is True
+        assert kwargs["env"]["VLLM_CACHE_ROOT"] == f"{tmp_path}/cache/vllm"
+        assert "--enforce-eager" in command
+        assert command[command.index("--gdn-prefill-backend") + 1] == "triton"
+        return SimpleNamespace()
+
+    def health(port, process, timeout):
+        assert timeout == 1800
+        if events.count("start") == 1:
+            raise TimeoutError("cold startup")
+
+    monkeypatch.setattr(evaluator.subprocess, "Popen", popen)
+    monkeypatch.setattr(evaluator, "find_free_port", lambda: 12345)
+    monkeypatch.setattr(evaluator, "wait_for_health", health)
+    monkeypatch.setattr(evaluator, "stop_vllm_server", lambda p: events.append("cleanup"))
+    monkeypatch.setattr(evaluator.time, "sleep", lambda _: None)
+    evaluator.start_vllm_server("bfcl", str(tmp_path), tmp_path / "t", "qwen", tmp_path)
+    assert events == ["start", "cleanup", "start"]
+
+
+def test_cleanup_signals_private_group_even_after_parent_exit(evaluator, monkeypatch):
+    signals = []
+    monkeypatch.setattr(evaluator.os, "killpg", lambda pid, sig: signals.append((pid, sig)))
+    process = SimpleNamespace(pid=123456, wait=lambda **_: 0, poll=lambda: 1)
+    evaluator.stop_vllm_server(process)
+    assert signals == [
+        (123456, evaluator.signal.SIGTERM), (123456, evaluator.signal.SIGKILL),
+    ]

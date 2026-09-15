@@ -21,7 +21,19 @@ model_families:
     eval_template: qwen3_8.jinja
     train_template: qwen3_8
     tool_call_parser: qwen3_coder
-    server_args: [--reasoning-parser, qwen3, --max-model-len, "32768", --disable-custom-all-reduce]
+    startup_timeout_s: 1800
+    server_args:
+      - --reasoning-parser
+      - qwen3
+      - --max-model-len
+      - "32768"
+      - --disable-custom-all-reduce
+      - --gdn-prefill-backend
+      - triton
+      - --enforce-eager
+    server_env:
+      VLLM_CACHE_ROOT: "{output_dir}/cache/vllm"
+      FLASHINFER_WORKSPACE_BASE: "{output_dir}/cache"
   qwen3:
     eval_template: qwen3.jinja
     train_template: qwen3            # LF 内建

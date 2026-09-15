@@ -29,6 +29,7 @@ import importlib.util
 import json
 import functools
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -378,6 +379,15 @@ def start_vllm_server(
     vllm_bin = Path(sys.executable).with_name("vllm")
     if tensor_parallel_size < 1:
         raise ValueError("tensor_parallel_size must be positive")
+    family = model_protocol(model_path)
+    startup_timeout = int(family.get("startup_timeout_s", 600))
+    if startup_timeout <= 0:
+        raise ValueError("startup_timeout_s must be positive")
+    server_env = os.environ.copy()
+    server_env.update({
+        key: str(value).format(output_dir=str(output_dir))
+        for key, value in family.get("server_env", {}).items()
+    })
     job = os.environ.get("SLURM_JOB_ID", str(os.getpid()))
     last: Exception | None = None
     for attempt in range(1, attempts + 1):
@@ -400,7 +410,7 @@ def start_vllm_server(
         ]
         if tensor_parallel_size != 1:
             command.extend(["--tensor-parallel-size", str(tensor_parallel_size)])
-        command.extend(model_protocol(model_path).get("server_args", []))
+        command.extend(family.get("server_args", []))
         if task == "bfcl":
             command.extend(
                 [
@@ -412,13 +422,18 @@ def start_vllm_server(
         # one log per attempt of per job: a retry must never erase what killed the try before it
         log_path = output_dir / f"vllm_server.{job}.{attempt}.log"
         log = log_path.open("w", encoding="utf-8")
-        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, text=True)
         try:
-            wait_for_health(port, process)
+            process = subprocess.Popen(
+                command, stdout=log, stderr=subprocess.STDOUT, text=True,
+                start_new_session=True, env=server_env,
+            )
+        finally:
+            log.close()
+        try:
+            wait_for_health(port, process, timeout=startup_timeout)
             return process, port
         except Exception as e:  # noqa: BLE001 — retried below; re-raised when attempts run out
-            if process.poll() is None:
-                process.kill()
+            stop_vllm_server(process)
             last = e
             tail = ""
             try:
@@ -463,13 +478,24 @@ def wait_for_health(port: int, process: subprocess.Popen, timeout: int = 600) ->
 
 
 def stop_vllm_server(process: subprocess.Popen) -> None:
-    if process.poll() is not None:
-        return
-    process.terminate()
+    """Reap the private server process group, including workers of an exited API server."""
     try:
-        process.wait(timeout=20)
-    except subprocess.TimeoutExpired:
-        process.kill()
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        try:
+            process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            pass
+    finally:
+        # A parent may exit before its workers, including while a worker is compiling.
+        # The group is private because Popen above always starts a new session.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
 
 
 # ---------------------------------------------------------------------------
@@ -712,12 +738,13 @@ def main() -> None:
     direct = is_direct(task)
     summary["protocol"] = {
         "digest": protocol_digest(
-            chat_template, Path(__file__).resolve(), POSTTRAINBENCH_DIR / "task.py"
+            chat_template, Path(__file__).resolve(), POSTTRAINBENCH_DIR / "task.py", PROTOCOL_PATH
         ),
         "template": chat_template.name,
     }
     summary["runner"] = {
         "tensor_parallel_size": args.tensor_parallel_size,
+        "model_serving": model_protocol(args.model_path) if not direct else {},
         "path": "direct" if direct else "server",
         # True = the model dir carried a chat template that renders DIFFERENTLY from the
         # protocol's. This is the field that separates "harmless inherited copy" from
