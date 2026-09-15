@@ -702,6 +702,7 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
     Resume-safe: if a valid recon.json already exists on disk, the loop skips calling this."""
     del catalog  # recon needs the pool + eval code, not the operator catalog
     recon_path = Path(proj.project_dir) / _RECON_FILE
+    session_path = Path(proj.project_dir) / "investigator_session.json"
     runtime_config = runtime._runtime_config(cfg)
     paths = runtime_config.get("paths", {})
     cluster = runtime_config.get("cluster", {})
@@ -754,7 +755,7 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
     cap = float("inf") if deadline is None else max(60.0, deadline - time.monotonic())
     log.info("recon: starting reconnaissance (bench=%s, cap=%ss)", cfg.target_bench, int(cap))
     started = time.monotonic()
-    session_id = None
+    session_id = (_read_json(session_path) or {}).get("session_id")
     last_text = ""
     while time.monotonic() - started < cap:
         remaining = None if cap == float("inf") else cap - (time.monotonic() - started)
@@ -765,6 +766,8 @@ def run_investigator(*, cfg, proj, catalog=None, deadline: float | None = None) 
             # would hand the leader a hollow recon it cannot tell from a real one — fail loudly.
             raise RuntimeError(f"recon: investigator failed: {e}") from e
         session_id = getattr(res, "session_id", None) or session_id
+        if session_id:
+            atomic_write_json(session_path, {"session_id": session_id})
         last_text = (getattr(res, "text", "") or "").strip()
         recon = _read_json(recon_path)
         # "Is the baseline report finished?" is the same question the experimenter loop asks, so it

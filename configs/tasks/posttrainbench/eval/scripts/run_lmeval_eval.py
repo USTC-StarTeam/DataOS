@@ -33,6 +33,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -388,7 +389,7 @@ def start_vllm_server(
     # resolve from the same environment even when the caller did not source activate.
     server_env["PATH"] = f"{Path(sys.executable).parent}:{os.environ.get('PATH', os.defpath)}"
     server_env.update({
-        key: str(value).format(output_dir=str(output_dir))
+        key: str(value).format(output_dir=str(output_dir), tmp_dir=tempfile.gettempdir())
         for key, value in family.get("server_env", {}).items()
     })
     job = os.environ.get("SLURM_JOB_ID", str(os.getpid()))

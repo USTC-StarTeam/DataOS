@@ -34,6 +34,7 @@ model_families:
     server_env:
       VLLM_CACHE_ROOT: "{output_dir}/cache/vllm"
       FLASHINFER_WORKSPACE_BASE: "{output_dir}/cache"
+      TRITON_CACHE_DIR: "{tmp_dir}/triton"
   qwen3:
     eval_template: qwen3.jinja
     train_template: qwen3            # LF 内建

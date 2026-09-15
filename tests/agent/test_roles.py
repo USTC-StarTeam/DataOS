@@ -310,6 +310,28 @@ def test_investigator_uses_configured_baseline_root(tmp_path, monkeypatch):
     )
 
 
+def test_investigator_resumes_its_persisted_session(tmp_path, monkeypatch):
+    from dataos.agent import roles
+
+    cfg = _cfg(tmp_path / "ws")
+    (tmp_path / "investigator_session.json").write_text('{"session_id": "original-session"}')
+    monkeypatch.setattr(
+        "dataos.agent.runtime_compose.render_sections", lambda *a, **k: ("", "", ""),
+    )
+    monkeypatch.setattr(roles._prompt, "render", lambda *a, **k: "recon")
+    monkeypatch.setattr(roles, "system_prompt", lambda *a: "")
+    monkeypatch.setattr(roles.time, "monotonic", lambda: 0)
+
+    class Agent:
+        def run(self, prompt, resume, timeout):
+            assert resume == "original-session"
+            raise RuntimeError("resume verified")
+
+    monkeypatch.setattr(roles, "build_agent", lambda *a, **k: Agent())
+    with pytest.raises(RuntimeError, match="resume verified"):
+        roles.run_investigator(cfg=cfg, proj=SimpleNamespace(project_dir=tmp_path), deadline=100)
+
+
 def test_queue_credit_overlap_math():
     """Queue credit = the [submit, wait_end] overlap with THIS invocation. Rows arrive as
     (submit, wait_end) epochs resolved cluster-side: a cancelled-pending job is capped at

@@ -5,6 +5,8 @@ import json
 import stat
 from pathlib import Path
 
+import pytest
+
 from dataos_eval.cli import main
 
 REPO = Path(__file__).resolve().parents[4]  # the DataOS repo root (configs/ lives there)
@@ -101,6 +103,28 @@ def test_submit_writes_handle_with_fake_sbatch(tmp_path, monkeypatch, capsys):
     handle = json.loads(Path(out["handle"]).read_text())
     assert handle["job_id"] == "424242"
     assert handle["needs_judge"] is False
+
+
+def test_submit_refuses_to_overwrite_an_active_handle(tmp_path, monkeypatch, capsys):
+    from dataos_eval.stage import EvalStage
+    from dataos_launch import Status
+
+    fake = tmp_path / "sbatch"
+    fake.write_text("#!/bin/sh\necho 424242\n")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+    argv = ["submit", *_argv(_submit_args(tmp_path))]
+    assert _run_cli(argv) == 0
+    record = json.loads(capsys.readouterr().out)
+    before = Path(record["handle"]).read_bytes()
+    monkeypatch.setattr(EvalStage, "status", lambda _: Status.RUNNING)
+    monkeypatch.setattr(
+        EvalStage, "submit", lambda *a, **k: pytest.fail("duplicate job submitted"),
+    )
+    assert _run_cli(argv) == 1
+    error = json.loads(capsys.readouterr().err)
+    assert error["job_id"] == "424242"
+    assert Path(record["handle"]).read_bytes() == before
 
 
 def test_collect_reads_score(tmp_path, capsys):

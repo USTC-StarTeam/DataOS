@@ -56,6 +56,17 @@ def cmd_submit(args) -> int:
         print(json.dumps(stage.preview(spec, resource), indent=1))
         return 0
 
+    path = Path(spec.run_dir) / f"{spec.name}.{_HANDLE}"
+    if path.is_file():
+        existing = json.loads(path.read_text())
+        state = EvalStage.status(Handle.model_validate(existing["launch"]))
+        if not state.is_terminal():
+            print(json.dumps({
+                "ok": False, "job_id": existing["job_id"], "handle": str(path),
+                "error": "Evaluation already active; use status/collect on this handle.",
+            }), file=sys.stderr)
+            return 1
+
     try:
         handle = stage.submit(spec, resource)
     except SpecError as exc:
@@ -81,7 +92,6 @@ def cmd_submit(args) -> int:
         "submitted_at": handle.submitted_at,
     }
     spec.write()
-    path = Path(spec.run_dir) / f"{spec.name}.{_HANDLE}"
     path.write_text(json.dumps(record, indent=1))
     print(json.dumps({"job_id": record["job_id"], "handle": str(path)}))
     return 0
