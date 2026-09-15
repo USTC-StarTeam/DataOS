@@ -28,6 +28,11 @@ exhaustion, and orphaned workers retaining GPU memory across retries. Each serve
 owns a private process group; retry/completion cleanup terminates that whole group.
 vLLM and FlashInfer caches are placed under the evaluation output directory on run storage.
 These are serving changes; BFCL questions, generation limits, and scoring are unchanged.
+Triton's transient launcher cache is node-local under the Slurm job's TMPDIR: sharing
+this cache across eight workers on the network filesystem caused stale file handles.
+The server PATH includes its venv bin directory so installed JIT helpers such as ninja
+remain available without shell activation. Active eval handles cannot be overwritten
+by another submission; interrupted reconnaissance can resume its saved CLI session.
 
 LLaMA-Factory is pinned to upstream commit `97b32d3133b501432141a82949d5c7bc4d94f23a`.
 Its source archive is staged under the preparation directory referenced by requirements.txt.
